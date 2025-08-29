@@ -1,12 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Eliminar {{ view.model._meta.verbose_name }}{% endblock %}
+
+{% block title %}Eliminar {{ view.crud_config.verbose_name }}{% endblock %}
+
 {% block content %}
-<h1 class="text-2xl font-semibold mb-4">Eliminar {{ view.model._meta.verbose_name }} #{{ object.pk }}</h1>
-<p>¿Seguro que deseas eliminar <strong>{{ object }}</strong>?</p>
-<form method="post" class="mt-4">
+<h1 class="text-2xl font-semibold mb-4">Eliminar {{ view.crud_config.verbose_name }}</h1>
+<p class="mb-4">
+  ¿Seguro que deseas eliminar <strong>{{ object_label|default:object }}</strong>?
+</p>
+<form method="post">
   {% csrf_token %}
   <button class="btn btn-error">Sí, eliminar</button>
-  <a class="btn" href="{% url 'productos:'|add:view.crud_config.slug|add:'_list' %}">No, volver</a>
+  <a class="btn" href="{% url 'productos:'|add:view.crud_config.slug|add:'_list' %}">Cancelar</a>
 </form>
 {% endblock %}
-

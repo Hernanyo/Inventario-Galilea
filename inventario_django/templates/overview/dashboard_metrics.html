@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm mb-4">
+  <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-3">
+    <div>
+      <h1 class="h4 mb-1">Dashboard</h1>
+      <p class="text-body-secondary mb-0">Métricas y gráficos del inventario</p>
+    </div>
+  </div>
+</div>
+
+<!-- KPIs -->
+<div class="row g-3 mb-4">
+  {% for name, value in kpis %}
+  <div class="col-6 col-md-3">
+    <div class="card text-center h-100">
+      <div class="card-body d-flex flex-column justify-content-center">
+        <div class="fs-6 text-muted">{{ name }}</div>
+        <div class="display-6">{{ value }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Registros por módulo -->
+<div class="card mb-4">
+  <div class="card-header">Registros por módulo</div>
+  <div class="card-body">
+    <canvas id="chartModels" height="80"></canvas>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">Empleados por Departamento</div>
+      <div class="card-body">
+        {% if emp_by_dept %}
+          <canvas id="chartEmpDept" height="120"></canvas>
+        {% else %}
+          <div class="text-body-secondary">No hay datos suficientes.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">Equipos por Tipo</div>
+      <div class="card-body">
+        {% if equipos_by_tipo %}
+          <canvas id="chartEquipTipo" height="120"></canvas>
+        {% else %}
+          <div class="text-body-secondary">No hay datos suficientes.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-1">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">Mantenciones por Estado</div>
+      <div class="card-body">
+        {% if mant_by_estado %}
+          <canvas id="chartMantEstado" height="120"></canvas>
+        {% else %}
+          <div class="text-body-secondary">No hay datos suficientes.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  // Registros por módulo
+  const modelLabels = [{% for label, val in model_counts %}"{{ label }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+  const modelData   = [{% for label, val in model_counts %}{{ val }}{% if not forloop.last %},{% endif %}{% endfor %}];
+  new Chart(document.getElementById('chartModels'), {
+    type: 'bar',
+    data: { labels: modelLabels, datasets: [{ label: 'Cantidad', data: modelData }] },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+
+  {% if emp_by_dept %}
+  new Chart(document.getElementById('chartEmpDept'), {
+    type: 'doughnut',
+    data: {
+      labels: [{% for l in emp_by_dept.labels %}"{{ l }}"{% if not forloop.last %},{% endif %}{% endfor %}],
+      datasets: [{ data: [{% for n in emp_by_dept.data %}{{ n }}{% if not forloop.last %},{% endif %}{% endfor %}] }]
+    },
+    options: { responsive: true }
+  });
+  {% endif %}
+
+  {% if equipos_by_tipo %}
+  new Chart(document.getElementById('chartEquipTipo'), {
+    type: 'pie',
+    data: {
+      labels: [{% for l in equipos_by_tipo.labels %}"{{ l }}"{% if not forloop.last %},{% endif %}{% endfor %}],
+      datasets: [{ data: [{% for n in equipos_by_tipo.data %}{{ n }}{% if not forloop.last %},{% endif %}{% endfor %}] }]
+    },
+    options: { responsive: true }
+  });
+  {% endif %}
+
+  {% if mant_by_estado %}
+  new Chart(document.getElementById('chartMantEstado'), {
+    type: 'bar',
+    data: {
+      labels: [{% for l in mant_by_estado.labels %}"{{ l }}"{% if not forloop.last %},{% endif %}{% endfor %}],
+      datasets: [{ label: 'Mantenciones', data: [{% for n in mant_by_estado.data %}{{ n }}{% if not forloop.last %},{% endif %}{% endfor %}] }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+  {% endif %}
+</script>
+{% endblock %}

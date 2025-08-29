@@ -1,9 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{% if view.object %}Editar {{ view.model._meta.verbose_name }}{% else %}Nuevo {{ view.model._meta.verbose_name }}{% endif %}{% endblock %}
+
+{% block title %}{% if object %}Editar {{ view.crud_config.verbose_name }}{% else %}Nuevo {{ view.crud_config.verbose_name }}{% endif %}{% endblock %}
+
 {% block content %}
 <h1 class="text-2xl font-semibold mb-4">
-  {% if view.object %}Editar {{ view.model._meta.verbose_name }} #{{ view.object.pk }}{% else %}Nuevo {{ view.model._meta.verbose_name }}{% endif %}
+  {% if object %}Editar {{ view.crud_config.verbose_name }} #{{ object.pk }}{% else %}Nuevo {{ view.crud_config.verbose_name }}{% endif %}
 </h1>
+
 <form method="post" class="bg-base-100 p-4 rounded-lg shadow max-w-3xl">
   {% csrf_token %}
   {{ form.as_p }}
@@ -13,4 +16,3 @@
   </div>
 </form>
 {% endblock %}
-

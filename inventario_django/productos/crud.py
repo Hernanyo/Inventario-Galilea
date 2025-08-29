@@ -10,7 +10,7 @@ from django.forms import modelform_factory
 from django.http import HttpResponse
 from django.urls import path, reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView
-
+from django.contrib.auth.mixins import LoginRequiredMixin
 from .mixins import ModelPermsMixin
 
 # ---------- Config e inferencia ----------
@@ -23,6 +23,37 @@ class CrudConfig:
     list_display: Sequence[str] = field(default_factory=list)   # columnas
     search_fields: Sequence[str] = field(default_factory=list)  # campos texto
     ordering: Sequence[str] = field(default_factory=lambda: ("id",))
+    label_attr: str | None = None 
+
+    
+    # devuelve una etiqueta legible para un objeto
+    def obj_label(self, obj):
+        # 1) si especificas label_attr en el registro de este modelo
+        if self.label_attr:
+            val = getattr(obj, self.label_attr, None)
+            if val:
+                return str(val)
+
+        # 2) heurística general: intenta con estos campos comunes
+        for name in (
+            "nombre", "nombre_empresa", "nombre_equipo",
+            "descripcion", "detalle", "codigo", "serie",
+            "rut_empresa", "apellido"
+        ):
+            val = getattr(obj, name, None)
+            if val:
+                return str(val)
+
+        # 3) último recurso
+        return str(obj)
+
+    @property
+    def verbose_name(self):
+        return self.model._meta.verbose_name
+
+    @property
+    def verbose_name_plural(self):
+        return self.model._meta.verbose_name_plural
 
 def infer_text_fields(m: Type[Model]) -> List[str]:
     names = [
@@ -36,9 +67,24 @@ def infer_text_fields(m: Type[Model]) -> List[str]:
 
 def infer_list_display(m: Type[Model]) -> List[str]:
     pk_name = m._meta.pk.name
-    cols: List[str] = [ pk_name]
+    cols: List[str] = [pk_name]
+
+    # Campos que queremos priorizar si existen
+    prefer_order = (
+        "rut", "nombre", "apellido_paterno", "apellido_materno",
+        "correo", "telefono", "descripcion", "codigo", "serie",
+        "departamento", "empresa", "marca", "tipo_equipo"
+    )
+
+    # 1) agrega preferidos en orden si existen y no son el PK
+    for name in prefer_order:
+        f = next((f for f in m._meta.fields if f.name == name), None)
+        if f and f.name not in cols and f.name != pk_name:
+            cols.append(f.name)
+
+    # 2) completa con el resto de campos “mostrables”
     for f in m._meta.fields:
-        if f.name in ("id",):
+        if f.name in ("id", pk_name):   # <-- evita duplicar el PK
             continue
         from django.db.models import (
             CharField, TextField, BooleanField, IntegerField, FloatField,
@@ -46,10 +92,15 @@ def infer_list_display(m: Type[Model]) -> List[str]:
         )
         if isinstance(f, (CharField, TextField, BooleanField, IntegerField, FloatField,
                           DateField, DateTimeField, ForeignKey)):
-            cols.append(f.name)
-        if len(cols) >= 6:  # 1 id + 5 campos útiles
+            if f.name not in cols:
+                cols.append(f.name)
+
+        # sube el límite si quieres ver aún más columnas
+        if len(cols) >= 9:  # pk + 8 útiles
             break
+
     return cols or [pk_name]
+
 
 def make_slug(m: Type[Model]) -> str:
     # plural simple: agrega 's'. Para nombres que ya terminen en 's' se mantiene.
@@ -67,6 +118,28 @@ def build_config(m: Type[Model]) -> CrudConfig:
     )
 
 # ---------- Vistas genéricas ----------
+# class GenericUpdateView(LoginRequiredMixin, UpdateView):
+#     template_name = "crud/form.html"
+
+#     def get_context_data(self, **kwargs):
+#         ctx = super().get_context_data(**kwargs)
+#         obj = ctx.get("object") or getattr(self, "object", None)
+#         ctx["cfg"] = self.crud_config
+#         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""   # <—
+#         return ctx
+
+# class GenericDeleteView(LoginRequiredMixin, DeleteView):
+#     template_name = "crud/delete.html"
+#     success_url = None  # la defines como ya la tienes
+
+#     def get_context_data(self, **kwargs):
+#         ctx = super().get_context_data(**kwargs)
+#         obj = ctx.get("object") or getattr(self, "object", None)
+#         ctx["cfg"] = self.crud_config
+#         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""   # <—
+#         return ctx
+
+
 
 class GenericList(ModelPermsMixin, ListView):
     template_name = "crud/list.html"
@@ -85,7 +158,6 @@ class GenericList(ModelPermsMixin, ListView):
                 cond |= Q(**{f"{f}__icontains": q})
             qs = qs.filter(cond)
         if order:
-            # Compatibilidad: si alguien pasa "id", usar el PK real
             pk_name = self.model._meta.pk.name
             if order.lstrip("-") == "id":
                 order = order.replace("id", pk_name, 1)
@@ -94,11 +166,11 @@ class GenericList(ModelPermsMixin, ListView):
             qs = qs.order_by(*self.crud_config.ordering)
         return qs
 
-    def get_context_data(self, **kwargs):
+def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["cfg"] = self.crud_config
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
+        ctx["cfg"] = self.crud_config
         return ctx
 
 class GenericCreate(ModelPermsMixin, CreateView):
@@ -107,34 +179,64 @@ class GenericCreate(ModelPermsMixin, CreateView):
     crud_config: CrudConfig
 
     def get_form_class(self):
+        from django.forms import modelform_factory
         return modelform_factory(self.model, fields="__all__")
 
     def get_success_url(self):
+        from django.urls import reverse_lazy
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["q"] = self.request.GET.get("q", "")
+        ctx["o"] = self.request.GET.get("o", "")
+        ctx["cfg"] = self.crud_config
+        return ctx
+    
 class GenericUpdate(ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
     action_perm = "change"
     crud_config: CrudConfig
 
     def get_form_class(self):
+        from django.forms import modelform_factory
         return modelform_factory(self.model, fields="__all__")
 
     def get_success_url(self):
+        from django.urls import reverse_lazy
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        obj = ctx.get("object") or getattr(self, "object", None)
+        ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
+        ctx["q"] = self.request.GET.get("q", "")
+        ctx["o"] = self.request.GET.get("o", "")
+        ctx["cfg"] = self.crud_config
+        return ctx
+    
 class GenericDelete(ModelPermsMixin, DeleteView):
-    template_name = "crud/confirm_delete.html"
+    # usa el template que tengas creado; si tu archivo se llama delete.html, cambia esto
+    template_name = "crud/delete.html"
     action_perm = "delete"
     crud_config: CrudConfig
 
     def get_success_url(self):
+        from django.urls import reverse_lazy
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        obj = ctx.get("object") or getattr(self, "object", None)
+        ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
+        ctx["cfg"] = self.crud_config
+        return ctx
 
 def export_csv_view(model: Type[Model], cfg: CrudConfig):
     def view(request):
         if not request.user.has_perm(f"{model._meta.app_label}.view_{model._meta.model_name}"):
             return HttpResponse(status=403)
+
         q = request.GET.get("q", "").strip()
         rows = model.objects.all()
         if q and cfg.search_fields:
@@ -147,13 +249,16 @@ def export_csv_view(model: Type[Model], cfg: CrudConfig):
         resp["Content-Disposition"] = f'attachment; filename="{cfg.slug}.csv"'
         w = csv.writer(resp)
         w.writerow(cfg.list_display)
+
         for r in rows:
             out = []
             for col in cfg.list_display:
-                out.append(getattr(r, col, ""))
+                val = getattr(r, col, "")
+                out.append("" if val is None else str(val))
             w.writerow(out)
         return resp
     return view
+
 
 # ---------- Registro automático de modelos y URL patterns ----------
 
@@ -193,8 +298,27 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
 # Se exporta listo para incluir desde productos/urls.py
 urlpatterns = make_urlpatterns()
 
-# Al final de productos/crud.py
-CRUD_CONFIGS = [p.callback.view_class.crud_config for p in urlpatterns if hasattr(getattr(p.callback, "view_class", None), "crud_config")]
+# --- al final de productos/crud.py ---
+
+def _collect_unique_crud_configs():
+    configs = []
+    for p in urlpatterns:
+        vc = getattr(p.callback, "view_class", None)
+        cfg = getattr(vc, "crud_config", None)
+        if cfg:
+            configs.append(cfg)
+
+    # dedup por modelo (único por app_label.model_name)
+    uniq, seen = [], set()
+    for cfg in configs:
+        key = cfg.model._meta.label_lower  # p.ej. "productos.empresa"
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(cfg)
+    return uniq
+
+CRUD_CONFIGS = _collect_unique_crud_configs()
+
 def get_crud_configs():
     return CRUD_CONFIGS
-

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Panel Principal{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+      <h1 class="h4 mb-1">Panel Principal</h1>
+      <p class="text-body-secondary mb-0">Accesos rápidos a todas las secciones</p>
+    </div>
+    <form method="get" class="ms-auto">
+      <input class="form-control" style="min-width:260px" name="q" value="{{ q }}" placeholder="Filtrar tarjetas… (ej: equi)">
+    </form>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for c in cards %}
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="card h-100 shadow-sm">
+      <div class="card-body d-flex flex-column">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h5 class="card-title mb-0">{{ c.title }}</h5>
+          <span class="badge text-bg-light">{{ c.count }} ítems</span>
+        </div>
+        <div class="mt-auto d-flex gap-2">
+          <a class="btn btn-outline-primary w-100" href="{{ c.list_url }}">Ver listado</a>
+          <a class="btn btn-primary" href="{{ c.create_url }}">+</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="col-12"><div class="text-body-secondary">No hay módulos que coincidan.</div></div>
+  {% endfor %}
+</div>
+{% endblock %}

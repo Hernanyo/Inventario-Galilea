@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 {% load object_extras %}
 
-{% block title %}{{ cfg.verbose_plural }}{% endblock %}
+{% block title %}{{ view.crud_config.verbose_name_plural }}{% endblock %}
+
 {% block content %}
 <div class="flex items-center justify-between mb-4">
-  <h1 class="text-2xl font-semibold">{{ cfg.verbose_plural }}</h1>
+  <h1 class="text-2xl font-semibold">Listado de {{ view.crud_config.verbose_name_plural }}</h1>
   <div class="flex gap-2">
-    <a class="btn btn-primary btn-sm" href="{% url 'productos:'|add:cfg.slug|add:'_create' %}">Nuevo</a>
-    <a class="btn btn-outline btn-sm" href="{% url 'productos:'|add:cfg.slug|add:'_csv' %}?q={{ q }}">Exportar CSV</a>
+    <a class="btn btn-primary btn-sm" href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
+      Nuevo {{ view.crud_config.verbose_name }}
+    </a>
+    <a class="btn btn-outline btn-sm" href="{% url 'productos:'|add:view.crud_config.slug|add:'_csv' %}?q={{ q }}">
+      Exportar CSV
+    </a>
   </div>
 </div>
 
@@ -16,11 +21,12 @@
   <button class="btn">Buscar</button>
 </form>
 
-<div class="overflow-x-auto bg-base-100 shadow rounded-lg">
-<table class="table">
+<div class="table-responsive bg-white shadow rounded-3">
+<table class="table table-striped table-hover table-sm align-middle">
+
   <thead>
     <tr>
-      {% for col in cfg.list_display %}
+      {% for col in view.crud_config.list_display %}
         <th><a href="?q={{ q }}&o={{ col }}">{{ col|title }}</a></th>
       {% endfor %}
       <th class="text-right">Acciones</th>
@@ -29,16 +35,16 @@
   <tbody>
     {% for item in items %}
     <tr>
-      {% for col in cfg.list_display %}
+      {% for col in view.crud_config.list_display %}
         <td>{{ item|attr:col }}</td>
       {% endfor %}
       <td class="text-right">
-        <a class="btn btn-xs" href="{% url 'productos:'|add:cfg.slug|add:'_update' item.pk %}">Editar</a>
-        <a class="btn btn-xs btn-error" href="{% url 'productos:'|add:cfg.slug|add:'_delete' item.pk %}">Eliminar</a>
+        <a class="btn btn-xs" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">Editar</a>
+        <a class="btn btn-xs btn-error" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">Eliminar</a>
       </td>
     </tr>
     {% empty %}
-    <tr><td colspan="{{ cfg.list_display|length|add:1 }}" class="text-center">No hay registros.</td></tr>
+    <tr><td colspan="{{ view.crud_config.list_display|length|add:1 }}" class="text-center">No hay registros.</td></tr>
     {% endfor %}
   </tbody>
 </table>

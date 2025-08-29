@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Listado{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm mb-4">
+  <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <h1 class="h4 mb-1">Listado de módulos</h1>
+      <p class="text-body-secondary mb-0">Accesos rápidos en formato compacto</p>
+    </div>
+
+    <form class="d-flex gap-2 ms-auto" role="search">
+      <input id="filter" class="form-control" style="max-width:280px" placeholder="Filtrar… (ej: empleados)">
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'productos:vistas_grid' %}">
+        <i class="bi bi-grid-3x3-gap"></i> Ver como cuadrícula
+      </a>
+    </form>
+  </div>
+</div>
+
+<ul class="list-group" id="modules">
+  {% for c in cards %}
+  <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap list-item">
+    <div class="me-3">
+      <div class="fw-semibold item-title">{{ c.cfg.verbose_name_plural }}</div>
+      <small class="text-body-secondary">{{ c.count }} ítems</small>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-outline-primary btn-sm" href="/{{ c.cfg.slug }}/">Ver listado</a>
+      <a class="btn btn-primary btn-sm" href="/{{ c.cfg.slug }}/nuevo/">Nuevo</a>
+    </div>
+  </li>
+  {% empty %}
+  <li class="list-group-item text-muted">No hay módulos disponibles.</li>
+  {% endfor %}
+</ul>
+
+<script>
+  // Filtro simple en cliente
+  const f = document.getElementById('filter');
+  f?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#modules .list-item').forEach(li => {
+      const txt = li.querySelector('.item-title')?.textContent.toLowerCase() || '';
+      li.style.display = txt.includes(q) ? '' : 'none';
+    });
+  });
+</script>
+{% endblock %}
