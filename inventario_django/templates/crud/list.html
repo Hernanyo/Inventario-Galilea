@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% load object_extras %}
+
+{% block title %}{{ cfg.verbose_plural }}{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-semibold">{{ cfg.verbose_plural }}</h1>
+  <div class="flex gap-2">
+    <a class="btn btn-primary btn-sm" href="{% url 'productos:'|add:cfg.slug|add:'_create' %}">Nuevo</a>
+    <a class="btn btn-outline btn-sm" href="{% url 'productos:'|add:cfg.slug|add:'_csv' %}?q={{ q }}">Exportar CSV</a>
+  </div>
+</div>
+
+<form method="get" class="mb-3 flex gap-2">
+  <input class="input input-bordered w-full max-w-md" type="search" name="q" value="{{ q }}" placeholder="Buscar…">
+  <button class="btn">Buscar</button>
+</form>
+
+<div class="overflow-x-auto bg-base-100 shadow rounded-lg">
+<table class="table">
+  <thead>
+    <tr>
+      {% for col in cfg.list_display %}
+        <th><a href="?q={{ q }}&o={{ col }}">{{ col|title }}</a></th>
+      {% endfor %}
+      <th class="text-right">Acciones</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      {% for col in cfg.list_display %}
+        <td>{{ item|attr:col }}</td>
+      {% endfor %}
+      <td class="text-right">
+        <a class="btn btn-xs" href="{% url 'productos:'|add:cfg.slug|add:'_update' item.pk %}">Editar</a>
+        <a class="btn btn-xs btn-error" href="{% url 'productos:'|add:cfg.slug|add:'_delete' item.pk %}">Eliminar</a>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="{{ cfg.list_display|length|add:1 }}" class="text-center">No hay registros.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="join mt-4">
+  {% if page_obj.has_previous %}
+    <a class="join-item btn" href="?q={{ q }}&page=1">«</a>
+    <a class="join-item btn" href="?q={{ q }}&page={{ page_obj.previous_page_number }}">Prev</a>
+  {% endif %}
+  <button class="join-item btn">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</button>
+  {% if page_obj.has_next %}
+    <a class="join-item btn" href="?q={{ q }}&page={{ page_obj.next_page_number }}">Next</a>
+    <a class="join-item btn" href="?q={{ q }}&page={{ page_obj.paginator.num_pages }}">»</a>
+  {% endif %}
+</div>
+{% endblock %}
