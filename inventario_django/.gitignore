@@ -1,23 +1,36 @@
-# Python
+# === Python ===
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
+*.pdb
+*.so
 
-# Entorno virtual
+# === Entorno virtual ===
 .venv/
 venv/
+env/
 
-# Django
+# === IDEs/editores ===
+.vscode/
+.idea/
+*.code-workspace
+
+# === Django ===
 *.sqlite3
+db.sqlite3
 staticfiles/
 media/
+logs/
 
-# Entornos/secretos
+# Archivos de migraciones compiladas
+*/migrations/__pycache__/
+
+# === Archivos de entorno ===
 .env
 .env.local
 .env.*.local
 
-# IDE
-.vscode/
-.idea/
-*.code-workspace
+# === Sistema operativo ===
+.DS_Store
+Thumbs.db
