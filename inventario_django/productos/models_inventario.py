@@ -52,6 +52,8 @@ class Empleado(models.Model):
     telefono = models.CharField(max_length=20, blank=True, null=True)
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa')
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='id_departamento')
+    # Campo nuevo para roles
+    rol = models.CharField(max_length=20, default='usuario')  # admin, usuario, invitado
 
     class Meta:
         managed = False
