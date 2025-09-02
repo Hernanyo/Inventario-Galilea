@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Iniciar sesión{% endblock %}
+{% load static %}
 
 {% block content %}
 <style>
@@ -21,14 +22,15 @@
 <div class="auth-bg">
   <div class="card auth-card">
     <div class="card-body p-4 p-md-5">
-      <div class="d-flex align-items-center mb-3">
-        <div class="rounded-circle bg-primary d-inline-flex align-items-center justify-content-center me-2" style="width:36px;height:36px;">
-          <span class="text-white fw-bold">I</span>
-        </div>
-        <h5 class="m-0">Inventario</h5>
+
+      <!-- Logo centrado -->
+      <div class="text-center mb-3">
+        <img src="{% static 'logo_galilea.png' %}" alt="Logo Galilea" style="max-width: 180px; height: auto;">
+        <!--<h5 class="m-0 mt-2">Inventario Galilea</h5>-->
       </div>
 
-      <h3 class="fw-semibold mb-3">Iniciar sesión</h3>
+      <h3 class="fw-semibold mb-3 text-center">Iniciar sesión</h3>
+
 
       {# errores generales del formulario #}
       {% if form and form.non_field_errors %}
@@ -70,7 +72,7 @@
           <a class="small text-decoration-none" href="{% url 'password_reset' %}">¿Olvidaste tu contraseña?</a>
         </div>
 
-        <button class="btn btn-primary w-100 py-2" type="submit">Entrar</button>
+        <button class="btn btn-galilea w-100 py-2" type="submit">Entrar</button>
 
         <p class="text-center text-muted small mt-3 mb-0">
           ¿Problemas para ingresar? Contacta al administrador.

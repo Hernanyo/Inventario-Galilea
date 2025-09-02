@@ -35,7 +35,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "productos.apps.ProductosConfig",  # << aquí
+    "productos.apps.ProductosConfig",
+    "django_extensions",# << aquí
     # Agrega aquí tus apps: "productos", "cuentas", etc.
 ]
 

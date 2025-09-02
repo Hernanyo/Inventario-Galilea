@@ -215,6 +215,43 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
         ctx["cfg"] = self.crud_config
         return ctx
     
+@dataclass
+class CrudConfig:
+    model: Type[Model]
+    slug: str
+    verbose_plural: str
+    list_display: Sequence[str] = field(default_factory=list)
+    search_fields: Sequence[str] = field(default_factory=list)
+    ordering: Sequence[str] = field(default_factory=lambda: ("id",))
+    label_attr: str | None = None
+
+    @property
+    def verbose_name_plural(self):
+        # Esto hace que cualquier código que use verbose_name_plural siga funcionando
+        return self.verbose_plural
+
+    @property
+    def model_name(self):
+        # Para usar en templates como en list.html
+        return self.model._meta.model_name
+
+    # <-- Asegúrate de incluir esto:
+    def obj_label(self, obj):
+        if self.label_attr:
+            val = getattr(obj, self.label_attr, None)
+            if val:
+                return str(val)
+
+        for name in (
+            "nombre", "nombre_empresa", "nombre_equipo",
+            "descripcion", "detalle", "codigo", "serie",
+            "rut_empresa", "apellido"
+        ):
+            val = getattr(obj, name, None)
+            if val:
+                return str(val)
+        return str(obj)
+    
 class GenericDelete(ModelPermsMixin, DeleteView):
     # usa el template que tengas creado; si tu archivo se llama delete.html, cambia esto
     template_name = "crud/delete.html"
@@ -322,3 +359,4 @@ CRUD_CONFIGS = _collect_unique_crud_configs()
 
 def get_crud_configs():
     return CRUD_CONFIGS
+

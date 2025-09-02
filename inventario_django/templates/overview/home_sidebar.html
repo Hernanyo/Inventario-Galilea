@@ -18,10 +18,13 @@
       <div class="offcanvas-body p-0">
         <div class="list-group list-group-flush sticky-top" style="top: 84px;">
           {% for m in menu %}
-            <a href="/{{ m.slug }}/" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-              <span><i class="bi {{ m.icon }} me-2"></i>{{ m.name }}</span>
-              <span class="badge rounded-pill text-bg-secondary">{{ m.count }}</span>
-            </a>
+            {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoequipos' and m.slug != 'estadoequipos' and m.slug != 'atributosequipos' and m.slug != 'departamentos' %}
+              <a href="/{{ m.slug }}/" 
+                 class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                <span><i class="bi {{ m.icon }} me-2"></i>{{ m.name }}</span>
+                <span class="badge rounded-pill text-bg-secondary">{{ m.count }}</span>
+              </a>
+            {% endif %}
           {% endfor %}
         </div>
       </div>
@@ -101,10 +104,17 @@
           <div class="card-header">Últimos equipos</div>
           <div class="card-body table-responsive">
             <table class="table table-sm align-middle">
-              <thead><tr><th>#</th><th>Nombre</th><th>Marca</th><th>Tipo</th></tr></thead>
+              <thead>
+                <tr><th>#</th><th>Nombre</th><th>Marca</th><th>Tipo</th></tr>
+              </thead>
               <tbody>
                 {% for e in ultimos_equipos %}
-                  <tr><td>{{ e.id_equipo }}</td><td>{{ e.nombre_equipo }}</td><td>{{ e.id_marca }}</td><td>{{ e.id_tipo_equipo }}</td></tr>
+                  <tr>
+                    <td>{{ e.id_equipo }}</td>
+                    <td>{{ e.nombre_equipo }}</td>
+                    <td>{{ e.id_marca }}</td>
+                    <td>{{ e.id_tipo_equipo }}</td>
+                  </tr>
                 {% empty %}
                   <tr><td colspan="4" class="text-center text-muted">Sin registros</td></tr>
                 {% endfor %}
@@ -119,10 +129,17 @@
           <div class="card-header">Últimas mantenciones</div>
           <div class="card-body table-responsive">
             <table class="table table-sm align-middle">
-              <thead><tr><th>#</th><th>Equipo</th><th>Estado</th><th>Fecha</th></tr></thead>
+              <thead>
+                <tr><th>#</th><th>Equipo</th><th>Estado</th><th>Fecha</th></tr>
+              </thead>
               <tbody>
                 {% for m in ultimas_mantenciones %}
-                  <tr><td>{{ m.id_mantencion }}</td><td>{{ m.id_equipo }}</td><td>{{ m.id_estado_mantencion }}</td><td>{{ m.fecha|date:"Y-m-d" }}</td></tr>
+                  <tr>
+                    <td>{{ m.id_mantencion }}</td>
+                    <td>{{ m.id_equipo }}</td>
+                    <td>{{ m.id_estado_mantencion }}</td>
+                    <td>{{ m.fecha|date:"Y-m-d" }}</td>
+                  </tr>
                 {% empty %}
                   <tr><td colspan="4" class="text-center text-muted">Sin registros</td></tr>
                 {% endfor %}
