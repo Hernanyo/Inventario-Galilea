@@ -5,6 +5,8 @@ from .views import HomeView  # tu vista de Inicio (panel con sidebar)
 from .overview import CardsGridView, ListVerticalView, MetricsDashboardView
 from productos.models_inventario import DetalleFactura
 from productos.crud import GenericList, build_config, view_class
+from django.conf import settings
+from django.conf.urls.static import static
 
 app_name = "productos"
 
@@ -26,7 +28,7 @@ urlpatterns = [
     path("listado/", ListVerticalView.as_view(), name="list"),
 
     path("detallefacturas/", DetalleFacturaList.as_view(), name="detallefacturas_list"),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # rutas CRUD
 urlpatterns += crud_urls
