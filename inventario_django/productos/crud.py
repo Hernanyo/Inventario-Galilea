@@ -12,6 +12,11 @@ from django.urls import path, reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .mixins import ModelPermsMixin
+# solo si no existe
+from django import forms
+from .models_inventario import Equipo
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse_lazy
 
 # ---------- Config e inferencia ----------
 
@@ -139,6 +144,14 @@ def build_config(m: Type[Model]) -> CrudConfig:
 #         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""   # <—
 #         return ctx
 
+def qr_print_view(request, pk):
+    from .models_inventario import Equipo
+    obj = get_object_or_404(Equipo, pk=pk)
+    context = {
+        "object": obj,
+        "back_url": reverse_lazy("productos:equipos_list")  # slug correcto
+    }
+    return render(request, "equipos/qr_print.html", context)
 
 
 class GenericList(ModelPermsMixin, ListView):
@@ -179,6 +192,8 @@ class GenericCreate(ModelPermsMixin, CreateView):
     crud_config: CrudConfig
 
     def get_form_class(self):
+        if self.model.__name__ == "Equipo":
+            return EquipoForm
         from django.forms import modelform_factory
         return modelform_factory(self.model, fields="__all__")
 
@@ -187,10 +202,18 @@ class GenericCreate(ModelPermsMixin, CreateView):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
     def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
+        ctx = super().get_context_data(**kwargs)  # <-- primero esto
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
+
+        if self.model.__name__ == "Equipo":
+            from .models_inventario import Equipo
+            ultimos_5 = Equipo.objects.order_by("-id_equipo")[:5]
+            ultima = Equipo.objects.order_by("-id_equipo").first()
+            ctx["ultimos_equipos"] = ultimos_5
+            ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
+
         return ctx
     
 class GenericUpdate(ModelPermsMixin, UpdateView):
@@ -199,6 +222,8 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
     crud_config: CrudConfig
 
     def get_form_class(self):
+        if self.model.__name__ == "Equipo":
+            return EquipoForm
         from django.forms import modelform_factory
         return modelform_factory(self.model, fields="__all__")
 
@@ -207,12 +232,20 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
     def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
+        ctx = super().get_context_data(**kwargs)  # <-- primero esto
         obj = ctx.get("object") or getattr(self, "object", None)
         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
+
+        if self.model.__name__ == "Equipo":
+            from .models_inventario import Equipo
+            ultimos_5 = Equipo.objects.order_by("-id_equipo")[:5]
+            ultima = Equipo.objects.order_by("-id_equipo").first()
+            ctx["ultimos_equipos"] = ultimos_5
+            ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
+
         return ctx
     
 @dataclass
@@ -251,6 +284,33 @@ class CrudConfig:
             if val:
                 return str(val)
         return str(obj)
+    
+class EquipoForm(forms.ModelForm):
+    class Meta:
+        model = Equipo
+        exclude = ["qr_code"]  # excluimos el campo qr_code, se generará automáticamente
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        import qrcode
+        from io import BytesIO
+        import base64
+
+        # Generar QR si no tiene
+        if not obj.qr_code:
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(obj.etiqueta)  # Aquí usas la etiqueta del equipo
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            obj.qr_code = img_str
+
+        if commit:
+            obj.save()
+        return obj
+
     
 class GenericDelete(ModelPermsMixin, DeleteView):
     # usa el template que tengas creado; si tu archivo se llama delete.html, cambia esto

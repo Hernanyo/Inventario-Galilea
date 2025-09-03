@@ -1,0 +1,53 @@
+<div class="flex gap-2 mb-4">
+  {# Botón para crear un nuevo registro #}
+  {% if view.crud_config and view.crud_config.slug %}
+    <a class="btn btn-primary btn-sm"
+       href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
+      Nuevo {{ view.crud_config.verbose_name }}
+    </a>
+  {% endif %}
+
+  {# Botón para exportar CSV #}
+  {% if view.crud_config and view.crud_config.slug %}
+    <a class="btn btn-outline btn-sm"
+       href="{% url 'productos:'|add:view.crud_config.slug|add:'_csv' %}?q={{ q }}">
+      Exportar CSV
+    </a>
+  {% endif %}
+
+  {# Botones condicionales #}
+  {% if view.crud_config.model_name == 'factura' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:detallefacturas_list' %}">
+      Detalle Facturas
+    </a>
+  {% endif %}
+
+  {% if view.crud_config.model_name == 'empresa' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:departamentos_list' %}">
+      Departamentos
+    </a>
+  {% endif %}
+
+  {% if view.crud_config.model_name == 'equipo' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">
+      Tipos de Equipos
+    </a>
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">
+      Atributos de Equipos
+    </a>
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">
+      Estados de Equipos
+    </a>
+  {% endif %}
+
+  {% if view.crud_config.model_name == 'mantencion' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">
+      Estados de Mantenciones
+    </a>
+  {% endif %}
+
+  {# Botón ATRÁS SIEMPRE al extremo derecho #}
+  <a class="btn btn-error btn-sm ml-auto" href="javascript:history.back()">
+    ⬅ Atrás
+  </a>
+</div>

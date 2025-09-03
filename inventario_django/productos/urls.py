@@ -7,6 +7,8 @@ from productos.models_inventario import DetalleFactura
 from productos.crud import GenericList, build_config, view_class
 from django.conf import settings
 from django.conf.urls.static import static
+#from .crud import qr_print_view
+from .views_qr import qr_print_view
 
 app_name = "productos"
 
@@ -28,6 +30,9 @@ urlpatterns = [
     path("listado/", ListVerticalView.as_view(), name="list"),
 
     path("detallefacturas/", DetalleFacturaList.as_view(), name="detallefacturas_list"),
+
+    path("equipos/<int:pk>/qr/", qr_print_view, name="equipos_qr"),
+
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # rutas CRUD

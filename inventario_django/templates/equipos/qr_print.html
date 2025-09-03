@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4 text-center">
+    <h3>Etiqueta: {{ object.etiqueta }}</h3>
+    <p>{{ object.nombre_equipo }} - {{ object.descripcion }}</p>
+
+    <!-- Imagen del QR -->
+<!-- Contenedor de la etiqueta centrado -->
+    <div id="qr_container" style="
+        width:6cm;
+        height:2cm;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        border:1px solid #000;
+        background-color:white; /* Fondo blanco */
+        padding:0.2cm;          /* Margen interno para que QR no toque el borde */
+        box-sizing:border-box;
+        font-family: Arial, sans-serif;
+        font-size:0.8em;
+        line-height:1.2em;
+        margin:20px auto;       /* Centrar el contenedor horizontalmente */
+    ">
+        <!-- Información textual alineada a la izquierda -->
+        <div style="display:flex; flex-direction:column; justify-content:center; text-align:left;">
+            <span style="font-weight:bold;">Galilea S.A</span>
+            <span style="font-weight:bold;">{{ object.etiqueta }}</span>
+            <span>soporte@galilea.cl</span>
+        </div>
+
+        <!-- QR Code a la derecha, con padding interno para que no toque borde -->
+        <img src="data:image/png;base64,{{ qr_img }}" alt="QR Code" id="qr_code"
+             style="width:1.8cm; height:1.8cm; object-fit:contain; margin-left:0.1cm;">
+    </div>
+
+    <!-- Botones centrados -->
+    <div class="mt-3">
+        <button class="btn btn-success" onclick="printQR()">Imprimir QR</button>
+        <a href="{{ back_url }}" class="btn btn-secondary">Volver</a>
+    </div>
+</div>
+
+<script>
+function printQR() {
+    const qrContainer = document.getElementById('qr_container');
+    const w = window.open('', '_blank');
+    w.document.write(`
+        <html>
+        <head>
+            <title>Imprimir QR</title>
+            <style>
+                body {
+                    margin:10px;
+                    font-family: Arial, sans-serif;
+                    display:flex;
+                    justify-content:center; /* Centra las etiquetas en la página */
+                    align-items:flex-start;
+                    flex-wrap:wrap;
+                    gap:0.2cm;
+                    background-color:#fff;
+                }
+                #qr_container {
+                    width:6cm;
+                    height:2cm;
+                    display:flex;
+                    justify-content:space-between;
+                    align-items:center;
+                    border:1px solid #000;
+                    background-color:white; /* Fondo blanco */
+                    padding:0.2cm;
+                    box-sizing:border-box;
+                    font-size:0.8em;
+                    line-height:1.2em;
+                    margin-bottom:0.2cm;
+                }
+                #qr_container div {
+                    display:flex;
+                    flex-direction:column;
+                    justify-content:center;
+                    text-align:left;
+                }
+                #qr_container img {
+                    width:1.8cm;
+                    height:1.8cm;
+                    object-fit:contain;
+                    margin-left:0.1cm; /* Separación del borde */
+                }
+                @media print {
+                    body { margin:0.5cm; }
+                }
+            </style>
+        </head>
+        <body>
+            ${qrContainer.outerHTML}
+        </body>
+        </html>
+    `);
+    w.document.close();
+    w.focus();
+    w.print();
+    w.close();
+}
+</script>
+
+{% endblock %}

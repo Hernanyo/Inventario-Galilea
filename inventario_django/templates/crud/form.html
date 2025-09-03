@@ -1,18 +1,65 @@
 {% extends "base.html" %}
 
-{% block title %}{% if object %}Editar {{ view.crud_config.verbose_name }}{% else %}Nuevo {{ view.crud_config.verbose_name }}{% endif %}{% endblock %}
+{% block title %}
+  {% if object %}
+    Editar {{ view.crud_config.verbose_name }}
+  {% else %}
+    Nuevo {{ view.crud_config.verbose_name }}
+  {% endif %}
+{% endblock %}
 
 {% block content %}
 <h1 class="text-2xl font-semibold mb-4">
-  {% if object %}Editar {{ view.crud_config.verbose_name }} #{{ object.pk }}{% else %}Nuevo {{ view.crud_config.verbose_name }}{% endif %}
+  {% if object %}
+    Editar {{ view.crud_config.verbose_name }} #{{ object.pk }}
+  {% else %}
+    Nuevo {{ view.crud_config.verbose_name }}
+  {% endif %}
 </h1>
 
-<form method="post" class="bg-base-100 p-4 rounded-lg shadow max-w-3xl">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <div class="mt-4 flex gap-2">
-    <button class="btn btn-primary">Guardar</button>
-    <a class="btn" href="{% url 'productos:'|add:view.crud_config.slug|add:'_list' %}">Cancelar</a>
+<div class="flex flex-col lg:flex-row gap-6 w-full">
+  <div class="flex-1">
+    <form method="post" class="bg-base-100 p-4 rounded-lg shadow">
+      {% csrf_token %}
+      {{ form.as_p }}
+
+      {% if view.crud_config.model_name == "equipo" %}
+        <div class="mb-2">
+          {% if ultima_etiqueta %}
+            <p class="text-sm text-gray-600">
+              Última etiqueta usada: <strong>{{ ultima_etiqueta }}</strong>
+            </p>
+          {% endif %}
+        </div>
+        <div class="mb-4">
+          {% if object and object.qr_code %}
+            <a href="{% url 'productos:equipos_qr' object.pk %}" class="btn btn-primary">Ver QR</a>
+          {% else %}
+            <span class="text-gray-500">🕓 QR a la espera de creación</span>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div class="mt-4 flex gap-2">
+        <button class="btn btn-primary">Guardar</button>
+        <a class="btn" href="{% url 'productos:'|add:view.crud_config.slug|add:'_list' %}">Cancelar</a>
+      </div>
+    </form>
   </div>
-</form>
+
+  {% if view.crud_config.model_name == "equipo" %}
+    <div class="w-full lg:w-1/3 bg-white p-4 rounded-lg shadow mt-4 lg:mt-0">
+      <h2 class="text-lg font-semibold mb-2">Últimos 5 equipos</h2>
+      {% if ultimos_equipos %}
+        <ul class="list-disc list-inside text-sm text-gray-700">
+          {% for eq in ultimos_equipos %}
+            <li>{{ eq.nombre_equipo }} <span class="text-gray-500">({{ eq.etiqueta }})</span></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-gray-500 text-sm">No hay equipos aún.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
 {% endblock %}

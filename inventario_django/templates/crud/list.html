@@ -4,10 +4,11 @@
 {% block title %}{{ view.crud_config.verbose_plural }}{% endblock %}
 
 {% block content %}
+
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-semibold">Listado de {{ view.crud_config.verbose_plural }}</h1>
 
-  <div class="flex gap-2">
+  <div class="flex items-center gap-2 w-full justify-end">
     {# Botón para crear un nuevo registro #}
     <a class="btn btn-primary btn-sm"
        href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
@@ -20,7 +21,6 @@
       Exportar CSV
     </a>
 
-    {# Botón extra para Detalles de Facturas solo si estamos en Facturas #}
     {% if view.crud_config.model_name == 'factura' %}
       <a class="btn btn-secondary btn-sm"
          href="{% url 'productos:detallefacturas_list' %}">
@@ -36,28 +36,20 @@
     {% endif %}
 
     {% if view.crud_config.model_name == 'equipo' %}
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">
-        Tipos de Equipos
-      </a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">
-        Atributos de Equipos
-      </a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">
-        Estados de Equipos
-      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">Tipos de Equipos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">Atributos de Equipos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">Estados de Equipos</a>
     {% endif %}
 
     {% if view.crud_config.model_name == 'mantencion' %}
-      <a class="btn btn-secondary btn-sm"
-         href="{% url 'productos:estadomantencions_list' %}">
-        Estados de Mantenciones
-      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">Estados de Mantenciones</a>
     {% endif %}
 
-    {# Botón ATRÁS al final, extremo derecho, color rojo #}
-    <a class="btn btn-error btn-sm ml-auto" href="javascript:history.back()">
-      ⬅ Atrás
-    </a>
+    {# Botón ATRÁS al final, color rojo #}
+    <a class="btn btn-error btn-sm ml-2" href="javascript:history.back()">⬅ Atrás</a>
+
+    {# Fecha y hora actual, siempre alineada a la derecha #}
+    <span id="current_datetime" class="ml-4 font-semibold text-gray-700 text-lg"></span>
   </div>
 </div>
 
@@ -92,6 +84,21 @@
                href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
                Editar
             </a>
+
+            {% if view.crud_config.model_name == 'equipo' %}
+                {% if item.qr_code %}
+                    <a class="btn btn-xs btn-success"
+                       href="{% url 'productos:equipos_qr' item.pk %}">
+                       Ver QR
+                    </a>
+                {% else %}
+                    <a class="btn btn-xs btn-warning"
+                       href="{% url 'productos:equipos_update' item.pk %}">
+                       Completar QR
+                    </a>
+                {% endif %}
+            {% endif %}
+
             <a class="btn btn-xs btn-error"
                href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">
                Eliminar
@@ -123,4 +130,25 @@
     <a class="join-item btn" href="?q={{ q }}&page={{ page_obj.paginator.num_pages }}">»</a>
   {% endif %}
 </div>
+
+<script>
+function updateDateTime() {
+    const now = new Date();
+    const options = { 
+        weekday: 'long', 
+        day: '2-digit', 
+        month: 'long', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit', 
+        hour12: false 
+    };
+    document.getElementById('current_datetime').textContent =
+        now.toLocaleString('es-CL', options);
+}
+setInterval(updateDateTime, 1000);
+updateDateTime();
+</script>
+
 {% endblock %}

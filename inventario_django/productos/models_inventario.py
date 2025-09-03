@@ -121,14 +121,23 @@ class Equipo(models.Model):
     id_estado_equipo = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='id_estado_equipo', blank=True, null=True)
     id_empleado = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='id_empleado', blank=True, null=True)
     id_proveedor = models.ForeignKey(Proveedor, models.DO_NOTHING, db_column='id_proveedor', blank=True, null=True)
-    etiqueta = models.CharField(max_length=50, blank=True, null=True)
-    qr_code = models.ImageField(upload_to='qrcodes/', blank=True, null=True)
+    etiqueta = models.CharField(max_length=150, unique=True)
+    qr_code = models.ImageField(upload_to='qrcodes/', max_length=1000, blank=True, null=True)
+
 
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)  # primero guarda para tener id
         from .utils import generar_qr
-        if self.etiqueta and not self.qr_code:
+
+        is_new = self._state.adding  # True si es creación
+        super().save(*args, **kwargs)  # guarda primero para tener ID
+
+        # Generar QR solo al crear y si hay etiqueta y aún no tiene QR
+        if is_new and self.etiqueta and not self.qr_code:
             generar_qr(self)
+            # Guardar solo el campo qr_code sin volver a entrar en bucle
+            super().save(update_fields=["qr_code"])
+
+
 
     class Meta:
         managed = False
