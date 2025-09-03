@@ -17,6 +17,10 @@ from django import forms
 from .models_inventario import Equipo
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
+from .models_inventario import HistorialEquipos
+from django.urls import path
+#from .crud import GenericList, view_class
+
 
 # ---------- Config e inferencia ----------
 
@@ -415,6 +419,23 @@ def _collect_unique_crud_configs():
         uniq.append(cfg)
     return uniq
 
+historial_cfg = CrudConfig(
+    model=HistorialEquipos,
+    slug="historial-equipos",
+    verbose_plural="Historial de Equipos",
+    list_display=[
+        "equipo", "accion", "usuario", "fecha", "estado_anterior", "estado_nuevo"
+    ],
+    search_fields=["equipo__nombre_equipo", "usuario__nombre", "accion"],
+    ordering=["-fecha"]
+)
+
+
+HistorialListView = view_class(HistorialEquipos, historial_cfg, GenericList)
+
+urlpatterns += [
+    path("historial-equipos/", HistorialListView.as_view(), name="historial_equipos_list")
+]
 CRUD_CONFIGS = _collect_unique_crud_configs()
 
 def get_crud_configs():

@@ -9,6 +9,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 #from .crud import qr_print_view
 from .views_qr import qr_print_view
+from .crud import urlpatterns as crud_urls, view_class, GenericList
+
 
 app_name = "productos"
 

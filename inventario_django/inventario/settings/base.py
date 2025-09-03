@@ -98,7 +98,7 @@ else:
     }
 
     
-_pg_search_path = env("DB_PG_SEARCH_PATH", default="")
+_pg_search_path = env("DB_PG_SEARCH_PATH", default="inventario")
 if _pg_search_path:
     DATABASES["default"]["OPTIONS"] = {"options": f"-c search_path={_pg_search_path}"}
 

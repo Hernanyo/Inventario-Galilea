@@ -8,6 +8,8 @@
 # productos/__init__.py
 # ✅ CORRECTO:
 from django.db import models
+from django.utils import timezone
+
 
 
 
@@ -226,3 +228,30 @@ class DetalleFactura(models.Model):
     def __str__(self):
         item = self.nombre_equipo or (self.id_equipo and str(self.id_equipo)) or "Item s/i"
         return f"Detalle {self.id_detalle_factura} · Factura {self.id_factura_id} · {item}"
+    
+class HistorialEquipos(models.Model):
+    id = models.AutoField(primary_key=True)
+    equipo = models.ForeignKey(Equipo, models.DO_NOTHING, db_column='equipo_id')
+    etiqueta = models.CharField(max_length=150, blank=True, null=True)
+    nombre_equipo = models.CharField(max_length=150, blank=True, null=True)
+    modelo = models.CharField(max_length=100, blank=True, null=True)
+    tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='tipo_equipo_id', blank=True, null=True)
+    accion = models.CharField(max_length=50)  # "agregado", "asignado", "bodega", "dañado", "perdido", etc.
+    usuario = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='usuario_id', blank=True, null=True)
+    fecha = models.DateTimeField(default=timezone.now)
+    empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='empresa_id', blank=True, null=True)
+    departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='departamento_id', blank=True, null=True)
+    ubicacion = models.CharField(max_length=200, blank=True, null=True)
+    estado_anterior = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='estado_anterior_id', blank=True, null=True, related_name='estado_anterior')
+    estado_nuevo = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='estado_nuevo_id', blank=True, null=True, related_name='estado_nuevo')
+    responsable_actual = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_actual_id', blank=True, null=True, related_name='responsable_actual')
+    comentario = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'inventario.historial_equipos'
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.equipo} - {self.accion} - {self.fecha}"
+

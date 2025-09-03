@@ -39,6 +39,8 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">Tipos de Equipos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">Atributos de Equipos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">Estados de Equipos</a>
+      <a href="{% url 'productos:historial_equipos_list' %}" class="btn btn-info">Historial de Equipos</a>
+
     {% endif %}
 
     {% if view.crud_config.model_name == 'mantencion' %}
