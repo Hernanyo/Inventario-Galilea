@@ -1,6 +1,6 @@
 # productos/crud.py
 from dataclasses import dataclass, field
-from typing import Sequence, List, Dict, Type
+from typing import Sequence, List, Type
 import csv
 
 from django.apps import apps
@@ -10,16 +10,13 @@ from django.forms import modelform_factory
 from django.http import HttpResponse
 from django.urls import path, reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin  # (si ModelPermsMixin lo usa)
 from .mixins import ModelPermsMixin
-# solo si no existe
+
 from django import forms
-from .models_inventario import Equipo
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse_lazy
-from .models_inventario import HistorialEquipos
-from django.urls import path
-#from .crud import GenericList, view_class
+
+from .models_inventario import Equipo, HistorialEquipos
 
 
 # ---------- Config e inferencia ----------
@@ -32,18 +29,14 @@ class CrudConfig:
     list_display: Sequence[str] = field(default_factory=list)   # columnas
     search_fields: Sequence[str] = field(default_factory=list)  # campos texto
     ordering: Sequence[str] = field(default_factory=lambda: ("id",))
-    label_attr: str | None = None 
+    label_attr: str | None = None
 
-    
-    # devuelve una etiqueta legible para un objeto
+    # etiqueta legible para un objeto
     def obj_label(self, obj):
-        # 1) si especificas label_attr en el registro de este modelo
         if self.label_attr:
             val = getattr(obj, self.label_attr, None)
             if val:
                 return str(val)
-
-        # 2) heurística general: intenta con estos campos comunes
         for name in (
             "nombre", "nombre_empresa", "nombre_equipo",
             "descripcion", "detalle", "codigo", "serie",
@@ -52,8 +45,6 @@ class CrudConfig:
             val = getattr(obj, name, None)
             if val:
                 return str(val)
-
-        # 3) último recurso
         return str(obj)
 
     @property
@@ -62,38 +53,44 @@ class CrudConfig:
 
     @property
     def verbose_name_plural(self):
-        return self.model._meta.verbose_name_plural
+        # permite usar verbose_name_plural desde templates/código
+        return self.verbose_plural
+
+    @property
+    def model_name(self):
+        # útil en templates para decidir botones especiales
+        return self.model._meta.model_name
+
 
 def infer_text_fields(m: Type[Model]) -> List[str]:
     names = [
         f.name for f in m._meta.get_fields()
         if getattr(f, "attname", None) and isinstance(f, (CharField, TextField))
     ]
-    # boosts habituales si existen
     prefer = [n for n in ("nombre", "descripcion", "serie", "modelo") if n in names]
     rest = [n for n in names if n not in prefer]
     return prefer + rest
+
 
 def infer_list_display(m: Type[Model]) -> List[str]:
     pk_name = m._meta.pk.name
     cols: List[str] = [pk_name]
 
-    # Campos que queremos priorizar si existen
     prefer_order = (
         "rut", "nombre", "apellido_paterno", "apellido_materno",
         "correo", "telefono", "descripcion", "codigo", "serie",
         "departamento", "empresa", "marca", "tipo_equipo"
     )
 
-    # 1) agrega preferidos en orden si existen y no son el PK
+    # 1) preferidos si existen
     for name in prefer_order:
         f = next((f for f in m._meta.fields if f.name == name), None)
         if f and f.name not in cols and f.name != pk_name:
             cols.append(f.name)
 
-    # 2) completa con el resto de campos “mostrables”
+    # 2) completa con campos "mostrables"
     for f in m._meta.fields:
-        if f.name in ("id", pk_name):   # <-- evita duplicar el PK
+        if f.name in ("id", pk_name):
             continue
         from django.db.models import (
             CharField, TextField, BooleanField, IntegerField, FloatField,
@@ -103,8 +100,6 @@ def infer_list_display(m: Type[Model]) -> List[str]:
                           DateField, DateTimeField, ForeignKey)):
             if f.name not in cols:
                 cols.append(f.name)
-
-        # sube el límite si quieres ver aún más columnas
         if len(cols) >= 9:  # pk + 8 útiles
             break
 
@@ -112,9 +107,9 @@ def infer_list_display(m: Type[Model]) -> List[str]:
 
 
 def make_slug(m: Type[Model]) -> str:
-    # plural simple: agrega 's'. Para nombres que ya terminen en 's' se mantiene.
     base = m._meta.model_name
     return base if base.endswith("s") else f"{base}s"
+
 
 def build_config(m: Type[Model]) -> CrudConfig:
     return CrudConfig(
@@ -126,34 +121,14 @@ def build_config(m: Type[Model]) -> CrudConfig:
         ordering=(m._meta.pk.name,),
     )
 
-# ---------- Vistas genéricas ----------
-# class GenericUpdateView(LoginRequiredMixin, UpdateView):
-#     template_name = "crud/form.html"
 
-#     def get_context_data(self, **kwargs):
-#         ctx = super().get_context_data(**kwargs)
-#         obj = ctx.get("object") or getattr(self, "object", None)
-#         ctx["cfg"] = self.crud_config
-#         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""   # <—
-#         return ctx
-
-# class GenericDeleteView(LoginRequiredMixin, DeleteView):
-#     template_name = "crud/delete.html"
-#     success_url = None  # la defines como ya la tienes
-
-#     def get_context_data(self, **kwargs):
-#         ctx = super().get_context_data(**kwargs)
-#         obj = ctx.get("object") or getattr(self, "object", None)
-#         ctx["cfg"] = self.crud_config
-#         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""   # <—
-#         return ctx
+# ---------- Vistas y helpers ----------
 
 def qr_print_view(request, pk):
-    from .models_inventario import Equipo
     obj = get_object_or_404(Equipo, pk=pk)
     context = {
         "object": obj,
-        "back_url": reverse_lazy("productos:equipos_list")  # slug correcto
+        "back_url": reverse_lazy("productos:equipos_list")
     }
     return render(request, "equipos/qr_print.html", context)
 
@@ -183,12 +158,23 @@ class GenericList(ModelPermsMixin, ListView):
             qs = qs.order_by(*self.crud_config.ordering)
         return qs
 
-def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
+
+                # 👇 ESTA ES LA CLAVE: calcula si el usuario puede crear este modelo
+        can_create = self.request.user.has_perm(
+            f"{self.model._meta.app_label}.add_{self.model._meta.model_name}"
+        )
+        # pásalo al template como parte del config (para que el template actual funcione)
+        self.crud_config.can_create = can_create
+        # (opcional) también en el contexto por si te sirve en otros templates
+        ctx["can_create"] = can_create
+
         return ctx
+
 
 class GenericCreate(ModelPermsMixin, CreateView):
     template_name = "crud/form.html"
@@ -198,28 +184,32 @@ class GenericCreate(ModelPermsMixin, CreateView):
     def get_form_class(self):
         if self.model.__name__ == "Equipo":
             return EquipoForm
-        from django.forms import modelform_factory
         return modelform_factory(self.model, fields="__all__")
 
     def get_success_url(self):
-        from django.urls import reverse_lazy
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
+    def form_valid(self, form):
+        if self.model.__name__ == "Equipo":
+            # guarda el usuario actual (Empleado vinculado)
+            form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
+        return super().form_valid(form)
+
     def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)  # <-- primero esto
+        ctx = super().get_context_data(**kwargs)
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
 
         if self.model.__name__ == "Equipo":
-            from .models_inventario import Equipo
             ultimos_5 = Equipo.objects.order_by("-id_equipo")[:5]
             ultima = Equipo.objects.order_by("-id_equipo").first()
             ctx["ultimos_equipos"] = ultimos_5
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
         return ctx
-    
+
+
 class GenericUpdate(ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
     action_perm = "change"
@@ -228,15 +218,18 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
     def get_form_class(self):
         if self.model.__name__ == "Equipo":
             return EquipoForm
-        from django.forms import modelform_factory
         return modelform_factory(self.model, fields="__all__")
 
     def get_success_url(self):
-        from django.urls import reverse_lazy
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
+    def form_valid(self, form):
+        if self.model.__name__ == "Equipo":
+            form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
+        return super().form_valid(form)
+
     def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)  # <-- primero esto
+        ctx = super().get_context_data(**kwargs)
         obj = ctx.get("object") or getattr(self, "object", None)
         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
         ctx["q"] = self.request.GET.get("q", "")
@@ -244,55 +237,18 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
         ctx["cfg"] = self.crud_config
 
         if self.model.__name__ == "Equipo":
-            from .models_inventario import Equipo
             ultimos_5 = Equipo.objects.order_by("-id_equipo")[:5]
             ultima = Equipo.objects.order_by("-id_equipo").first()
             ctx["ultimos_equipos"] = ultimos_5
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
         return ctx
-    
-@dataclass
-class CrudConfig:
-    model: Type[Model]
-    slug: str
-    verbose_plural: str
-    list_display: Sequence[str] = field(default_factory=list)
-    search_fields: Sequence[str] = field(default_factory=list)
-    ordering: Sequence[str] = field(default_factory=lambda: ("id",))
-    label_attr: str | None = None
 
-    @property
-    def verbose_name_plural(self):
-        # Esto hace que cualquier código que use verbose_name_plural siga funcionando
-        return self.verbose_plural
 
-    @property
-    def model_name(self):
-        # Para usar en templates como en list.html
-        return self.model._meta.model_name
-
-    # <-- Asegúrate de incluir esto:
-    def obj_label(self, obj):
-        if self.label_attr:
-            val = getattr(obj, self.label_attr, None)
-            if val:
-                return str(val)
-
-        for name in (
-            "nombre", "nombre_empresa", "nombre_equipo",
-            "descripcion", "detalle", "codigo", "serie",
-            "rut_empresa", "apellido"
-        ):
-            val = getattr(obj, name, None)
-            if val:
-                return str(val)
-        return str(obj)
-    
 class EquipoForm(forms.ModelForm):
     class Meta:
         model = Equipo
-        exclude = ["qr_code"]  # excluimos el campo qr_code, se generará automáticamente
+        exclude = ["qr_code"]  # se genera automáticamente
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -301,9 +257,9 @@ class EquipoForm(forms.ModelForm):
         import base64
 
         # Generar QR si no tiene
-        if not obj.qr_code:
+        if not obj.qr_code and obj.etiqueta:
             qr = qrcode.QRCode(box_size=10, border=4)
-            qr.add_data(obj.etiqueta)  # Aquí usas la etiqueta del equipo
+            qr.add_data(obj.etiqueta)
             qr.make(fit=True)
             img = qr.make_image(fill_color="black", back_color="white")
             buffered = BytesIO()
@@ -315,15 +271,13 @@ class EquipoForm(forms.ModelForm):
             obj.save()
         return obj
 
-    
+
 class GenericDelete(ModelPermsMixin, DeleteView):
-    # usa el template que tengas creado; si tu archivo se llama delete.html, cambia esto
     template_name = "crud/delete.html"
     action_perm = "delete"
     crud_config: CrudConfig
 
     def get_success_url(self):
-        from django.urls import reverse_lazy
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
     def get_context_data(self, **kwargs):
@@ -332,6 +286,9 @@ class GenericDelete(ModelPermsMixin, DeleteView):
         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
         ctx["cfg"] = self.crud_config
         return ctx
+
+
+# ---------- Export CSV ----------
 
 def export_csv_view(model: Type[Model], cfg: CrudConfig):
     def view(request):
@@ -367,6 +324,7 @@ def discover_producto_models() -> List[Type[Model]]:
     """Toma todos los modelos de la app 'productos' (incluye models_inventario si está importado)."""
     return list(apps.get_app_config("productos").get_models())
 
+
 def view_class(model, cfg, base_cls):
     # Crea una subclase dinámica con el modelo y la cfg incrustados
     return type(
@@ -374,6 +332,7 @@ def view_class(model, cfg, base_cls):
         (base_cls,),
         {"model": model, "crud_config": cfg}
     )
+
 
 def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
     models = include if include else discover_producto_models()
@@ -388,16 +347,18 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
         csv_view  = export_csv_view(m, cfg)
 
         patterns += [
-            path(f"{cfg.slug}/",                ListCls.as_view(),   name=f"{cfg.slug}_list"),
-            path(f"{cfg.slug}/nuevo/",          CreateCls.as_view(), name=f"{cfg.slug}_create"),
-            path(f"{cfg.slug}/<int:pk>/editar/",UpdateCls.as_view(), name=f"{cfg.slug}_update"),
-            path(f"{cfg.slug}/<int:pk>/eliminar/", DeleteCls.as_view(), name=f"{cfg.slug}_delete"),
-            path(f"{cfg.slug}/exportar/csv/",   csv_view,            name=f"{cfg.slug}_csv"),
+            path(f"{cfg.slug}/",                  ListCls.as_view(),    name=f"{cfg.slug}_list"),
+            path(f"{cfg.slug}/nuevo/",            CreateCls.as_view(),  name=f"{cfg.slug}_create"),
+            path(f"{cfg.slug}/<int:pk>/editar/",  UpdateCls.as_view(),  name=f"{cfg.slug}_update"),
+            path(f"{cfg.slug}/<int:pk>/eliminar/",DeleteCls.as_view(),  name=f"{cfg.slug}_delete"),
+            path(f"{cfg.slug}/exportar/csv/",     csv_view,             name=f"{cfg.slug}_csv"),
         ]
     return patterns
 
+
 # Se exporta listo para incluir desde productos/urls.py
 urlpatterns = make_urlpatterns()
+
 
 # --- al final de productos/crud.py ---
 
@@ -419,6 +380,8 @@ def _collect_unique_crud_configs():
         uniq.append(cfg)
     return uniq
 
+
+# Config opcional para el menú (si quisieras mostrar Historial en HomeView)
 historial_cfg = CrudConfig(
     model=HistorialEquipos,
     slug="historial-equipos",
@@ -430,14 +393,7 @@ historial_cfg = CrudConfig(
     ordering=["-fecha"]
 )
 
-
-HistorialListView = view_class(HistorialEquipos, historial_cfg, GenericList)
-
-urlpatterns += [
-    path("historial-equipos/", HistorialListView.as_view(), name="historial_equipos_list")
-]
 CRUD_CONFIGS = _collect_unique_crud_configs()
 
 def get_crud_configs():
     return CRUD_CONFIGS
-

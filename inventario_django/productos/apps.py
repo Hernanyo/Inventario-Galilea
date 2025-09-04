@@ -11,3 +11,10 @@ def home(request):
 class ProductosConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'productos'
+    verbose_name = "Productos / Inventario"
+
+    
+    def ready(self):
+        # Importa señales para registrar los handlers
+        from . import signals  # noqa
+

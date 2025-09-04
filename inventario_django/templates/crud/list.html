@@ -5,15 +5,22 @@
 
 {% block content %}
 
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-2xl font-semibold">Listado de {{ view.crud_config.verbose_plural }}</h1>
+<h1 class="text-2xl font-semibold">
+  Listado de {{ view.crud_config.verbose_plural }}
+  {% if equipo %}
+    <span class="badge bg-secondary ms-2">Equipo {{ equipo.id_equipo }} · {{ equipo.nombre_equipo }}</span>
+  {% endif %}
+</h1>
 
+<div class="flex items-center justify-between mb-4">
   <div class="flex items-center gap-2 w-full justify-end">
     {# Botón para crear un nuevo registro #}
-    <a class="btn btn-primary btn-sm"
-       href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
-      Nuevo {{ view.crud_config.verbose_name }}
-    </a>
+    {% if view.crud_config.can_create %}
+      <a class="btn btn-primary btn-sm"
+        href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
+        Nuevo {{ view.crud_config.verbose_name }}
+      </a>
+    {% endif %}
 
     {# Botón para exportar CSV #}
     <a class="btn btn-outline btn-sm"
@@ -40,7 +47,6 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">Atributos de Equipos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">Estados de Equipos</a>
       <a href="{% url 'productos:historial_equipos_list' %}" class="btn btn-info">Historial de Equipos</a>
-
     {% endif %}
 
     {% if view.crud_config.model_name == 'mantencion' %}
@@ -72,7 +78,9 @@
             <a href="?q={{ q }}&o={{ col }}">{{ col|title }}</a>
           </th>
         {% endfor %}
-        <th class="text-right">Acciones</th>
+        {% if view.crud_config.model_name != 'historialequipos' %}
+          <th class="text-right">Acciones</th>
+        {% endif %}
       </tr>
     </thead>
     <tbody>
@@ -81,31 +89,40 @@
           {% for col in view.crud_config.list_display %}
             <td>{{ item|attr:col }}</td>
           {% endfor %}
-          <td class="text-right">
-            <a class="btn btn-xs"
-               href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
-               Editar
-            </a>
+          {% if view.crud_config.model_name != 'historialequipos' %}
+            <td class="text-right">
+              {# Historial: sólo lectura => sin acciones #}
+              {% if view.crud_config.slug == 'historial_equipos' %}
+                {# nada #}
 
-            {% if view.crud_config.model_name == 'equipo' %}
+              {% elif view.crud_config.model_name == 'equipo' %}
+                <a class="btn btn-xs"
+                  href="{% url 'productos:equipos_update' item.id_equipo %}">Editar</a>
+
                 {% if item.qr_code %}
-                    <a class="btn btn-xs btn-success"
-                       href="{% url 'productos:equipos_qr' item.pk %}">
-                       Ver QR
-                    </a>
+                  <a class="btn btn-xs btn-success"
+                    href="{% url 'productos:equipos_qr' item.id_equipo %}">Ver QR</a>
                 {% else %}
-                    <a class="btn btn-xs btn-warning"
-                       href="{% url 'productos:equipos_update' item.pk %}">
-                       Completar QR
-                    </a>
+                  <a class="btn btn-xs btn-warning"
+                    href="{% url 'productos:equipos_update' item.id_equipo %}">Completar QR</a>
                 {% endif %}
-            {% endif %}
 
-            <a class="btn btn-xs btn-error"
-               href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">
-               Eliminar
-            </a>
-          </td>
+                <a class="btn btn-xs btn-info"
+                  href="{% url 'productos:equipo_historial_list' item.id_equipo %}">Historial</a>
+
+                <a class="btn btn-xs btn-error"
+                  href="{% url 'productos:equipos_delete' item.id_equipo %}">Eliminar</a>
+
+              {% else %}
+                <a class="btn btn-xs"
+                  href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">Editar</a>
+                <a class="btn btn-xs btn-error"
+                  href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">Eliminar</a>
+              {% endif %}
+            </td>
+          {% endif %}
+
+
         </tr>
       {% empty %}
         <tr>
@@ -152,5 +169,15 @@ function updateDateTime() {
 setInterval(updateDateTime, 1000);
 updateDateTime();
 </script>
+<style>
+  /* Fuerza los botones de acciones en línea compacta */
+  td.text-right a.btn {
+    display: inline-flex !important;
+    margin: 0 2px;
+  }
+  td.text-right {
+    white-space: nowrap;
+  }
+</style>
 
 {% endblock %}

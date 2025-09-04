@@ -247,11 +247,44 @@ class HistorialEquipos(models.Model):
     responsable_actual = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_actual_id', blank=True, null=True, related_name='responsable_actual')
     comentario = models.TextField(blank=True, null=True)
 
+    @property
+    def responsable_anterior(self):
+        """
+        Devuelve el Empleado 'responsable anterior' si quedó guardado en comentario
+        con el formato:  RESP_ANT=<id>
+        Si no existe, retorna None.
+        """
+        from .models_inventario import Empleado  # import local para evitar ciclos
+        if not self.comentario:
+            return None
+
+        # Busca el token RESP_ANT=<id>
+        marker = "RESP_ANT="
+        idx = str(self.comentario).find(marker)
+        if idx == -1:
+            return None
+        try:
+            tail = self.comentario[idx + len(marker):].strip()
+            # admitir "RESP_ANT=12" o "RESP_ANT=12; ..." o "RESP_ANT=12 | ..."
+            id_txt = ""
+            for ch in tail:
+                if ch.isdigit():
+                    id_txt += ch
+                else:
+                    break
+            if not id_txt:
+                return None
+            emp_id = int(id_txt)
+            return Empleado.objects.filter(pk=emp_id).first()
+        except Exception:
+            return None
+
     class Meta:
         managed = False
-        db_table = 'inventario.historial_equipos'
+        db_table = 'historial_equipos'
         ordering = ['-fecha']
 
-    def __str__(self):
-        return f"{self.equipo} - {self.accion} - {self.fecha}"
-
+    #def __str__(self):
+    #   return f"{self.equipo} - {self.accion} - {self.fecha}"
+    
+    
