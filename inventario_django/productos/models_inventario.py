@@ -125,19 +125,28 @@ class Equipo(models.Model):
     id_proveedor = models.ForeignKey(Proveedor, models.DO_NOTHING, db_column='id_proveedor', blank=True, null=True)
     etiqueta = models.CharField(max_length=150, unique=True)
     qr_code = models.ImageField(upload_to='qrcodes/', max_length=1000, blank=True, null=True)
+     # >>> NUEVOS CAMPOS <<<
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='empresa_id', blank=True, null=True)
+    id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='departamento_id', blank=True, null=True)
 
 
     def save(self, *args, **kwargs):
         from .utils import generar_qr
 
-        is_new = self._state.adding  # True si es creación
+        # Autorellenar empresa/depto desde el empleado si faltan
+        if self.id_empleado:
+            if self.id_empresa is None:
+                self.id_empresa = getattr(self.id_empleado, "id_empresa", None)
+            if self.id_departamento is None:
+                self.id_departamento = getattr(self.id_empleado, "id_departamento", None)
+
+        is_new = self._state.adding
         super().save(*args, **kwargs)  # guarda primero para tener ID
 
-        # Generar QR solo al crear y si hay etiqueta y aún no tiene QR
         if is_new and self.etiqueta and not self.qr_code:
             generar_qr(self)
-            # Guardar solo el campo qr_code sin volver a entrar en bucle
             super().save(update_fields=["qr_code"])
+
 
 
 
@@ -229,6 +238,7 @@ class DetalleFactura(models.Model):
         item = self.nombre_equipo or (self.id_equipo and str(self.id_equipo)) or "Item s/i"
         return f"Detalle {self.id_detalle_factura} · Factura {self.id_factura_id} · {item}"
     
+
 class HistorialEquipos(models.Model):
     id = models.AutoField(primary_key=True)
     equipo = models.ForeignKey(Equipo, models.DO_NOTHING, db_column='equipo_id')
@@ -247,25 +257,32 @@ class HistorialEquipos(models.Model):
     responsable_actual = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_actual_id', blank=True, null=True, related_name='responsable_actual')
     comentario = models.TextField(blank=True, null=True)
 
+    # >>> NUEVO CAMPO (persistido) <<<
+    responsable_anterior_fk = models.ForeignKey(
+        "Empleado",
+        null=True, blank=True,
+        db_column="responsable_anterior_id",   # enlaza con la columna creada en PostgreSQL
+        on_delete=models.SET_NULL,
+        related_name="historial_responsable_anterior",
+    )
+
     @property
     def responsable_anterior(self):
         """
         Devuelve el Empleado 'responsable anterior' si quedó guardado en comentario
-        con el formato:  RESP_ANT=<id>
-        Si no existe, retorna None.
+        con el formato: RESP_ANT=<id>. Si no existe, retorna None.
+        (Se mantiene por compatibilidad con tu UI actual.)
         """
         from .models_inventario import Empleado  # import local para evitar ciclos
         if not self.comentario:
             return None
 
-        # Busca el token RESP_ANT=<id>
         marker = "RESP_ANT="
         idx = str(self.comentario).find(marker)
         if idx == -1:
             return None
         try:
             tail = self.comentario[idx + len(marker):].strip()
-            # admitir "RESP_ANT=12" o "RESP_ANT=12; ..." o "RESP_ANT=12 | ..."
             id_txt = ""
             for ch in tail:
                 if ch.isdigit():
@@ -284,7 +301,6 @@ class HistorialEquipos(models.Model):
         db_table = 'historial_equipos'
         ordering = ['-fecha']
 
-    #def __str__(self):
-    #   return f"{self.equipo} - {self.accion} - {self.fecha}"
-    
-    
+    def __str__(self):
+        eq = getattr(self, "equipo", None)
+        return f"Historial #{self.pk} · {eq or '—'} · {self.fecha}"

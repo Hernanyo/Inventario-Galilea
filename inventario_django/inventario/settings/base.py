@@ -110,6 +110,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+AUTHENTICATION_BACKENDS = [
+    "productos.auth_backends.RutBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+
 # === Locale ===
 LANGUAGE_CODE = "es-cl"
 TIME_ZONE = "America/Santiago"

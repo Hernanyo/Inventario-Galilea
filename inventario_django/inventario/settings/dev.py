@@ -16,3 +16,9 @@ SECURE_BROWSER_XSS_FILTER = True
 
 # Logging más verboso en dev
 LOGGING["root"]["level"] = "DEBUG"
+
+AUTHENTICATION_BACKENDS = [
+    "productos.auth_backends.RutBackend",           # login con RUT
+    "django.contrib.auth.backends.ModelBackend",    # login normal (por si acaso)
+]
+

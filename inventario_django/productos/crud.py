@@ -17,6 +17,9 @@ from django import forms
 from django.shortcuts import get_object_or_404, render
 
 from .models_inventario import Equipo, HistorialEquipos
+from django.core.exceptions import ValidationError
+
+
 
 
 # ---------- Config e inferencia ----------
@@ -248,29 +251,44 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
 class EquipoForm(forms.ModelForm):
     class Meta:
         model = Equipo
-        exclude = ["qr_code"]  # se genera automáticamente
+        # Importante: incluimos Empresa y Departamento en el formulario
+        fields = [
+            "nombre_equipo",
+            "id_marca",
+            "id_tipo_equipo",
+            "id_estado_equipo",
+            "id_empleado",       # responsable (opcional)
+            "id_proveedor",
+            "etiqueta",
+            "id_empresa",        # NUEVO: siempre visible en el form
+            "id_departamento",   # NUEVO: siempre visible en el form
+        ]
+        # (opcional) puedes añadir widgets si quieres inputs más bonitos:
+        # widgets = {
+        #     "nombre_equipo": forms.TextInput(attrs={"class": "input input-bordered"}),
+        # }
 
+    def clean(self):
+        cleaned = super().clean()
+        empleado = cleaned.get("id_empleado")
+        emp = cleaned.get("id_empresa")
+        dep = cleaned.get("id_departamento")
+
+        # Regla de negocio:
+        # Si NO hay responsable, el usuario DEBE seleccionar Empresa y Departamento
+        if empleado is None and (emp is None or dep is None):
+            raise ValidationError(
+                "Si no asignas responsable, debes seleccionar Empresa y Departamento."
+            )
+        return cleaned
+
+    # No generamos QR aquí: lo hace el modelo en Equipo.save()
+    # Si no necesitas lógica extra, puedes omitir completamente este save().
     def save(self, commit=True):
         obj = super().save(commit=False)
-        import qrcode
-        from io import BytesIO
-        import base64
-
-        # Generar QR si no tiene
-        if not obj.qr_code and obj.etiqueta:
-            qr = qrcode.QRCode(box_size=10, border=4)
-            qr.add_data(obj.etiqueta)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            obj.qr_code = img_str
-
         if commit:
             obj.save()
         return obj
-
 
 class GenericDelete(ModelPermsMixin, DeleteView):
     template_name = "crud/delete.html"

@@ -14,7 +14,6 @@
 
 <div class="flex items-center justify-between mb-4">
   <div class="flex items-center gap-2 w-full justify-end">
-    {# Botón para crear un nuevo registro #}
     {% if view.crud_config.can_create %}
       <a class="btn btn-primary btn-sm"
         href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
@@ -22,7 +21,6 @@
       </a>
     {% endif %}
 
-    {# Botón para exportar CSV #}
     <a class="btn btn-outline btn-sm"
        href="{% url 'productos:'|add:view.crud_config.slug|add:'_csv' %}?q={{ q }}">
       Exportar CSV
@@ -53,89 +51,100 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">Estados de Mantenciones</a>
     {% endif %}
 
-    {# Botón ATRÁS al final, color rojo #}
     <a class="btn btn-error btn-sm ml-2" href="javascript:history.back()">⬅ Atrás</a>
 
-    {# Fecha y hora actual, siempre alineada a la derecha #}
     <span id="current_datetime" class="ml-4 font-semibold text-gray-700 text-lg"></span>
   </div>
 </div>
 
-{# Formulario de búsqueda #}
 <form method="get" class="mb-3 flex gap-2">
   <input class="input input-bordered w-full max-w-md"
          type="search" name="q" value="{{ q }}" placeholder="Buscar…">
   <button class="btn">Buscar</button>
 </form>
 
-{# Tabla de registros #}
 <div class="table-responsive bg-white shadow rounded-3">
   <table class="table table-striped table-hover table-sm align-middle">
-    <thead>
-      <tr>
-        {% for col in view.crud_config.list_display %}
-          <th>
-            <a href="?q={{ q }}&o={{ col }}">{{ col|title }}</a>
-          </th>
+
+    {% if view.crud_config.model_name == 'historialequipos' %}
+      <thead>
+        <tr>
+          <th><a href="?q={{ q }}&o=equipo__id_equipo">ID Equipo</a></th>
+          <th><a href="?q={{ q }}&o=etiqueta">Etiqueta</a></th>
+          <th><a href="?q={{ q }}&o=equipo">Equipo</a></th>
+          <th><a href="?q={{ q }}&o=fecha">Fecha</a></th>
+          <th><a href="?q={{ q }}&o=responsable_anterior_fk">Responsable Anterior</a></th>
+          <th><a href="?q={{ q }}&o=estado_anterior">Estado Anterior</a></th>
+          <th><a href="?q={{ q }}&o=estado_nuevo">Estado Nuevo</a></th>
+          <th><a href="?q={{ q }}&o=responsable_actual">Responsable Actual</a></th>
+          <th><a href="?q={{ q }}&o=empresa">Empresa</a></th>
+          <th><a href="?q={{ q }}&o=departamento">Departamento</a></th>
+          <th><a href="?q={{ q }}&o=usuario">Usuario</a></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>{{ item.equipo.id_equipo|default:"—" }}</td>
+            <td>{{ item.etiqueta|default:"—" }}</td>
+            <td>{{ item.equipo|default:"—" }}</td>
+            <td>{{ item.fecha|date:"d-m-Y H:i"|default:"—" }}</td>
+            <td>{% firstof item.responsable_anterior_fk item.responsable_anterior "Nuevo" %}</td>
+            <td>{{ item.estado_anterior|default:"—" }}</td>
+            <td>{{ item.estado_nuevo|default:"—" }}</td>
+            <td>{{ item.responsable_actual|default:"—" }}</td>
+            <td>{{ item.empresa|default:"—" }}</td>
+            <td>{{ item.departamento|default:"—" }}</td>
+            <td>{{ item.usuario|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="11" class="text-center">No hay registros.</td></tr>
         {% endfor %}
-        {% if view.crud_config.model_name != 'historialequipos' %}
-          <th class="text-right">Acciones</th>
-        {% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
+      </tbody>
+
+    {% else %}
+      <thead>
         <tr>
           {% for col in view.crud_config.list_display %}
-            <td>{{ item|attr:col }}</td>
+            <th><a href="?q={{ q }}&o={{ col }}">{{ col|title }}</a></th>
           {% endfor %}
-          {% if view.crud_config.model_name != 'historialequipos' %}
+          <th class="text-right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            {% for col in view.crud_config.list_display %}
+              <td>{{ item|attr:col }}</td>
+            {% endfor %}
             <td class="text-right">
-              {# Historial: sólo lectura => sin acciones #}
               {% if view.crud_config.slug == 'historial_equipos' %}
-                {# nada #}
-
               {% elif view.crud_config.model_name == 'equipo' %}
-                <a class="btn btn-xs"
-                  href="{% url 'productos:equipos_update' item.id_equipo %}">Editar</a>
-
+                <a class="btn btn-xs" href="{% url 'productos:equipos_update' item.id_equipo %}">Editar</a>
                 {% if item.qr_code %}
-                  <a class="btn btn-xs btn-success"
-                    href="{% url 'productos:equipos_qr' item.id_equipo %}">Ver QR</a>
+                  <a class="btn btn-xs btn-success" href="{% url 'productos:equipos_qr' item.id_equipo %}">Ver QR</a>
                 {% else %}
-                  <a class="btn btn-xs btn-warning"
-                    href="{% url 'productos:equipos_update' item.id_equipo %}">Completar QR</a>
+                  <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">Completar QR</a>
                 {% endif %}
-
-                <a class="btn btn-xs btn-info"
-                  href="{% url 'productos:equipo_historial_list' item.id_equipo %}">Historial</a>
-
-                <a class="btn btn-xs btn-error"
-                  href="{% url 'productos:equipos_delete' item.id_equipo %}">Eliminar</a>
-
+                <a class="btn btn-xs btn-info" href="{% url 'productos:equipo_historial_list' item.id_equipo %}">Historial</a>
+                <a class="btn btn-xs btn-error" href="{% url 'productos:equipos_delete' item.id_equipo %}">Eliminar</a>
               {% else %}
-                <a class="btn btn-xs"
-                  href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">Editar</a>
-                <a class="btn btn-xs btn-error"
-                  href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">Eliminar</a>
+                <a class="btn btn-xs" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">Editar</a>
+                <a class="btn btn-xs btn-error" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">Eliminar</a>
               {% endif %}
             </td>
-          {% endif %}
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="{{ view.crud_config.list_display|length|add:1 }}" class="text-center">No hay registros.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    {% endif %}
 
-
-        </tr>
-      {% empty %}
-        <tr>
-          <td colspan="{{ view.crud_config.list_display|length|add:1 }}" class="text-center">
-            No hay registros.
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
   </table>
 </div>
 
-{# Paginación #}
 <div class="join mt-4">
   {% if page_obj.has_previous %}
     <a class="join-item btn" href="?q={{ q }}&page=1">«</a>
@@ -170,7 +179,6 @@ setInterval(updateDateTime, 1000);
 updateDateTime();
 </script>
 <style>
-  /* Fuerza los botones de acciones en línea compacta */
   td.text-right a.btn {
     display: inline-flex !important;
     margin: 0 2px;
