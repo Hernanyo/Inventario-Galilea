@@ -26,11 +26,9 @@
       <!-- Logo centrado -->
       <div class="text-center mb-3">
         <img src="{% static 'logo_galilea.png' %}" alt="Logo Galilea" style="max-width: 180px; height: auto;">
-        <!--<h5 class="m-0 mt-2">Inventario Galilea</h5>-->
       </div>
 
       <h3 class="fw-semibold mb-3 text-center">Iniciar sesión</h3>
-
 
       {# errores generales del formulario #}
       {% if form and form.non_field_errors %}
@@ -39,11 +37,12 @@
         </div>
       {% endif %}
 
-      <form method="post" novalidate>
+      <form method="post" action="{% url 'login' %}" novalidate>
         {% csrf_token %}
-        {# Username #}
+
+        {# Username (RUT como username) #}
         <div class="mb-3">
-          <label for="id_username" class="form-label">Usuario</label>
+          <label for="id_username" class="form-label">RUT</label>
           <input type="text" name="username" id="id_username" required autofocus
                  class="form-control {% if form and form.errors.username %}is-invalid{% endif %}"
                  value="{{ form.username.value|default_if_none:'' }}">

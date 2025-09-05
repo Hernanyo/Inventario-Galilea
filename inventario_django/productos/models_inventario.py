@@ -56,6 +56,14 @@ class Empleado(models.Model):
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='id_departamento')
     # Campo nuevo para roles
     rol = models.CharField(max_length=20, default='usuario')  # admin, usuario, invitado
+    user = models.OneToOneField(
+        "auth.User",
+        models.DO_NOTHING,
+        db_column="user_id",
+        blank=True, null=True,
+        related_name="empleado",
+    )
+
 
     class Meta:
         managed = False
