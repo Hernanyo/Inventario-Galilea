@@ -10,6 +10,9 @@
   {% if equipo %}
     <span class="badge bg-secondary ms-2">Equipo {{ equipo.id_equipo }} · {{ equipo.nombre_equipo }}</span>
   {% endif %}
+  {% if subtitle %}
+    <span class="badge bg-secondary ms-2">{{ subtitle }}</span>
+  {% endif %}
 </h1>
 
 <div class="flex items-center justify-between mb-4">
@@ -48,8 +51,21 @@
     {% endif %}
 
     {% if view.crud_config.model_name == 'mantencion' %}
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">Estados de Mantenciones</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">
+        Estados de mantención
+      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipomantencions_list' %}">
+        Tipos de mantención
+      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:prioridadmantencions_list' %}">
+        Prioridades de mantención
+      </a>
+      <a class="btn btn-info btn-sm" href="{% url 'productos:historial_mantenciones_list' %}">
+        Historial de mantenciones
+      </a>
     {% endif %}
+
+
 
     <a class="btn btn-error btn-sm ml-2" href="javascript:history.back()">⬅ Atrás</a>
 
@@ -63,8 +79,8 @@
   <button class="btn">Buscar</button>
 </form>
 
-<div class="table-responsive bg-white shadow rounded-3">
-  <table class="table table-striped table-hover table-sm align-middle">
+<div class="table-responsive bg-white shadow rounded-3 w-100" style="overflow-x: auto;">
+  <table class="table table-striped table-hover table-sm align-middle w-100">
 
     {% if view.crud_config.model_name == 'historialequipos' %}
       <thead>
@@ -101,14 +117,55 @@
           <tr><td colspan="11" class="text-center">No hay registros.</td></tr>
         {% endfor %}
       </tbody>
+        {% elif view.crud_config.slug == 'historial_mantenciones' %}
+          <thead>
+            <tr>
+              <th><a href="?q={{ q }}&o=id_equipo">Id Equipo</a></th>
+              <th><a href="?q={{ q }}&o=etiqueta">Etiqueta</a></th>
+              <th><a href="?q={{ q }}&o=equipo_nombre">Equipo Nombre</a></th>
+              <th><a href="?q={{ q }}&o=fecha_evento">Fecha Evento</a></th>
+              <th><a href="?q={{ q }}&o=tipo_mantencion">Tipo Mantención</a></th>
+              <th><a href="?q={{ q }}&o=prioridad">Prioridad</a></th>
+              <th><a href="?q={{ q }}&o=estado_actual">Estado Actual</a></th>
+              <th><a href="?q={{ q }}&o=responsable_nombre">Asignado a</a></th>
+              <th><a href="?q={{ q }}&o=descripcion">Descripción</a></th>
+              <th><a href="?q={{ q }}&o=detalle">Detalle</a></th>
+              <th>Usuario</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>{{ item.id_equipo|default:"—" }}</td>
+                <td>{{ item.etiqueta|default:"—" }}</td>
+                <td>{{ item.equipo_nombre|default:"—" }}</td>
+                <td>{{ item.fecha_evento|date:"d-m-Y H:i"|default:"—" }}</td>
+                <td>{{ item.tipo_mantencion|default:"—" }}</td>
+                <td>{{ item.prioridad|default:"—" }}</td>
+                <td>{{ item.estado_actual|default:"—" }}</td>
+                <td>{{ item.asignado_a|default:"—" }}</td>
+
+
+
+                <td>{{ item.descripcion|default:"—" }}</td>
+                <td>{{ item.detalle|default:"—" }}</td>
+                <td>{{ item.usuario_app_username|default:request.user.get_username }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="11" class="text-center">No hay registros.</td></tr>
+            {% endfor %}
+          </tbody>
 
     {% else %}
       <thead>
         <tr>
           {% for col in view.crud_config.list_display %}
-            <th><a href="?q={{ q }}&o={{ col }}">{{ col|title }}</a></th>
+            <th><a href="?q={{ q }}&o={{ col }}">{{ col|underscores_to_spaces|title }}</a></th>
           {% endfor %}
-          <th class="text-right">Acciones</th>
+          {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
+            <th class="text-right">Acciones</th>
+          {% endif %}
+
         </tr>
       </thead>
       <tbody>
@@ -117,22 +174,57 @@
             {% for col in view.crud_config.list_display %}
               <td>{{ item|attr:col }}</td>
             {% endfor %}
+
+          {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
             <td class="text-right">
               {% if view.crud_config.slug == 'historial_equipos' %}
+                {# sin acciones #}
+
               {% elif view.crud_config.model_name == 'equipo' %}
-                <a class="btn btn-xs" href="{% url 'productos:equipos_update' item.id_equipo %}">Editar</a>
+                <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
+                  <i class="bi bi-pencil-square me-1"></i>Editar
+                </a>
                 {% if item.qr_code %}
-                  <a class="btn btn-xs btn-success" href="{% url 'productos:equipos_qr' item.id_equipo %}">Ver QR</a>
+                  <a class="btn btn-xs btn-success" href="{% url 'productos:equipos_qr' item.id_equipo %}">
+                    <i class="bi bi-qr-code me-1"></i>Ver QR
+                  </a>
                 {% else %}
-                  <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">Completar QR</a>
+                  <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
+                    <i class="bi bi-qr-code me-1"></i>Completar QR
+                  </a>
                 {% endif %}
-                <a class="btn btn-xs btn-info" href="{% url 'productos:equipo_historial_list' item.id_equipo %}">Historial</a>
-                <a class="btn btn-xs btn-error" href="{% url 'productos:equipos_delete' item.id_equipo %}">Eliminar</a>
+                <a class="btn btn-xs btn-info" href="{% url 'productos:equipo_historial_list' item.id_equipo %}">                  <i class="bi bi-clock-history me-1"></i>Historial
+                </a>
+                <a class="btn btn-xs btn-danger" href="{% url 'productos:equipos_delete' item.id_equipo %}"
+                  onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
+                  <i class="bi bi-trash me-1"></i>Eliminar
+                </a>
+
+              {% elif view.crud_config.model_name == 'mantencion' %}
+                <!-- Acciones específicas para Mantención -->
+                <a class="btn btn-xs btn-info" href="{% url 'productos:historial_mantencion' item.pk %}">
+                  <i class="bi bi-clock-history me-1"></i>Historial
+                </a>
+                <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                  <i class="bi bi-pencil-square me-1"></i>Editar
+                </a>
+                <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                  onclick="return confirm('¿Eliminar esta mantención?');">
+                  <i class="bi bi-trash me-1"></i>Eliminar
+                </a>
+
               {% else %}
-                <a class="btn btn-xs" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">Editar</a>
-                <a class="btn btn-xs btn-error" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}">Eliminar</a>
+                <!-- Genérico: Editar / Eliminar -->
+                <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                  <i class="bi bi-pencil-square me-1"></i>Editar
+                </a>
+                <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                  onclick="return confirm('¿Eliminar este registro?');">
+                  <i class="bi bi-trash me-1"></i>Eliminar
+                </a>
               {% endif %}
             </td>
+          {% endif %}
           </tr>
         {% empty %}
           <tr>

@@ -106,6 +106,8 @@ class Proveedor(models.Model):
     class Meta:
         managed = False
         db_table = 'proveedor'
+        verbose_name = "Proveedor"
+        verbose_name_plural = "Proveedores"
 
     def __str__(self):
         return self.nombre_proveedor
@@ -194,18 +196,52 @@ class EstadoMantencion(models.Model):
 
     def __str__(self):
         return self.tipo
+    
+class TipoMantencion(models.Model):
+    id_tipo_mantencion = models.AutoField(primary_key=True)
+    nombre = models.CharField(unique=True, max_length=50)
+
+    class Meta:
+        managed = False
+        db_table = "tipo_mantencion"
+        verbose_name = "Tipo de mantención"
+        verbose_name_plural = "Tipos de mantención"
+
+
+    def __str__(self):
+        return self.nombre
+
+
+class PrioridadMantencion(models.Model):
+    id_prioridad = models.AutoField(primary_key=True)
+    nombre = models.CharField(unique=True, max_length=50)
+
+    class Meta:
+        managed = False
+        db_table = "prioridad_mantencion"
+        verbose_name = "Prioridad de mantención"
+        verbose_name_plural = "Prioridades de mantención"
+
+    def __str__(self):
+        return self.nombre
+
 
 
 class Mantencion(models.Model):
     id_mantencion = models.AutoField(primary_key=True)
     id_equipo = models.ForeignKey(Equipo, models.DO_NOTHING, db_column='id_equipo')
     id_estado_mantencion = models.ForeignKey(EstadoMantencion, models.DO_NOTHING, db_column='id_estado_mantencion')
+    # NUEVAS FK que existen en tu tabla:
+    id_tipo_mantencion = models.ForeignKey(TipoMantencion, models.DO_NOTHING, db_column='id_tipo_mantencion', null=True, blank=True)
+    id_prioridad = models.ForeignKey(PrioridadMantencion, models.DO_NOTHING, db_column='id_prioridad', null=True, blank=True)
     fecha = models.DateField(blank=True, null=True)
     descripcion = models.TextField(blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'mantencion'
+        verbose_name = "Mantención"
+        verbose_name_plural = "Mantenciones"
 
     def __str__(self):
         f = self.fecha.isoformat() if self.fecha else "s/f"
@@ -312,3 +348,82 @@ class HistorialEquipos(models.Model):
     def __str__(self):
         eq = getattr(self, "equipo", None)
         return f"Historial #{self.pk} · {eq or '—'} · {self.fecha}"
+
+
+# --- Nuevo:Historial de Mantenciones ---
+# --- Historial de Mantenciones (VIEW) ---
+class HistorialMantenciones(models.Model):
+    id_historial = models.IntegerField(primary_key=True)
+    id_mantencion = models.IntegerField()
+    fecha_evento = models.DateTimeField()
+    accion = models.CharField(max_length=50)
+    detalle = models.TextField(null=True, blank=True)
+    usuario_app_username = models.CharField(max_length=150, null=True, blank=True)
+    responsable_nombre = models.CharField(max_length=200, null=True, blank=True)
+    # Datos enriquecidos que expone la VIEW
+    id_equipo = models.IntegerField(null=True, blank=True)
+    etiqueta = models.CharField(max_length=150, null=True, blank=True)
+    equipo_nombre = models.CharField(max_length=150, null=True, blank=True)
+    descripcion = models.TextField(null=True, blank=True)
+
+    tipo_mantencion = models.CharField(max_length=50, null=True, blank=True)
+    prioridad = models.CharField(max_length=50, null=True, blank=True)
+    estado_actual = models.CharField(max_length=50, null=True, blank=True)
+
+    responsable_nombre = models.CharField(max_length=255, null=True, blank=True)
+    solicitante_nombre = models.CharField(max_length=255, null=True, blank=True)
+
+    old_values = models.JSONField(null=True, blank=True)
+    new_values = models.JSONField(null=True, blank=True)
+
+    @property
+    def asignado_a(self) -> str:
+        # Mostrar responsable si viene en la vista; si no, vacío
+        return (self.responsable_nombre or "").strip()
+
+    class Meta:
+        managed = False
+        db_table = "vw_historial_mantenciones"   # usa la VIEW, no crees tabla
+        verbose_name = "Historial de Mantenciones"
+        verbose_name_plural = "Historial de Mantenciones"
+        default_permissions = ("view",)
+
+    def __str__(self):
+        return f"[{self.id_mantencion}] {self.accion} @ {self.fecha_evento:%Y-%m-%d %H:%M}"
+####################################################################################################
+#nueva clase para mantenimiento
+
+class HistorialMantencionesLog(models.Model):
+    id_evento = models.BigAutoField(primary_key=True)
+    id_mantencion = models.IntegerField()
+    fecha_evento = models.DateTimeField()
+    accion = models.CharField(max_length=30)
+    detalle = models.TextField(blank=True, default="")
+    usuario_app_username = models.CharField(max_length=150, null=True, blank=True)
+
+    # snapshot
+    id_equipo = models.IntegerField(null=True, blank=True)
+    etiqueta = models.CharField(max_length=150, null=True, blank=True)
+    equipo_nombre = models.CharField(max_length=150, null=True, blank=True)
+
+    tipo_mantencion = models.CharField(max_length=50, null=True, blank=True)
+    prioridad = models.CharField(max_length=50, null=True, blank=True)
+    estado_actual = models.CharField(max_length=50, null=True, blank=True)
+
+    responsable_nombre = models.TextField(null=True, blank=True)
+    solicitante_nombre = models.TextField(null=True, blank=True)
+
+    descripcion = models.TextField(null=True, blank=True)
+
+    class Meta:
+        managed = False  # la tabla ya existe en la BD
+        db_table = 'inventario"."historial_mantenciones_log'
+        verbose_name = "Historial de mantenciones (log)"
+        verbose_name_plural = "Historial de mantenciones (log)"
+
+    def __str__(self):
+        return f"[{self.fecha_evento:%Y-%m-%d %H:%M}] M#{self.id_mantencion} · {self.accion}"
+
+    @property
+    def asignado_a(self) -> str:
+        return (self.responsable_nombre or self.solicitante_nombre or "").strip()

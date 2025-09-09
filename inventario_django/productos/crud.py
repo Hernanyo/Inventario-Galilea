@@ -19,6 +19,16 @@ from django.shortcuts import get_object_or_404, render
 from .models_inventario import Equipo, HistorialEquipos
 from django.core.exceptions import ValidationError
 
+from django.db import connection
+from django.shortcuts import render, get_object_or_404
+from django.http import Http404
+from datetime import datetime, timedelta
+from django.db import connection
+from django.utils import timezone
+from django.db import connection
+
+from productos.models_inventario import HistorialMantencionesLog  # evitar ciclos
+
 
 
 
@@ -171,6 +181,13 @@ class GenericList(ModelPermsMixin, ListView):
         can_create = self.request.user.has_perm(
             f"{self.model._meta.app_label}.add_{self.model._meta.model_name}"
         )
+
+        # 🚫 Si el modelo es unmanaged (vista SQL), no mostrar botón "Nuevo"
+        #if not getattr(self.model._meta, "managed", True):
+        #    can_create = False
+
+
+
         # pásalo al template como parte del config (para que el template actual funcione)
         self.crud_config.can_create = can_create
         # (opcional) también en el contexto por si te sirve en otros templates
@@ -305,6 +322,61 @@ class GenericDelete(ModelPermsMixin, DeleteView):
         ctx["cfg"] = self.crud_config
         return ctx
 
+from django.db import connection
+
+def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
+    """
+    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log.
+    Usa INSERT...SELECT para que el DEFAULT now() de fecha_evento se aplique.
+    """
+    username = user.get_username() if getattr(user, "is_authenticated", False) else None
+
+    with connection.cursor() as c:
+        c.execute("""
+            INSERT INTO inventario.historial_mantenciones_log
+            (
+                id_mantencion,
+                accion,
+                detalle,
+                usuario_app_username,
+                id_equipo,
+                etiqueta,
+                equipo_nombre,
+                tipo_mantencion,
+                prioridad,
+                estado_actual,
+                responsable_nombre,
+                solicitante_nombre,
+                descripcion
+            )
+            SELECT
+                m.id_mantencion,
+                %s,                         -- accion
+                %s,                         -- detalle
+                %s,                         -- usuario_app_username
+                e.id_equipo,
+                e.etiqueta,
+                e.nombre_equipo,
+                tm.nombre,                  -- tipo de mantención (texto)
+                pr.nombre,                  -- prioridad (texto)
+                est.tipo,                   -- estado (texto)
+                concat_ws(' ', resp.nombre, resp.apellido_paterno, resp.apellido_materno),
+                concat_ws(' ', sol.nombre,  sol.apellido_paterno,  sol.apellido_materno),
+                m.descripcion
+            FROM inventario.mantencion m
+            LEFT JOIN inventario.equipo               e   ON e.id_equipo = m.id_equipo
+            LEFT JOIN inventario.tipo_mantencion      tm  ON tm.id_tipo_mantencion = m.id_tipo_mantencion
+            LEFT JOIN inventario.prioridad_mantencion pr  ON pr.id_prioridad        = m.id_prioridad
+            LEFT JOIN inventario.estado_mantencion    est ON est.id_estado_mantencion = m.id_estado_mantencion
+            LEFT JOIN inventario.empleado             resp ON resp.id_empleado = m.id_empleado_responsable
+            LEFT JOIN inventario.empleado             sol  ON sol.id_empleado  = m.id_empleado_solicitante
+            WHERE m.id_mantencion = %s
+        """, [
+            (accion or "").upper(),
+            (detalle or ""),
+            username,
+            mantencion_obj.id_mantencion,
+        ])
 
 # ---------- Export CSV ----------
 
@@ -364,6 +436,7 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
         DeleteCls = view_class(m, cfg, GenericDelete)
         csv_view  = export_csv_view(m, cfg)
 
+
         patterns += [
             path(f"{cfg.slug}/",                  ListCls.as_view(),    name=f"{cfg.slug}_list"),
             path(f"{cfg.slug}/nuevo/",            CreateCls.as_view(),  name=f"{cfg.slug}_create"),
@@ -410,6 +483,92 @@ historial_cfg = CrudConfig(
     search_fields=["equipo__nombre_equipo", "usuario__nombre", "accion"],
     ordering=["-fecha"]
 )
+
+def _dictfetchall(cursor):
+    cols = [col[0] for col in cursor.description]
+    return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+def historial_mantencion(request, id_mantencion: int):
+    """
+    Muestra el historial de una mantención específica (botón de detalle).
+    Lee desde la vista inventario.vw_historial_mantenciones.
+    """
+    # Valida que exista la mantención
+    with connection.cursor() as c:
+        c.execute("""
+            SELECT m.id_mantencion, m.id_equipo, m.descripcion, m.fecha
+            FROM inventario.mantencion m
+            WHERE m.id_mantencion = %s
+            """, [id_mantencion])
+        mant = _dictfetchall(c)
+    if not mant:
+        raise Http404("Mantención no encontrada")
+    mantencion = mant[0]
+
+    # Trae historial
+    with connection.cursor() as c:
+        c.execute("""
+            SELECT
+              fecha_evento,
+              accion,
+              COALESCE(detalle, '') AS detalle,
+              COALESCE(usuario_app_username, 'sistema') AS usuario_app_username,
+              estado_actual,
+              old_values,
+              new_values
+            FROM inventario.vw_historial_mantenciones
+            WHERE id_mantencion = %s
+            ORDER BY fecha_evento DESC
+            """, [id_mantencion])
+        historial = _dictfetchall(c)
+
+    # Opcional: transformar JSONB (psycopg2 los entrega como dict si el adaptador está activo;
+    # si llegan como str, puedes parsear con json.loads)
+    # Aquí solo lo pasamos al template tal cual.
+
+    ctx = {
+        "mantencion": mantencion,
+        "historial": historial,
+    }
+    return render(request, "mantenciones/historial_mantencion.html", ctx)
+
+
+def ultimos_cambios_mantenciones(request):
+    """
+    Tablero global: últimos cambios en mantenciones (por defecto últimos 7 días, top 100).
+    """
+    dias = int(request.GET.get("dias", "7"))
+    limite = int(request.GET.get("limit", "100"))
+
+    with connection.cursor() as c:
+        c.execute("""
+            SELECT
+              h.fecha_evento,
+              h.accion,
+              COALESCE(h.detalle, '') AS detalle,
+              h.id_mantencion,
+              m.id_equipo,
+              est.tipo AS estado_actual,
+              h.old_values,
+              h.new_values
+            FROM inventario.historial_mantenciones h
+            JOIN inventario.mantencion m ON m.id_mantencion = h.id_mantencion
+            LEFT JOIN inventario.estado_mantencion est ON est.id_estado_mantencion = m.id_estado_mantencion
+            WHERE h.fecha_evento >= NOW() - (%s || ' days')::interval
+            ORDER BY h.fecha_evento DESC
+            LIMIT %s
+            """, [dias, limite])
+        eventos = _dictfetchall(c)
+
+    ctx = {
+        "eventos": eventos,
+        "dias": dias,
+        "limite": limite,
+    }
+    return render(request, "mantenciones/ultimos_cambios_mantenciones.html", ctx)
+
+
+
 
 CRUD_CONFIGS = _collect_unique_crud_configs()
 

@@ -1,8 +1,17 @@
 # productos/urls.py
-from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.urls import path
 from django.shortcuts import get_object_or_404
+
+from productos.forms import MantencionForm
+from productos.models_inventario import (
+    DetalleFactura,
+    HistorialEquipos,
+    Equipo,
+    Mantencion,
+    HistorialMantencionesLog,
+)
 
 from .views import HomeView
 from .overview import CardsGridView, ListVerticalView, MetricsDashboardView
@@ -10,17 +19,14 @@ from .views_qr import qr_print_view
 
 from productos.crud import (
     GenericList,
+    GenericCreate,
+    GenericUpdate,
     build_config,
     view_class,
     export_csv_view,
     CrudConfig,
     urlpatterns as crud_urls,
-)
-
-from productos.models_inventario import (
-    DetalleFactura,
-    HistorialEquipos,
-    Equipo,
+    log_mantencion_event,   # <- nombre correcto
 )
 
 app_name = "productos"
@@ -52,14 +58,16 @@ urlpatterns = [
 # --- Historial de Equipos (config dedicada) ---
 historial_cfg = CrudConfig(
     model=HistorialEquipos,
-    slug="historial_equipos",  # ojo: coincide con el botón superior
+    slug="historial_equipos",
     verbose_plural="Historial de Equipos",
     list_display=[
         "id", "etiqueta", "equipo", "fecha", "responsable_anterior",
-        "estado_anterior", "estado_nuevo", "responsable_actual", "empresa", "departamento", "usuario"
+        "estado_anterior", "estado_nuevo", "responsable_actual", "empresa",
+        "departamento", "usuario",
     ],
     search_fields=[
-        "equipo__nombre_equipo", "usuario__nombre", "accion", "etiqueta", "nombre_equipo",
+        "equipo__nombre_equipo", "usuario__nombre", "accion", "etiqueta",
+        "nombre_equipo",
     ],
     ordering=["-fecha"],
 )
@@ -68,13 +76,12 @@ class HistorialList(view_class(HistorialEquipos, historial_cfg, GenericList)):
     def get_queryset(self):
         qs = super().get_queryset().select_related(
             "equipo", "usuario", "estado_anterior", "estado_nuevo",
-            "responsable_actual", "empresa", "departamento", "tipo_equipo"
+            "responsable_actual", "empresa", "departamento", "tipo_equipo",
         )
         return qs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        # 🚫 No se crean registros del historial desde la UI
         self.crud_config.can_create = False
         ctx["can_create"] = False
         return ctx
@@ -100,13 +107,118 @@ class HistorialPorEquipo(HistorialList):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["equipo"] = self.equipo
-        # Reafirmamos que no se puede “crear”
         self.crud_config.can_create = False
         ctx["can_create"] = False
         return ctx
+
 urlpatterns += [
     path("equipos/<int:pk>/historial/", HistorialPorEquipo.as_view(), name="equipo_historial_list"),
 ]
 
-# --- Rutas CRUD autogeneradas ---
+# --- Rutas CRUD autogeneradas (todas las demás tablas) ---
 urlpatterns += crud_urls
+
+# --- Historial de Mantenciones (usa la tabla snapshot física) ---
+hist_mant_cfg = CrudConfig(
+    model=HistorialMantencionesLog,
+    slug="historial_mantenciones",
+    verbose_plural="Historial de Mantenciones",
+    list_display=[
+        "id_equipo",
+        "etiqueta",
+        "equipo_nombre",
+        "fecha_evento",
+        # "accion",  # si lo quieres visible en CSV, descomentar
+        "tipo_mantencion",
+        "prioridad",
+        "estado_actual",
+        "asignado a",
+        #"responsable_nombre",
+        #"solicitante_nombre",
+        "descripcion",
+        "detalle",
+        "usuario_app_username",
+    ],
+    search_fields=[
+        "etiqueta",
+        "equipo_nombre",
+        "descripcion",
+        "tipo_mantencion",
+        "prioridad",
+        "estado_actual",
+        "accion",
+        "usuario_app_username",
+        "responsable_nombre",
+        "solicitante_nombre",
+    ],
+    ordering=["-fecha_evento"],
+)
+
+mant_cfg = CrudConfig(
+    model=Mantencion,
+    slug="mantencions",
+    verbose_plural="Mantenciones",
+    list_display=[
+        "id_mantencion", "id_equipo", "fecha",
+        "id_estado_mantencion", "id_tipo_mantencion", "id_prioridad",
+    ],
+    search_fields=["descripcion", "id_equipo__etiqueta", "id_equipo__nombre_equipo"],
+    ordering=["-fecha"],
+)
+
+class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
+    form_class = MantencionForm
+    def form_valid(self, form):
+        resp = super().form_valid(form)
+        log_mantencion_event(self.request.user, self.object, "CREAR", "Alta de mantención")
+        return resp
+
+class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
+    form_class = MantencionForm
+    def form_valid(self, form):
+        resp = super().form_valid(form)
+        log_mantencion_event(self.request.user, self.object, "ACTUALIZAR", "Edición de mantención")
+        return resp
+
+class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        self.crud_config.can_create = False
+        ctx["can_create"] = False
+        return ctx
+
+class HistorialMantencionDetalle(HistorialMantencionesList):
+    def dispatch(self, request, *args, **kwargs):
+        self.id_mantencion = kwargs["id_mantencion"]
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return super().get_queryset().filter(id_mantencion=self.id_mantencion)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        self.crud_config.can_create = False
+        ctx["can_create"] = False
+        ctx["subtitle"] = f"Mantención #{self.id_mantencion}"
+        return ctx
+
+urlpatterns += [
+    path(
+        "historial_mantenciones/",
+        HistorialMantencionesList.as_view(),
+        name="historial_mantenciones_list",
+    ),
+    path(
+        "historial_mantenciones/exportar/csv/",
+        export_csv_view(HistorialMantencionesLog, hist_mant_cfg),
+        name="historial_mantenciones_csv",
+    ),
+    path(
+        "mantenciones/<int:id_mantencion>/historial/",
+        HistorialMantencionDetalle.as_view(),
+        name="historial_mantencion",
+    ),
+    # Rutas personalizadas para usar MantencionForm + logging
+    path("mantencions/create/", MantencionCreate.as_view(), name="mantencions_create"),
+    path("mantencions/<int:pk>/update/", MantencionUpdate.as_view(), name="mantencions_update"),
+]

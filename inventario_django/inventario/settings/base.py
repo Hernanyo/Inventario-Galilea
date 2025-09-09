@@ -49,6 +49,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "productos.middleware.SetAppUsernameMiddleware",  # 👈
+
 ]
 
 ROOT_URLCONF = "inventario.urls"
@@ -171,3 +173,4 @@ LOGIN_URL = 'login'                         # a dónde mandar si no está loguea
 LOGIN_REDIRECT_URL = 'productos:home'       # a dónde ir después de iniciar sesión
 LOGOUT_REDIRECT_URL = 'login'               # a dónde ir después de cerrar sesión (o 'productos:home' si prefieres)
 
+DATABASES['default']['OPTIONS'] = {'options': '-c search_path=public,inventario'}

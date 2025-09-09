@@ -18,10 +18,23 @@
       <div class="offcanvas-body p-0">
         <div class="list-group list-group-flush sticky-top" style="top: 84px;">
           {% for m in menu %}
-            {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoequipos' and m.slug != 'estadoequipos' and m.slug != 'atributosequipos' and m.slug != 'departamentos' %}
+            {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoequipos' and m.slug != 'estadoequipos' and m.slug != 'atributosequipos' and m.slug != 'departamentos' and m.slug != 'historialequipos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' %}
               <a href="/{{ m.slug }}/" 
                  class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                <span><i class="bi {{ m.icon }} me-2"></i>{{ m.name }}</span>
+                <span>
+                  <i class="
+                    {% if m.slug == 'empresas' %}bi-buildings
+                    {% elif m.slug == 'empleados' %}bi-people
+                    {% elif m.slug == 'marcas' %}bi-tags
+                    {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
+                    {% elif m.slug == 'equipos' %}bi-pc-display
+                    {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
+                    {% elif m.slug == 'facturas' %}bi-receipt
+                    {% else %}bi-folder
+                    {% endif %}
+                    me-2"></i>
+                  {{ m.name }}
+                </span>
                 <span class="badge rounded-pill text-bg-secondary">{{ m.count }}</span>
               </a>
             {% endif %}
