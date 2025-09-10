@@ -323,6 +323,8 @@ class HistorialEquipos(models.Model):
         con el formato: RESP_ANT=<id>. Si no existe, retorna None.
         (Se mantiene por compatibilidad con tu UI actual.)
         """
+        if getattr(self, "responsable_anterior_fk_id", None):
+            return self.responsable_anterior_fk
         from .models_inventario import Empleado  # import local para evitar ciclos
         if not self.comentario:
             return None

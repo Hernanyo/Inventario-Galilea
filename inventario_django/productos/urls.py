@@ -4,6 +4,11 @@ from django.conf.urls.static import static
 from django.urls import path
 from django.shortcuts import get_object_or_404
 
+# arriba, con los otros imports
+from productos.views import EquiposDisponiblesView
+from productos.models_inventario import Equipo
+from productos.crud import GenericList, build_config, view_class
+
 from productos.forms import MantencionForm
 from productos.models_inventario import (
     DetalleFactura,
@@ -222,4 +227,41 @@ urlpatterns += [
     # Rutas personalizadas para usar MantencionForm + logging
     path("mantencions/create/", MantencionCreate.as_view(), name="mantencions_create"),
     path("mantencions/<int:pk>/update/", MantencionUpdate.as_view(), name="mantencions_update"),
+
+    path("equipos/disponibles/", EquiposDisponiblesView.as_view(), name="equipos_disponibles"),
+
+]
+
+# Disponibles = estado 'bodega' y sin responsable
+class EquiposDisponiblesList(view_class(Equipo, build_config(Equipo), GenericList)):
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("id_marca", "id_tipo_equipo", "id_estado_equipo", "id_empleado")
+        return qs.filter(
+            id_estado_equipo__descripcion__iexact="bodega",
+            id_empleado__isnull=True,
+        ).order_by("-id_equipo")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["subtitle"] = "Solo equipos disponibles (Bodega • sin responsable)"
+        return ctx
+
+
+# En uso = asignados (responsable NO nulo)
+class EquiposEnUsoList(view_class(Equipo, build_config(Equipo), GenericList)):
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("id_marca", "id_tipo_equipo", "id_estado_equipo", "id_empleado")
+        return qs.filter(
+            id_empleado__isnull=False
+        ).order_by("-id_equipo")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["subtitle"] = "Solo equipos en uso (asignados a alguien)"
+        return ctx
+
+# Rutas filtradas clásicas (si quieres mantenerlas, usa otros paths para no pisar el anterior)
+urlpatterns += [
+#     path("equipos/disponibles/lista/", EquiposDisponiblesList.as_view(), name="equipos_disponibles_lista"),
+     path("equipos/en-uso/",           EquiposEnUsoList.as_view(),      name="equipos_en_uso"),
 ]

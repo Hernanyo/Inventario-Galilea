@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Equipos disponibles{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Equipos disponibles</h1>
+
+<p class="text-muted">Total: <strong>{{ total|default:0 }}</strong></p>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="d-flex align-items-center gap-2 mb-3">
+    <div>
+      <label for="empleado_id" class="form-label mb-1">Empleado destino</label>
+      <select name="empleado_id" id="empleado_id" class="form-select">
+        <option value="">— Selecciona empleado —</option>
+        {% for e in empleados %}
+          <option value="{{ e.id_empleado }}">
+            {{ e.nombre }} {{ e.apellido_paterno }}{% if e.apellido_materno %} {{ e.apellido_materno }}{% endif %}
+            {% if e.id_empresa %} · {{ e.id_empresa.nombre_empresa }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="btn-asignar">Asignar seleccionados</button>
+    <a href="{% url 'productos:dashboard' %}" class="btn btn-outline-secondary">Volver</a>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width:28px;">
+              <input type="checkbox" id="check-all">
+            </th>
+            <th>ID</th>
+            <th>Etiqueta</th>
+            <th>Nombre</th>
+            <th>Marca</th>
+            <th>Tipo</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for eq in equipos %}
+            <tr>
+              <td>
+                <input type="checkbox" name="equipos" value="{{ eq.id_equipo }}" class="row-check">
+              </td>
+              <td class="text-muted">{{ eq.id_equipo }}</td>
+              <td>{{ eq.etiqueta|default:"—" }}</td>
+              <td>{{ eq.nombre_equipo }}</td>
+              <td>{{ eq.id_marca }}</td>
+              <td>{{ eq.id_tipo_equipo }}</td>
+              <td>{{ eq.id_estado_equipo }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">No hay equipos disponibles.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</form>
+
+<script>
+  // Marcar / desmarcar todos
+  const checkAll = document.getElementById('check-all');
+  const checks = document.querySelectorAll('.row-check');
+  if (checkAll) {
+    checkAll.addEventListener('change', () => {
+      checks.forEach(c => c.checked = checkAll.checked);
+    });
+  }
+
+  // Validación simple: requiere al menos 1 equipo y un empleado seleccionado
+  const btn = document.getElementById('btn-asignar');
+  btn.addEventListener('click', (ev) => {
+    const anyChecked = Array.from(checks).some(c => c.checked);
+    const empleado = document.getElementById('empleado_id').value;
+    if (!anyChecked) {
+      ev.preventDefault();
+      alert('Selecciona al menos un equipo.');
+      return;
+    }
+    if (!empleado) {
+      ev.preventDefault();
+      alert('Selecciona un empleado destino.');
+      return;
+    }
+    // Confirmación
+    if (!confirm('¿Confirmas la asignación masiva de los equipos seleccionados?')) {
+      ev.preventDefault();
+    }
+  });
+</script>
+{% endblock %}

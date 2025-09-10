@@ -29,24 +29,31 @@
       </div>
     </div>
   </div>
+
   <div class="col-md-3">
-    <div class="card h-100 shadow-sm">
-      <div class="card-body text-center kpi-body">
-        <h6 class="text-muted">Disponibles</h6>
-        <div class="display-6">{{ disponibles|default:0 }}</div>
-        <small class="text-muted">equipos</small>
+    <a href="{% url 'productos:equipos_disponibles' %}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body text-center kpi-body">
+          <h6 class="text-muted">Disponibles</h6>
+          <div class="display-6">{{ disponibles|default:0 }}</div>
+          <small class="text-muted">equipos</small>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
+
   <div class="col-md-3">
-    <div class="card h-100 shadow-sm">
-      <div class="card-body text-center kpi-body">
-        <h6 class="text-muted">En uso</h6>
-        <div class="display-6">{{ en_uso|default:0 }}</div>
-        <small class="text-muted">equipos</small>
+    <a href="{% url 'productos:equipos_en_uso' %}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body text-center kpi-body">
+          <h6 class="text-muted">En uso</h6>
+          <div class="display-6">{{ en_uso|default:0 }}</div>
+          <small class="text-muted">equipos</small>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
+
   <div class="col-md-3">
     <div class="card h-100 shadow-sm">
       <div class="card-body text-center kpi-body">

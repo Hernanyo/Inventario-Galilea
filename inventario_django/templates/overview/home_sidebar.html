@@ -51,45 +51,56 @@
       <small class="text-muted">Hola, {{ request.user.get_username }}</small>
     </div>
 
-    <!-- KPIs -->
-    <div class="row g-3 mb-3">
-      <div class="col-6 col-md-3">
-        <div class="card h-100 shadow-sm">
-          <div class="card-body text-center">
-            <div class="text-muted">Equipos</div>
-            <div class="display-6">{{ total_equipos|default:0 }}</div>
-            <small class="text-muted">registrados</small>
-          </div>
+  <!-- KPIs -->
+  <div class="row g-3 mb-4 align-items-stretch">
+
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body text-center kpi-body">
+          <h6 class="text-muted">Equipos</h6>
+          <div class="display-6">{{ total_equipos|default:0 }}</div>
+          <small class="text-muted">registrados</small>
         </div>
       </div>
-      <div class="col-6 col-md-3">
+    </div>
+
+    <!-- Disponibles → click lleva a la lista filtrada -->
+    <div class="col-md-3">
+      <a href="{% url 'productos:equipos_disponibles' %}" class="text-decoration-none">
         <div class="card h-100 shadow-sm">
-          <div class="card-body text-center">
-            <div class="text-muted">Disponibles</div>
+          <div class="card-body text-center kpi-body">
+            <h6 class="text-muted">Disponibles</h6>
             <div class="display-6">{{ disponibles|default:0 }}</div>
             <small class="text-muted">equipos</small>
           </div>
         </div>
-      </div>
-      <div class="col-6 col-md-3">
+      </a>
+    </div>
+
+    <!-- En uso → click lleva a la lista filtrada -->
+    <div class="col-md-3">
+      <a href="{% url 'productos:equipos_en_uso' %}" class="text-decoration-none">
         <div class="card h-100 shadow-sm">
-          <div class="card-body text-center">
-            <div class="text-muted">En uso</div>
+          <div class="card-body text-center kpi-body">
+            <h6 class="text-muted">En uso</h6>
             <div class="display-6">{{ en_uso|default:0 }}</div>
             <small class="text-muted">equipos</small>
           </div>
         </div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="card h-100 shadow-sm">
-          <div class="card-body text-center">
-            <div class="text-muted">Mantenciones pendientes</div>
-            <div class="display-6">{{ mantenciones_pendientes|default:0 }}</div>
-            <small class="text-muted">tareas</small>
-          </div>
+      </a>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body text-center kpi-body">
+          <h6 class="text-muted">Mantenciones pendientes</h6>
+          <div class="display-6">{{ mantenciones_pendientes|default:0 }}</div>
+          <small class="text-muted">tareas</small>
         </div>
       </div>
     </div>
+  </div>
+
 
     <!-- Gráficos / tablas -->
     <div class="row g-3 mb-3">
