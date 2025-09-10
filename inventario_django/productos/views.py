@@ -4,6 +4,13 @@ from django.views.generic import TemplateView
 from django.db.models import Count
 from .crud import get_crud_configs
 
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
+from .forms import MantencionForm
+from .models_inventario import Mantencion, HistorialMantencionesLog
+
 # modelos opcionales (según tu app)
 try:
     from .models_inventario import (
@@ -95,3 +102,60 @@ class HomeView(LoginRequiredMixin, TemplateView):
             ctx["chart_mant_values"] = []
 
         return ctx
+
+def _log_mantencion_snapshot(mant: Mantencion, accion: str, user, detalle: str = ""):
+    HistorialMantencionesLog.objects.create(
+        id_mantencion=mant.id_mantencion,
+        fecha_evento=timezone.now(),
+        accion=accion,
+        detalle=detalle or "",
+        usuario_app_username=getattr(user, 'username', ''),
+
+        id_equipo=mant.id_equipo_id,
+        etiqueta=getattr(mant.id_equipo, 'etiqueta', None),
+        equipo_nombre=str(mant.id_equipo)[:150] if mant.id_equipo else None,
+
+        tipo_mantencion=str(mant.id_tipo_mantencion) if mant.id_tipo_mantencion else None,
+        prioridad=str(mant.id_prioridad) if mant.id_prioridad else None,
+        estado_actual=str(mant.id_estado_mantencion) if mant.id_estado_mantencion else None,
+
+        responsable_nombre=str(mant.responsable) if mant.responsable else None,
+        solicitante_nombre=str(mant.solicitante_user) if mant.solicitante_user else None,
+
+        descripcion=mant.descripcion or "",
+    )
+
+@login_required
+def mantencion_nueva(request):
+    if request.method == 'POST':
+        form = MantencionForm(request.POST, request=request)
+        if form.is_valid():
+            mant = form.save(commit=False)
+            # solicitante = usuario logueado
+            mant.solicitante_user = request.user
+            # si asignado_a va vacío, el form ya lo igualó a responsable
+            mant.save()
+            _log_mantencion_snapshot(mant, 'ALTA', request.user, 'Alta de mantención')
+            return redirect('mantenciones_list')
+    else:
+        form = MantencionForm(request=request)
+    return render(request, 'mantenciones/nueva.html', {'form': form})
+
+@login_required
+def mantencion_editar(request, pk):
+    mant = get_object_or_404(Mantencion, pk=pk)
+    estado_ant = mant.id_estado_mantencion_id
+    asignado_ant = mant.asignado_a_id
+    if request.method == 'POST':
+        form = MantencionForm(request.POST, instance=mant, request=request)
+        if form.is_valid():
+            mant = form.save()
+            if mant.id_estado_mantencion_id != estado_ant:
+                _log_mantencion_snapshot(mant, 'ESTADO', request.user, 'Cambio de estado')
+            if mant.asignado_a_id != asignado_ant:
+                _log_mantencion_snapshot(mant, 'ASIGN', request.user, 'Asignación/Reasignación')
+            _log_mantencion_snapshot(mant, 'EDICION', request.user, 'Edición de mantención')
+            return redirect('mantenciones_list')
+    else:
+        form = MantencionForm(instance=mant, request=request)
+    return render(request, 'mantenciones/editar.html', {'form': form, 'mantencion': mant})

@@ -2,7 +2,6 @@
 from dataclasses import dataclass, field
 from typing import Sequence, List, Type
 import csv
-
 from django.apps import apps
 from django.db.models import Q, Model, CharField, TextField, BooleanField, \
                              IntegerField, FloatField, ForeignKey, DateField, DateTimeField
@@ -12,13 +11,10 @@ from django.urls import path, reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin  # (si ModelPermsMixin lo usa)
 from .mixins import ModelPermsMixin
-
 from django import forms
 from django.shortcuts import get_object_or_404, render
-
 from .models_inventario import Equipo, HistorialEquipos
 from django.core.exceptions import ValidationError
-
 from django.db import connection
 from django.shortcuts import render, get_object_or_404
 from django.http import Http404
@@ -26,10 +22,34 @@ from datetime import datetime, timedelta
 from django.db import connection
 from django.utils import timezone
 from django.db import connection
+# crud.py
+from productos.forms import MantencionForm, EmpleadoForm
+
 
 from productos.models_inventario import HistorialMantencionesLog  # evitar ciclos
+from productos.forms import MantencionForm
 
-
+def _build_default_form(model):
+    from django.db.models import DateField, DateTimeField, ForeignKey, TextField, BooleanField, IntegerField, FloatField
+    widgets = {}
+    for f in model._meta.fields:
+        if not getattr(f, "editable", True):
+            continue
+        if isinstance(f, ForeignKey):
+            widgets[f.name] = forms.Select(attrs={"class": "form-select"})
+        elif isinstance(f, DateTimeField):
+            widgets[f.name] = forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"})
+        elif isinstance(f, DateField):
+            widgets[f.name] = forms.DateInput(attrs={"type": "date", "class": "form-control"})
+        elif isinstance(f, TextField):
+            widgets[f.name] = forms.Textarea(attrs={"rows": 3, "class": "form-control"})
+        elif isinstance(f, BooleanField):
+            widgets[f.name] = forms.CheckboxInput(attrs={"class": "form-check-input"})
+        elif isinstance(f, (IntegerField, FloatField)):
+            widgets[f.name] = forms.NumberInput(attrs={"class": "form-control"})
+        else:
+            widgets[f.name] = forms.TextInput(attrs={"class": "form-control"})
+    return modelform_factory(model, fields="__all__", widgets=widgets)
 
 
 # ---------- Config e inferencia ----------
@@ -204,8 +224,16 @@ class GenericCreate(ModelPermsMixin, CreateView):
     def get_form_class(self):
         if self.model.__name__ == "Equipo":
             return EquipoForm
-        return modelform_factory(self.model, fields="__all__")
+        if self.model.__name__ == "Mantencion":     # ← añade esto
+            from productos.forms import MantencionForm
+            return MantencionForm
+        #return _build_default_form(self.model)
+        if self.model.__name__ == "Empleado":
+            from productos.forms import EmpleadoForm        # ← usar el de forms.py
+            return EmpleadoForm
+        return _build_default_form(self.model)
 
+    
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
@@ -213,6 +241,13 @@ class GenericCreate(ModelPermsMixin, CreateView):
         if self.model.__name__ == "Equipo":
             # guarda el usuario actual (Empleado vinculado)
             form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
+        #return super().form_valid(form)
+        
+        # 👇 Nuevo: setear solicitante automáticamente al crear mantención
+        if self.model.__name__ == "Mantencion":
+            if not getattr(form.instance, "solicitante_user_id", None):
+                form.instance.solicitante_user = self.request.user
+
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
@@ -221,14 +256,50 @@ class GenericCreate(ModelPermsMixin, CreateView):
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
 
+        # EQUIPO: ya tenías sidebar propio
         if self.model.__name__ == "Equipo":
-            ultimos_5 = Equipo.objects.order_by("-id_equipo")[:5]
+            ultimos = Equipo.objects.order_by("-id_equipo")[:15]
             ultima = Equipo.objects.order_by("-id_equipo").first()
-            ctx["ultimos_equipos"] = ultimos_5
+            ctx["ultimos_equipos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
-        return ctx
+        # MANTENCION: últimas mantenciones
+        elif self.model.__name__ == "Mantencion":
+            from .models_inventario import Mantencion as Mant
+            ctx["side_title"] = "Últimas mantenciones"
+            ctx["side_items"] = (
+                Mant.objects.select_related("id_equipo")
+                .order_by("-id_mantencion")[:15]
+            )
 
+        # EMPRESA: últimas empresas
+        elif self.model.__name__ == "Empresa":
+            from .models_inventario import Empresa as Emp
+            ctx["side_title"] = "Últimas empresas"
+            ctx["side_items"] = Emp.objects.order_by("-id_empresa")[:15]
+
+        elif self.model.__name__ == "Empleado":
+            from .models_inventario import Empleado as Emp
+            ctx["side_title"] = "Últimos empleados"
+            ctx["side_items"] = Emp.objects.order_by("-id_empleado")[:15]
+
+        elif self.model.__name__ == "Marca":
+            from .models_inventario import Marca as M
+            ctx["side_title"] = "Últimas marcas"
+            ctx["side_items"] = M.objects.order_by("-id_marca")[:15]
+
+        elif self.model.__name__ == "Proveedor":
+            from .models_inventario import Proveedor as P
+            ctx["side_title"] = "Últimos proveedores"
+            ctx["side_items"] = P.objects.order_by("-id_proveedor")[:15]
+
+        elif self.model.__name__ == "Factura":
+            from .models_inventario import Factura as F
+            ctx["side_title"] = "Últimas facturas"
+            ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
+
+
+        return ctx
 
 class GenericUpdate(ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
@@ -238,7 +309,13 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
     def get_form_class(self):
         if self.model.__name__ == "Equipo":
             return EquipoForm
-        return modelform_factory(self.model, fields="__all__")
+        if self.model.__name__ == "Mantencion":     # ← y esto
+            from productos.forms import MantencionForm
+            return MantencionForm
+        #return _build_default_form(self.model)
+        if self.model.__name__ == "Empleado":
+            from productos.forms import EmpleadoForm        # ← usar el de forms.py
+            return EmpleadoForm
 
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
@@ -257,10 +334,44 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
         ctx["cfg"] = self.crud_config
 
         if self.model.__name__ == "Equipo":
-            ultimos_5 = Equipo.objects.order_by("-id_equipo")[:5]
+            ultimos = Equipo.objects.order_by("-id_equipo")[:15]
             ultima = Equipo.objects.order_by("-id_equipo").first()
-            ctx["ultimos_equipos"] = ultimos_5
+            ctx["ultimos_equipos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
+
+        elif self.model.__name__ == "Mantencion":
+            from .models_inventario import Mantencion as Mant
+            ctx["side_title"] = "Últimas mantenciones"
+            ctx["side_items"] = (
+                Mant.objects.select_related("id_equipo")
+                .order_by("-id_mantencion")[:15]
+            )
+
+        elif self.model.__name__ == "Empresa":
+            from .models_inventario import Empresa as Emp
+            ctx["side_title"] = "Últimas empresas"
+            ctx["side_items"] = Emp.objects.order_by("-id_empresa")[:15]
+
+        elif self.model.__name__ == "Empleado":
+            from .models_inventario import Empleado as Emp
+            ctx["side_title"] = "Últimos empleados"
+            ctx["side_items"] = Emp.objects.order_by("-id_empleado")[:15]
+
+        elif self.model.__name__ == "Marca":
+            from .models_inventario import Marca as M
+            ctx["side_title"] = "Últimas marcas"
+            ctx["side_items"] = M.objects.order_by("-id_marca")[:15]
+
+        elif self.model.__name__ == "Proveedor":
+            from .models_inventario import Proveedor as P
+            ctx["side_title"] = "Últimos proveedores"
+            ctx["side_items"] = P.objects.order_by("-id_proveedor")[:15]
+
+        elif self.model.__name__ == "Factura":
+            from .models_inventario import Factura as F
+            ctx["side_title"] = "Últimas facturas"
+            ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
+
 
         return ctx
 
@@ -353,23 +464,29 @@ def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
                 m.id_mantencion,
                 %s,                         -- accion
                 %s,                         -- detalle
-                %s,                         -- usuario_app_username
+                %s,                         -- usuario que gatilla el evento
                 e.id_equipo,
                 e.etiqueta,
                 e.nombre_equipo,
                 tm.nombre,                  -- tipo de mantención (texto)
                 pr.nombre,                  -- prioridad (texto)
                 est.tipo,                   -- estado (texto)
-                concat_ws(' ', resp.nombre, resp.apellido_paterno, resp.apellido_materno),
-                concat_ws(' ', sol.nombre,  sol.apellido_paterno,  sol.apellido_materno),
+                TRIM(CONCAT_WS(' ', resp.nombre, resp.apellido_paterno, resp.apellido_materno)) AS responsable_nombre,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', sol.nombre, sol.apellido_paterno, sol.apellido_materno)), ''),
+                    u.username
+                ) AS solicitante_nombre,
                 m.descripcion
             FROM inventario.mantencion m
             LEFT JOIN inventario.equipo               e   ON e.id_equipo = m.id_equipo
             LEFT JOIN inventario.tipo_mantencion      tm  ON tm.id_tipo_mantencion = m.id_tipo_mantencion
             LEFT JOIN inventario.prioridad_mantencion pr  ON pr.id_prioridad        = m.id_prioridad
             LEFT JOIN inventario.estado_mantencion    est ON est.id_estado_mantencion = m.id_estado_mantencion
-            LEFT JOIN inventario.empleado             resp ON resp.id_empleado = m.id_empleado_responsable
-            LEFT JOIN inventario.empleado             sol  ON sol.id_empleado  = m.id_empleado_solicitante
+            LEFT JOIN inventario.empleado             resp ON resp.id_empleado = m.responsable_id
+            -- 👇 AQUI va tu línea: toma el Empleado vinculado al auth_user solicitante
+            LEFT JOIN inventario.empleado             sol  ON sol.user_id = m.solicitante_user_id
+            -- 👇 y mantenemos también auth_user para fallback a username
+            LEFT JOIN auth_user                        u   ON u.id = m.solicitante_user_id
             WHERE m.id_mantencion = %s
         """, [
             (accion or "").upper(),
@@ -377,7 +494,6 @@ def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
             username,
             mantencion_obj.id_mantencion,
         ])
-
 # ---------- Export CSV ----------
 
 def export_csv_view(model: Type[Model], cfg: CrudConfig):

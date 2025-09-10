@@ -132,7 +132,7 @@ hist_mant_cfg = CrudConfig(
         "tipo_mantencion",
         "prioridad",
         "estado_actual",
-        "asignado a",
+        "asignado_a",
         #"responsable_nombre",
         #"solicitante_nombre",
         "descripcion",
@@ -169,6 +169,7 @@ mant_cfg = CrudConfig(
 class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
     form_class = MantencionForm
     def form_valid(self, form):
+        form.instance.solicitante_user = self.request.user   # ← AQUÍ
         resp = super().form_valid(form)
         log_mantencion_event(self.request.user, self.object, "CREAR", "Alta de mantención")
         return resp

@@ -237,6 +237,12 @@ class Mantencion(models.Model):
     fecha = models.DateField(blank=True, null=True)
     descripcion = models.TextField(blank=True, null=True)
 
+    # NUEVOS (coinciden con SQL)
+    responsable = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_id',
+                                    null=True, blank=True, related_name='mantenciones_responsable')
+    solicitante_user = models.ForeignKey("auth.User", models.DO_NOTHING, db_column='solicitante_user_id',
+                                         null=True, blank=True, related_name='mantenciones_solicitadas')
+
     class Meta:
         managed = False
         db_table = 'mantencion'
@@ -352,6 +358,7 @@ class HistorialEquipos(models.Model):
 
 # --- Nuevo:Historial de Mantenciones ---
 # --- Historial de Mantenciones (VIEW) ---
+
 class HistorialMantenciones(models.Model):
     id_historial = models.IntegerField(primary_key=True)
     id_mantencion = models.IntegerField()
@@ -359,7 +366,7 @@ class HistorialMantenciones(models.Model):
     accion = models.CharField(max_length=50)
     detalle = models.TextField(null=True, blank=True)
     usuario_app_username = models.CharField(max_length=150, null=True, blank=True)
-    responsable_nombre = models.CharField(max_length=200, null=True, blank=True)
+
     # Datos enriquecidos que expone la VIEW
     id_equipo = models.IntegerField(null=True, blank=True)
     etiqueta = models.CharField(max_length=150, null=True, blank=True)
