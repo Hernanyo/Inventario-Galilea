@@ -3,11 +3,26 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path
 from django.shortcuts import get_object_or_404
+from .views import EquiposDesasignarView
+
+from django.urls import path
+from . import views
+
+from .views_atributos import (
+    editar_atributos_por_tipo,
+    ver_atributos_por_tipo,   # ← agrega esta
+)
+
+
 
 # arriba, con los otros imports
 from productos.views import EquiposDisponiblesView
 from productos.models_inventario import Equipo
 from productos.crud import GenericList, build_config, view_class
+from productos.views import api_atributos_por_tipo
+from .views_atributos import editar_atributos_por_tipo  # y cualquier otra vista de ese archivo
+
+
 
 from productos.forms import MantencionForm
 from productos.models_inventario import (
@@ -264,4 +279,36 @@ class EquiposEnUsoList(view_class(Equipo, build_config(Equipo), GenericList)):
 urlpatterns += [
 #     path("equipos/disponibles/lista/", EquiposDisponiblesList.as_view(), name="equipos_disponibles_lista"),
      path("equipos/en-uso/",           EquiposEnUsoList.as_view(),      name="equipos_en_uso"),
+     path("equipos/desasignar/", EquiposDesasignarView.as_view(), name="equipos_desasignar"),
+]
+
+urlpatterns += [
+    path("api/atributos-por-tipo/", api_atributos_por_tipo, name="api_atributos_por_tipo"),
+]
+
+urlpatterns += [
+    path(
+        "tipoequipos/<int:tipo_id>/atributos/",
+        editar_atributos_por_tipo,
+        name="editar_atributos_por_tipo",
+    ),
+]
+
+# productos/urls.py
+#path(
+#    "atributos-por-tipo/<int:tipo_id>/",
+#    views.atributos_por_tipo,
+#    name="atributos_por_tipo",
+#)
+urlpatterns += [
+path(
+    "atributosequipos/por-tipo/<int:tipo_id>/",
+    editar_atributos_por_tipo,
+    name="atributos_por_tipo",
+),
+]
+
+# productos/urls.py (agrega esta línea donde tienes las otras de atributos)
+urlpatterns += [
+    path("tipoequipos/<int:tipo_id>/atributos/ver/", ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
 ]

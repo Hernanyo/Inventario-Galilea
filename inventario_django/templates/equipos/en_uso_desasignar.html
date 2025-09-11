@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Equipos disponibles{% endblock %}
+{% block title %}Equipos en uso{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-3">Equipos disponibles</h1>
+<h1 class="h3 mb-3">Equipos en uso</h1>
 
 <p class="text-muted">Total: <strong>{{ total|default:0 }}</strong></p>
 
@@ -10,20 +10,9 @@
   {% csrf_token %}
 
   <div class="d-flex align-items-center gap-2 mb-3">
-    <div>
-      <label for="empleado_id" class="form-label mb-1">Empleado destino</label>
-      <select name="empleado_id" id="empleado_id" class="form-select">
-        <option value="">— Selecciona empleado —</option>
-        {% for e in empleados %}
-          <option value="{{ e.id_empleado }}">
-            {{ e.nombre }} {{ e.apellido_paterno }}{% if e.apellido_materno %} {{ e.apellido_materno }}{% endif %}
-            {% if e.id_empresa %} · {{ e.id_empresa.nombre_empresa }}{% endif %}
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <button type="submit" class="btn btn-primary" id="btn-asignar">Asignar seleccionados</button>
+    <button type="submit" class="btn btn-primary" id="btn-desasignar">
+      Desasignar seleccionados
+    </button>
     <a href="javascript:history.back()" class="btn btn-outline-secondary">Volver</a>
   </div>
 
@@ -40,6 +29,7 @@
             <th>Nombre</th>
             <th>Marca</th>
             <th>Tipo</th>
+            <th>Responsable</th>
             <th>Estado</th>
           </tr>
         </thead>
@@ -54,11 +44,12 @@
               <td>{{ eq.nombre_equipo }}</td>
               <td>{{ eq.id_marca }}</td>
               <td>{{ eq.id_tipo_equipo }}</td>
+              <td>{{ eq.id_empleado|default:"—" }}</td>
               <td>{{ eq.id_estado_equipo }}</td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="7" class="text-center text-muted py-4">No hay equipos disponibles.</td>
+              <td colspan="8" class="text-center text-muted py-4">No hay equipos en uso.</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -77,23 +68,17 @@
     });
   }
 
-  // Validación simple: requiere al menos 1 equipo y un empleado seleccionado
-  const btn = document.getElementById('btn-asignar');
+  // Validación simple: requiere al menos 1 equipo
+  const btn = document.getElementById('btn-desasignar');
   btn.addEventListener('click', (ev) => {
     const anyChecked = Array.from(checks).some(c => c.checked);
-    const empleado = document.getElementById('empleado_id').value;
     if (!anyChecked) {
       ev.preventDefault();
       alert('Selecciona al menos un equipo.');
       return;
     }
-    if (!empleado) {
-      ev.preventDefault();
-      alert('Selecciona un empleado destino.');
-      return;
-    }
     // Confirmación
-    if (!confirm('¿Confirmas la asignación masiva de los equipos seleccionados?')) {
+    if (!confirm('¿Confirmas la DESASIGNACIÓN masiva de los equipos seleccionados?')) {
       ev.preventDefault();
     }
   });

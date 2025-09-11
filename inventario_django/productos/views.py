@@ -4,6 +4,12 @@ from django.views.generic import TemplateView
 from django.db.models import Count
 from .crud import get_crud_configs
 
+from django.shortcuts import get_object_or_404, render, redirect
+from django.forms import inlineformset_factory
+from django.contrib import messages
+
+from .models_inventario import TipoEquipo, AtributosEquipo
+
 from django.views.generic import ListView
 from .models_inventario import Equipo
 from django.contrib import messages
@@ -19,6 +25,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from .forms import MantencionForm
 from .models_inventario import Mantencion, HistorialMantencionesLog
+from django.http import JsonResponse
+from .models_inventario import AtributosEquipo
 
 # modelos opcionales (según tu app)
 try:
@@ -285,3 +293,101 @@ class EquiposDisponiblesView(LoginRequiredMixin, TemplateView):
             f"Se asignaron {qs.count()} equipo(s) a {empleado.nombre} {empleado.apellido_paterno}."
         )
         return redirect(request.path)
+    
+
+# --- Desasignación masiva (espejo de EquiposDisponiblesView) ---
+class EquiposDesasignarView(LoginRequiredMixin, TemplateView):
+    template_name = "equipos/en_uso_desasignar.html"
+
+    def get_queryset_en_uso(self):
+        return (
+            Equipo.objects
+            .select_related("id_marca", "id_tipo_equipo", "id_estado_equipo", "id_empleado")
+            .filter(id_empleado__isnull=False)       # en uso = con responsable
+            .order_by("-id_equipo")
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset_en_uso()
+        ctx["equipos"] = qs
+        ctx["total"] = qs.count()
+        return ctx
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        # 1) Obtener selección
+        ids = request.POST.getlist("equipos")
+        if not ids:
+            messages.warning(request, "Selecciona al menos un equipo.")
+            return redirect(request.path)
+
+        # 2) Validar que TODOS sigan en uso
+        qs = (
+            Equipo.objects
+            .select_for_update()
+            .filter(id_equipo__in=ids, id_empleado__isnull=False)
+        )
+
+        faltantes = set(map(int, ids)) - set(qs.values_list("id_equipo", flat=True))
+        if faltantes:
+            messages.error(
+                request,
+                f"Algunos equipos ya no están en uso (IDs: {', '.join(map(str, faltantes))})."
+            )
+            return redirect(request.path)
+
+        # 3) Estado 'bodega'
+        try:
+            estado_bodega = EstadoEquipo.objects.get(descripcion__iexact="bodega")
+        except EstadoEquipo.DoesNotExist:
+            messages.error(request, "No existe el estado 'bodega' en la tabla estado_equipo.")
+            return redirect(request.path)
+
+        ahora = timezone.now()
+        usuario_empleado = getattr(request.user, "empleado", None)
+
+        # 4) Actualizar + historial (espejo)
+        historiales = []
+        for e in qs:
+            historiales.append(HistorialEquipos(
+                equipo=e,
+                etiqueta=e.etiqueta,
+                nombre_equipo=e.nombre_equipo,
+                fecha=ahora,
+                responsable_anterior_fk=e.id_empleado,   # ← quien lo tenía
+                estado_anterior=e.id_estado_equipo,
+                estado_nuevo=estado_bodega,
+                responsable_actual=None,                 # ← vuelve a bodega (sin responsable)
+                empresa=None,
+                departamento=None,
+                usuario=usuario_empleado,
+                accion="DESASIGNACION MASIVA",
+                tipo_equipo=getattr(e, "id_tipo_equipo", None),
+            ))
+
+            e.id_empleado = None
+            e.id_estado_equipo = estado_bodega
+
+        Equipo.objects.bulk_update(qs, ["id_empleado", "id_estado_equipo"])
+        if historiales:
+            HistorialEquipos.objects.bulk_create(historiales, ignore_conflicts=True)
+
+        messages.success(
+            request,
+            f"Se desasignaron {qs.count()} equipo(s) y se movieron a bodega."
+        )
+        return redirect(request.path)
+    
+
+@login_required
+def api_atributos_por_tipo(request):
+    tipo_id = request.GET.get("tipo_id")
+    if not tipo_id:
+        return JsonResponse({"items": []})
+    attrs = list(
+        AtributosEquipo.objects
+        .filter(id_tipo_equipo_id=tipo_id)
+        .values("id_atributo_equipo", "atributo", "valor")  # valor = default si lo tuvieran
+    )
+    return JsonResponse({"items": attrs})

@@ -184,6 +184,27 @@ class AtributosEquipo(models.Model):
         # Ej: "Notebook · RAM = 16GB"
         v = f" = {self.valor}" if self.valor else ""
         return f"{self.id_tipo_equipo} · {self.atributo}{v}"
+    ##
+    ##
+    ## Nueva clase atributos por tipo de equipos
+
+class AgregacionAtributosPorEquipo(models.Model):
+    id = models.AutoField(primary_key=True)
+    equipo = models.ForeignKey(Equipo, models.DO_NOTHING, db_column='id_equipo')
+    atributo = models.ForeignKey(AtributosEquipo, models.DO_NOTHING, db_column='id_atributo_equipo')
+    valor = models.CharField(max_length=250, blank=True, null=True)
+
+    class Meta:
+        managed = False  # tabla creada en BD
+        db_table = 'inventario"."agregacion_atributos_por_equipo'
+        unique_together = (('equipo', 'atributo'),)
+        verbose_name = "Valor de atributo por equipo"
+        verbose_name_plural = "Valores de atributos por equipo"
+
+    def __str__(self):
+        nombre_attr = getattr(self.atributo, "atributo", "Atributo")
+        return f"{self.equipo_id} · {nombre_attr} = {self.valor or '—'}"
+
 
 
 class EstadoMantencion(models.Model):

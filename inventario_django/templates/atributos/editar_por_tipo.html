@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Atributos de {{ tipo.tipo_equipo|default:tipo }}{% endblock %}
+
+{% block content %}
+<div class="container mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h4 mb-0">Atributos de {{ tipo.tipo_equipo|default:tipo }}</h1>
+    <a href="javascript:history.back()" class="btn btn-outline-secondary btn-sm">Atrás</a>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ formset.management_form }}
+
+    <div id="rows" class="vstack gap-2">
+      {% for form in formset %}
+        <div class="card p-3 form-row">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label">Atributo</label>
+              {{ form.atributo }}
+              {% if form.atributo.errors %}<div class="text-danger small">{{ form.atributo.errors }}</div>{% endif %}
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Valor (opcional)</label>
+              {{ form.valor }}
+            </div>
+            <div class="col-md-2">
+              {% if form.instance.pk %}
+                <div class="form-check">
+                  {{ form.DELETE }} <label class="form-check-label">Eliminar</label>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% empty %}
+        <div class="alert alert-info">Aún no hay atributos para este tipo.</div>
+      {% endfor %}
+    </div>
+
+    <!-- plantilla de fila vacía -->
+    <template id="empty-template">
+      <div class="card p-3 form-row">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label">Atributo</label>
+            __INPUT_ATTR__
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Valor (opcional)</label>
+            __INPUT_VAL__
+          </div>
+          <div class="col-md-2"></div>
+        </div>
+      </div>
+    </template>
+
+    <div class="d-flex gap-2 mt-3">
+      <button id="btn-add" type="button" class="btn btn-info">+ Añadir atributo</button>
+      <button class="btn btn-primary" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  // Helpers
+  const addClass = (el, cls) => { el.classList?.add(...cls.split(" ")); return el; };
+
+  const prefix = "{{ formset.prefix }}";               // "attrs"
+  const totalInput = document.getElementById("id_" + prefix + "-TOTAL_FORMS");
+  const emptyHtml = `{% filter escapejs %}{{ formset.empty_form.as_p }}{% endfilter %}`;
+  const container = document.getElementById("rows");
+  const btnAdd = document.getElementById("btn-add");
+
+  function newRow(idx) {
+    const html = emptyHtml.replaceAll("__prefix__", idx);
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+
+    // toma inputs reales
+    const attrInput = wrapper.querySelector('input[name="'+prefix+'-'+idx+'-atributo"]');
+    const valInput  = wrapper.querySelector('input[name="'+prefix+'-'+idx+'-valor"]');
+    addClass(attrInput, "form-control");
+    addClass(valInput, "form-control");
+
+    // encastra en la plantilla visual
+    const tpl = document.getElementById("empty-template").content.cloneNode(true);
+    tpl.querySelector("__INPUT_ATTR__")?.replaceWith(attrInput);
+    tpl.querySelector("__INPUT_VAL__")?.replaceWith(valInput);
+    return tpl;
+  }
+
+  btnAdd.addEventListener("click", () => {
+    const idx = parseInt(totalInput.value, 10);
+    container.appendChild(newRow(idx));
+    totalInput.value = idx + 1;
+  });
+})();
+</script>
+{% endblock %}

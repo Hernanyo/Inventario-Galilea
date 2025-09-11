@@ -24,6 +24,9 @@ from django.utils import timezone
 from django.db import connection
 # crud.py
 from productos.forms import MantencionForm, EmpleadoForm
+from .models_inventario import AgregacionAtributosPorEquipo, AtributosEquipo
+from django.db import transaction
+
 
 
 from productos.models_inventario import HistorialMantencionesLog  # evitar ciclos
@@ -213,7 +216,13 @@ class GenericList(ModelPermsMixin, ListView):
         # (opcional) también en el contexto por si te sirve en otros templates
         ctx["can_create"] = can_create
 
+        if self.model._meta.model_name == "atributosequipo":
+            from .models_inventario import TipoEquipo
+            ctx["tipos_equipo"] = TipoEquipo.objects.order_by("tipo_equipo")
+
         return ctx
+    
+
 
 
 class GenericCreate(ModelPermsMixin, CreateView):
@@ -248,7 +257,34 @@ class GenericCreate(ModelPermsMixin, CreateView):
             if not getattr(form.instance, "solicitante_user_id", None):
                 form.instance.solicitante_user = self.request.user
 
-        return super().form_valid(form)
+        resp = super().form_valid(form)
+            # === GUARDAR VALORES DE ATRIBUTOS (solo Equipo) ===
+
+    # 2) si es Equipo → guardar valores de atributos después de crear
+        if self.model.__name__ == "Equipo":
+            equipo = self.object
+            tipo_id = self.request.POST.get("id_id_tipo_equipo") or getattr(equipo, "id_tipo_equipo_id", None)
+            if tipo_id:
+                attrs = list(
+                    AtributosEquipo.objects
+                    .filter(id_tipo_equipo_id=tipo_id)
+                    .values_list("id_atributo_equipo", flat=True)
+                )
+                with transaction.atomic():
+                    AgregacionAtributosPorEquipo.objects.filter(equipo_id=equipo.id_equipo).delete()
+                    nuevos = []
+                    for attr_id in attrs:
+                        v = (self.request.POST.get(f"attr_{attr_id}", "") or "").strip()
+                        nuevos.append(AgregacionAtributosPorEquipo(
+                            equipo_id=equipo.id_equipo,
+                            atributo_id=attr_id,
+                            valor=v or None
+                        ))
+                    if nuevos:
+                        AgregacionAtributosPorEquipo.objects.bulk_create(nuevos, ignore_conflicts=True)
+
+        # 3) devolver la respuesta normal de CreateView
+        return resp
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -316,6 +352,7 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
         if self.model.__name__ == "Empleado":
             from productos.forms import EmpleadoForm        # ← usar el de forms.py
             return EmpleadoForm
+        return _build_default_form(self.model)
 
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
@@ -323,7 +360,34 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
     def form_valid(self, form):
         if self.model.__name__ == "Equipo":
             form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
-        return super().form_valid(form)
+        resp= super().form_valid(form)
+    
+        # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Equipo) ===
+        if self.model.__name__ == "Equipo":
+            equipo = self.object
+            tipo_id = self.request.POST.get("id_id_tipo_equipo") or getattr(equipo, "id_tipo_equipo_id", None)
+            if tipo_id:
+                attrs = list(
+                    AtributosEquipo.objects
+                    .filter(id_tipo_equipo_id=tipo_id)
+                    .values_list("id_atributo_equipo", flat=True)
+                )
+                with transaction.atomic():
+                    # estrategia simple: borrar y recrear
+                    AgregacionAtributosPorEquipo.objects.filter(equipo_id=equipo.id_equipo).delete()
+                    nuevos = []
+                    for attr_id in attrs:
+                        v = self.request.POST.get(f"attr_{attr_id}", "").strip()
+                        nuevos.append(AgregacionAtributosPorEquipo(
+                            equipo_id=equipo.id_equipo,
+                            atributo_id=attr_id,
+                            valor=v or None
+                        ))
+                    if nuevos:
+                        AgregacionAtributosPorEquipo.objects.bulk_create(nuevos, ignore_conflicts=True)
+
+        return resp
+
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

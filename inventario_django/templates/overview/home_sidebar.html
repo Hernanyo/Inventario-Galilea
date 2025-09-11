@@ -18,7 +18,7 @@
       <div class="offcanvas-body p-0">
         <div class="list-group list-group-flush sticky-top" style="top: 84px;">
           {% for m in menu %}
-            {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoequipos' and m.slug != 'estadoequipos' and m.slug != 'atributosequipos' and m.slug != 'departamentos' and m.slug != 'historialequipos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs'%}
+            {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoequipos' and m.slug != 'estadoequipos' and m.slug != 'atributosequipos' and m.slug != 'departamentos' and m.slug != 'historialequipos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporequipos'%}
               <a href="/{{ m.slug }}/" 
                  class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
                 <span>
@@ -79,7 +79,7 @@
 
     <!-- En uso → click lleva a la lista filtrada -->
     <div class="col-md-3">
-      <a href="{% url 'productos:equipos_en_uso' %}" class="text-decoration-none">
+      <a href="{% url 'productos:equipos_desasignar' %}" class="text-decoration-none">
         <div class="card h-100 shadow-sm">
           <div class="card-body text-center kpi-body">
             <h6 class="text-muted">En uso</h6>
