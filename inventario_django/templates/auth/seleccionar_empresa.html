@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Ingreso · Seleccionar empresa{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="text-center mb-4">
+    <h1 class="h4 mb-2">Sistema de Inventario</h1>
+    <p class="text-muted mb-0">Selecciona tu empresa para continuar</p>
+  </div>
+
+  <form method="post" class="d-flex flex-wrap justify-content-center gap-4">
+    {% csrf_token %}
+    {% if next %}
+      <input type="hidden" name="next" value="{{ next }}">
+    {% endif %}
+
+    {% for e in empresas %}
+      {% with name=e.nombre_empresa|default_if_none:""|lower %}
+        <button type="submit"
+                name="empresa_id"
+                value="{{ e.id_empresa }}"
+                class="btn p-3 bg-white border rounded-4 shadow-sm d-flex flex-column align-items-center"
+                style="width:240px">
+          {% if "galilea" in name %}
+            <img src="{% static 'logo_galilea.png' %}"
+                 alt="{{ e.nombre_empresa }}"
+                 style="height:54px; margin-bottom:10px">
+          {% elif "pehuenche" in name %}
+            <img src="{% static 'logo_pehuenche.png' %}"
+                 alt="{{ e.nombre_empresa }}"
+                 style="height:54px; margin-bottom:10px">
+          {% else %}
+            <!-- Fallback si no hay logo conocido -->
+            <i class="bi bi-building" style="font-size:42px; margin-bottom:10px"></i>
+          {% endif %}
+          <span class="fw-semibold">{{ e.nombre_empresa }}</span>
+        </button>
+      {% endwith %}
+    {% empty %}
+      <div class="alert alert-warning">No hay empresas configuradas.</div>
+    {% endfor %}
+  </form>
+
+  <div class="text-center mt-4">
+    <small class="text-muted">¿Problemas para ingresar? Contacta a soporte.</small>
+  </div>
+</div>
+{% endblock %}

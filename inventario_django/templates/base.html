@@ -28,60 +28,54 @@
 <body class="bg-light">
 <!-- <nav class="navbar navbar-expand-lg navbar-dark bg-dark"> -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-galilea shadow-sm">
+    <div class="container-fluid" style="padding-left: 2cm; padding-right: 2cm;">
+      <!-- El logo siempre lleva al Inicio -->
+      <a class="navbar-brand" href="{% url 'productos:home' %}">Inventario Galilea</a>
 
-  <div class="container-fluid" style="padding-left: 2cm; padding-right: 2cm;">
-    <!-- El logo siempre lleva al Inicio -->
-    <a class="navbar-brand" href="{% url 'productos:home' %}">Inventario Galilea</a>
-
-    <div class="ms-auto">
-      {% if user.is_authenticated %}
-        {% with current=request.resolver_match.url_name %}
-          <!-- Inicio -->
-          <a
-            class="btn btn-outline-light btn-sm me-2 {% if current == 'home' %}active{% endif %}"
-            href="{% url 'productos:home' %}"
-          >Inicio</a>
-
-          <!-- Vistas (cuadrícula/lista) -->
-          <div class="dropdown d-inline-block me-2">
+      <div class="ms-auto">
+        {% if user.is_authenticated %}
+          {% with current=request.resolver_match.url_name %}
             <a
-              class="btn btn-outline-light btn-sm dropdown-toggle {% if current == 'vistas_grid' or current == 'vistas_lista' %}active{% endif %}"
-              href="#"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-            >Vistas</a>
-            <ul class="dropdown-menu dropdown-menu-end">
-              <li>
-                <a class="dropdown-item {% if current == 'vistas_grid' %}active{% endif %}"
-                   href="{% url 'productos:vistas_grid' %}">Cuadrícula</a>
-              </li>
-              <li>
-                <a class="dropdown-item {% if current == 'vistas_lista' %}active{% endif %}"
-                   href="{% url 'productos:vistas_lista' %}">Lista</a>
-              </li>
-            </ul>
-          </div>
+              class="btn btn-outline-light btn-sm me-2 {% if current == 'home' %}active{% endif %}"
+              href="{% url 'productos:home' %}"
+            >Inicio</a>
 
-          <!-- Dashboard -->
-          <a
-            class="btn btn-outline-light btn-sm me-2 {% if current == 'dashboard' %}active{% endif %}"
-            href="{% url 'productos:dashboard' %}"
-          >Dashboard</a>
-        {% endwith %}
+            <div class="dropdown d-inline-block me-2">
+              <a
+                class="btn btn-outline-light btn-sm dropdown-toggle {% if current == 'vistas_grid' or current == 'vistas_lista' %}active{% endif %}"
+                href="#"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >Vistas</a>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item {% if current == 'vistas_grid' %}active{% endif %}" href="{% url 'productos:vistas_grid' %}">Cuadrícula</a></li>
+                <li><a class="dropdown-item {% if current == 'vistas_lista' %}active{% endif %}" href="{% url 'productos:vistas_lista' %}">Lista</a></li>
+              </ul>
+            </div>
 
-        <span class="text-white-50 me-3">{{ user.username }}</span>
-        <form method="post" action="{% url 'logout' %}" class="d-inline">
-          {% csrf_token %}
-          <button class="btn btn-light btn-sm" type="submit">Salir</button>
-        </form>
-      {% else %}
-        {% if request.resolver_match and request.resolver_match.url_name != 'login' %}
-          <a class="btn btn-outline-light btn-sm" href="{% url 'login' %}">Ingresar</a>
+            <a
+              class="btn btn-outline-light btn-sm me-2 {% if current == 'dashboard' %}active{% endif %}"
+              href="{% url 'productos:dashboard' %}"
+            >Dashboard</a>
+          {% endwith %}
+
+          <span class="text-white-50 me-3">{{ user.username }}</span>
+
+          <!-- IMPORTANTE: usa el logout de productos -->
+          <form method="post" action="{% url 'productos:logout' %}" class="d-inline">
+            {% csrf_token %}
+            <button class="btn btn-light btn-sm" type="submit">Salir</button>
+          </form>
+
+        {% else %}
+          {# IMPORTANTE: apunta al selector de empresa y ocúltalo si ya estás ahí o en login #}
+          {% if request.resolver_match and request.resolver_match.url_name != 'company_select' and request.resolver_match.url_name != 'login' %}
+            <a class="btn btn-outline-light btn-sm" href="{% url 'productos:company_select' %}">Ingresar</a>
+          {% endif %}
         {% endif %}
-      {% endif %}
+      </div>
     </div>
-  </div>
-</nav>
+  </nav>
 
 {% if messages %}
   <div class="container mt-3">

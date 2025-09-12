@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sistema de Inventario{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <h1 class="h4 mb-4 text-center">Bienvenido al Sistema de Inventario</h1>
+  <div class="d-flex gap-3 justify-content-center flex-wrap">
+    <form method="post" action="{% url 'company_select' %}">{% csrf_token %}
+      <input type="hidden" name="empresa_id" value="1"> <!-- cambia por el id real -->
+      <button class="btn btn-light border p-3">
+        <img src="{% static 'logo_galilea.png' %}" alt="Galilea" style="height:72px">
+      </button>
+    </form>
+
+    <form method="post" action="{% url 'company_select' %}">{% csrf_token %}
+      <input type="hidden" name="empresa_id" value="2"> <!-- cambia por el id real -->
+      <button class="btn btn-light border p-3">
+        <img src="{% static 'logo_pehuenche.png' %}" alt="Pehuenche" style="height:72px">
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

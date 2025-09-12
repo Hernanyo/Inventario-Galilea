@@ -3,23 +3,18 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.db.models import Count
 from .crud import get_crud_configs
-
+from django.urls import reverse_lazy
 from django.shortcuts import get_object_or_404, render, redirect
 from django.forms import inlineformset_factory
 from django.contrib import messages
-
 from .models_inventario import TipoEquipo, AtributosEquipo
-
 from django.views.generic import ListView
 from .models_inventario import Equipo
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import redirect
-
 from .models_inventario import Equipo, Empleado, EstadoEquipo, HistorialEquipos
-
-
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -39,7 +34,9 @@ except Exception:
 
 class HomeView(LoginRequiredMixin, TemplateView):
     template_name = "overview/home_sidebar.html"
-    login_url = "login"
+    #login_url = "login"
+    #login_url = "company_select"   # <-- antes decía "login"
+    login_url = reverse_lazy("productos:company_select")  # <----- REEMPLAZAR AQUÍ
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

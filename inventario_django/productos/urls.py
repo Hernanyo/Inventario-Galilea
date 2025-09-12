@@ -1,29 +1,25 @@
-# productos/urls.py
+# inventario_djanfo/productos/urls.py
+from django.urls import path, include
+from django.contrib.auth import views as auth_views
+from productos.views_company import company_select, set_company
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path
 from django.shortcuts import get_object_or_404
 from .views import EquiposDesasignarView
-
+from .views_auth import seleccionar_empresa
+from productos.views_company import company_select, company_change   # <--- AÑADIR AQUÍ
+from .views_auth import seleccionar_empresa, cambiar_empresa  # <----- AÑADIR
 from django.urls import path
 from . import views
-
-from .views_atributos import (
-    editar_atributos_por_tipo,
-    ver_atributos_por_tipo,   # ← agrega esta
-)
-
-
-
+from .views_atributos import (editar_atributos_por_tipo, ver_atributos_por_tipo,   # ← agrega esta
+                              )
 # arriba, con los otros imports
 from productos.views import EquiposDisponiblesView
 from productos.models_inventario import Equipo
 from productos.crud import GenericList, build_config, view_class
 from productos.views import api_atributos_por_tipo
 from .views_atributos import editar_atributos_por_tipo  # y cualquier otra vista de ese archivo
-
-
-
 from productos.forms import MantencionForm
 from productos.models_inventario import (
     DetalleFactura,
@@ -51,6 +47,14 @@ from productos.crud import (
 
 app_name = "productos"
 
+# --- Autenticación y selección de empresa (PREPENDER) ---
+auth_selector_patterns = [
+    path("ingreso/", seleccionar_empresa, name="company_select"),
+    path("ingreso/cambiar/", cambiar_empresa, name="company_change"),
+    path("login/",  auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),
+    path("logout/", auth_views.LogoutView.as_view(next_page="productos:company_select"), name="logout"),
+]
+
 # --- Vista genérica para DetalleFactura ---
 cfg_detalle = build_config(DetalleFactura)
 DetalleFacturaList = view_class(DetalleFactura, cfg_detalle, GenericList)
@@ -74,6 +78,8 @@ urlpatterns = [
     # QR de equipos
     path("equipos/<int:pk>/qr/", qr_print_view, name="equipos_qr"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+urlpatterns = auth_selector_patterns + urlpatterns
 
 # --- Historial de Equipos (config dedicada) ---
 historial_cfg = CrudConfig(
@@ -311,4 +317,8 @@ path(
 # productos/urls.py (agrega esta línea donde tienes las otras de atributos)
 urlpatterns += [
     path("tipoequipos/<int:tipo_id>/atributos/ver/", ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
+]
+
+urlpatterns += [
+    path("empresas/set/", set_company, name="set_company"),     # ← AQUI
 ]

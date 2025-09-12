@@ -1,3 +1,4 @@
+#inventario_django/inventario/settings/dev.py
 from .base import *
 
 DEBUG = True

@@ -17,18 +17,42 @@
     box-shadow: 0 10px 30px rgba(0,0,0,.08);
     border-radius: 14px;
   }
+
+  /* Botones por empresa (tus clases) */
+  .btn-galilea { background-color: #0d6efd; color: #fff; border: none; }
+  .btn-pehuenche { background-color: #198754; color: #fff; border: none; }
 </style>
 
 <div class="auth-bg">
   <div class="card auth-card">
     <div class="card-body p-4 p-md-5">
 
-      <!-- Logo centrado -->
+      <!-- Branding según empresa elegida -->
       <div class="text-center mb-3">
-        <img src="{% static 'logo_galilea.png' %}" alt="Logo Galilea" style="max-width: 180px; height: auto;">
+        {% if request.session.empresa_slug %}
+          <a href="{% url 'productos:company_select' %}" class="small text-decoration-none d-inline-block mb-2">
+            Cambiar empresa
+          </a>
+          <div>
+            <img src="{% static 'logo_'|add:request.session.empresa_slug|add:'.png' %}"
+                 alt="{{ request.session.empresa_nombre }}"
+                 style="max-width:180px;height:auto"
+                 onerror="this.style.display='none'">
+          </div>
+        {% else %}
+          <a href="{% url 'productos:company_select' %}" class="small text-decoration-none d-inline-block mb-2">
+            Seleccionar empresa
+          </a>
+          <div>
+            <img src="{% static 'logo_galilea.png' %}" alt="Sistema de Inventario"
+                 style="max-width:180px;height:auto">
+          </div>
+        {% endif %}
       </div>
 
-      <h3 class="fw-semibold mb-3 text-center">Iniciar sesión</h3>
+      <h3 class="fw-semibold mb-3 text-center">
+        {% if request.session.empresa_nombre %} · {{ request.session.empresa_nombre }}{% endif %}
+      </h3>
 
       {# errores generales del formulario #}
       {% if form and form.non_field_errors %}
@@ -71,7 +95,15 @@
           <a class="small text-decoration-none" href="{% url 'password_reset' %}">¿Olvidaste tu contraseña?</a>
         </div>
 
-        <button class="btn btn-galilea w-100 py-2" type="submit">Entrar</button>
+        <button
+          class="btn
+                {% if request.session.empresa_slug == 'pehuenche' %}btn-pehuenche
+                {% elif request.session.empresa_slug == 'galilea' %}btn-galilea
+                {% else %}btn-primary{% endif %}
+                w-100 py-2"
+          type="submit">
+          Entrar
+        </button>
 
         <p class="text-center text-muted small mt-3 mb-0">
           ¿Problemas para ingresar? Contacta al administrador.

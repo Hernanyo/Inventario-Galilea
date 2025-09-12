@@ -1,6 +1,9 @@
+#inventario_django/inventario/settings/base.py
 from pathlib import Path
 import environ
 import os
+from django.urls import reverse_lazy
+
 
 # === Paths ===
 # Este archivo está en: inventario/settings/base.py
@@ -169,8 +172,17 @@ LOGGING = {
 #LOGIN_REDIRECT_URL = "/"       # o "/dashboard/"
 #LOGOUT_REDIRECT_URL = "/login/"
 
-LOGIN_URL = 'login'                         # a dónde mandar si no está logueado
-LOGIN_REDIRECT_URL = 'productos:home'       # a dónde ir después de iniciar sesión
-LOGOUT_REDIRECT_URL = 'login'               # a dónde ir después de cerrar sesión (o 'productos:home' si prefieres)
+#LOGIN_URL = "company_select"                        # a dónde mandar si no está logueado
+#LOGIN_REDIRECT_URL = 'productos:home'       # a dónde ir después de iniciar sesión
+#LOGOUT_REDIRECT_URL = 'login'               # a dónde ir después de cerrar sesión (o 'productos:home' si prefieres)
+
+#LOGIN_URL = reverse_lazy("login")                 # ← NO 'company_select'
+#LOGIN_REDIRECT_URL = reverse_lazy("productos:home")
+#LOGOUT_REDIRECT_URL = reverse_lazy("company_select")
+
+# --- Auth redirects ---
+LOGIN_URL = "productos:company_select"          # <----- AÑADIR AQUÍ
+LOGIN_REDIRECT_URL = "productos:home"           # <----- Opcional (después de login)
+LOGOUT_REDIRECT_URL = "productos:company_select"  # <----- Opcional
 
 DATABASES['default']['OPTIONS'] = {'options': '-c search_path=public,inventario'}
