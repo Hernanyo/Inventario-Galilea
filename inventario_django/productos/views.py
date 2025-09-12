@@ -270,7 +270,7 @@ class EquiposDisponiblesView(LoginRequiredMixin, TemplateView):
                 #estado_anterior=e.id_estado_equipo,   # bodega
                 estado_nuevo=estado_asignado,
                 responsable_actual=empleado,
-                empresa=getattr(empleado, "id_empresa", None),
+                id_empresa=getattr(empleado, "id_empresa", None),
                 departamento=getattr(empleado, "id_departamento", None),
                 usuario=usuario_empleado,
                 accion="ASIGNACION MASIVA",
@@ -356,7 +356,7 @@ class EquiposDesasignarView(LoginRequiredMixin, TemplateView):
                 estado_anterior=e.id_estado_equipo,
                 estado_nuevo=estado_bodega,
                 responsable_actual=None,                 # ← vuelve a bodega (sin responsable)
-                empresa=None,
+                id_empresa=None,
                 departamento=None,
                 usuario=usuario_empleado,
                 accion="DESASIGNACION MASIVA",

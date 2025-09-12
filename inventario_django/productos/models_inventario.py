@@ -136,8 +136,13 @@ class Equipo(models.Model):
     etiqueta = models.CharField(max_length=150, unique=True)
     qr_code = models.ImageField(upload_to='qrcodes/', max_length=1000, blank=True, null=True)
      # >>> NUEVOS CAMPOS <<<
-    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='empresa_id', blank=True, null=True)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='departamento_id', blank=True, null=True)
+
+    # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
+    @property
+    def empresa(self):
+        return self.id_empresa
 
 
     def save(self, *args, **kwargs):
@@ -320,13 +325,22 @@ class HistorialEquipos(models.Model):
     accion = models.CharField(max_length=50)  # "agregado", "asignado", "bodega", "dañado", "perdido", etc.
     usuario = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='usuario_id', blank=True, null=True)
     fecha = models.DateTimeField(default=timezone.now)
-    empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='empresa_id', blank=True, null=True)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
     departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='departamento_id', blank=True, null=True)
     ubicacion = models.CharField(max_length=200, blank=True, null=True)
     estado_anterior = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='estado_anterior_id', blank=True, null=True, related_name='estado_anterior')
     estado_nuevo = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='estado_nuevo_id', blank=True, null=True, related_name='estado_nuevo')
     responsable_actual = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_actual_id', blank=True, null=True, related_name='responsable_actual')
     comentario = models.TextField(blank=True, null=True)
+
+    # --- Alias de compatibilidad: mantener .empresa para lecturas/escrituras viejas ---
+    @property
+    def empresa(self):
+        return self.id_empresa
+
+    @empresa.setter
+    def empresa(self, value):
+        self.id_empresa = value
 
     # >>> NUEVO CAMPO (persistido) <<<
     responsable_anterior_fk = models.ForeignKey(
