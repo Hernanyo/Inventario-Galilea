@@ -102,7 +102,7 @@ class HistorialList(view_class(HistorialEquipos, historial_cfg, GenericList)):
     def get_queryset(self):
         qs = super().get_queryset().select_related(
             "equipo", "usuario", "estado_anterior", "estado_nuevo",
-            "responsable_actual", "empresa", "departamento", "tipo_equipo",
+            "responsable_actual", "id_empresa", "departamento", "tipo_equipo",
         )
         return qs
 
@@ -196,6 +196,7 @@ class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
     form_class = MantencionForm
     def form_valid(self, form):
         form.instance.solicitante_user = self.request.user   # ← AQUÍ
+        form.instance.id_empresa_id = form.instance.id_empresa_id or self.request.session.get("empresa_id")
         resp = super().form_valid(form)
         log_mantencion_event(self.request.user, self.object, "CREAR", "Alta de mantención")
         return resp

@@ -26,6 +26,11 @@ from django.db import connection
 from productos.forms import MantencionForm, EmpleadoForm
 from .models_inventario import AgregacionAtributosPorEquipo, AtributosEquipo
 from django.db import transaction
+# --- NUEVO: mixin para limitar por empresa (si el modelo tiene id_empresa) ---
+from django.core.exceptions import FieldDoesNotExist
+from .mixins import EmpresaScopeMixin
+from .mixins import SaveEmpresaMixin
+
 
 
 
@@ -169,7 +174,7 @@ def qr_print_view(request, pk):
     return render(request, "equipos/qr_print.html", context)
 
 
-class GenericList(ModelPermsMixin, ListView):
+class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
     template_name = "crud/list.html"
     context_object_name = "items"
     paginate_by = 25
@@ -192,7 +197,7 @@ class GenericList(ModelPermsMixin, ListView):
             qs = qs.order_by(order)
         else:
             qs = qs.order_by(*self.crud_config.ordering)
-        return qs
+        return self.scope_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -225,7 +230,7 @@ class GenericList(ModelPermsMixin, ListView):
 
 
 
-class GenericCreate(ModelPermsMixin, CreateView):
+class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView):
     template_name = "crud/form.html"
     action_perm = "add"
     crud_config: CrudConfig
@@ -438,8 +443,7 @@ class GenericUpdate(ModelPermsMixin, UpdateView):
 
 
         return ctx
-
-
+    
 class EquipoForm(forms.ModelForm):
     class Meta:
         model = Equipo

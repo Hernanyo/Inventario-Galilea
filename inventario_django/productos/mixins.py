@@ -3,6 +3,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect  # <----- AÑADIR
 from django.urls import resolve, reverse  # <----- AÑADIR
+from django.contrib import messages
+from django.shortcuts import redirect
 
 class ModelPermsMixin(LoginRequiredMixin):
     """
@@ -20,29 +22,58 @@ class ModelPermsMixin(LoginRequiredMixin):
                 raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
 
-class EmpresaRequiredMixin:
+class CompanyRequiredMixin(LoginRequiredMixin):
     """
-    Exige una empresa en sesión. Si no hay, redirige al selector de empresas.
-    Evita bucles permitiendo pasar a las vistas de selección/cambio.
+    Exige que haya empresa en sesión; si no, redirige al selector.
     """
-    allow_without_empresa = {'productos:company_select', 'productos:company_change'}  # <----- AÑADIR
-
     def dispatch(self, request, *args, **kwargs):
-        # Detectar el nombre de la ruta actual para evitar bucles
-        try:
-            match = resolve(request.path_info)
-            current_name = f"{match.namespace}:{match.url_name}" if match.namespace else match.url_name
-        except Exception:
-            current_name = None
-
-        # Permitir el selector y el cambio de empresa sin empresa en sesión
-        if current_name in self.allow_without_empresa:
-            return super().dispatch(request, *args, **kwargs)
-
-        # Si no hay empresa en sesión, redirigir al selector (con ?next=)
         if not request.session.get("empresa_id"):
-            url = reverse("productos:company_select")
-            next_qs = f"?next={request.get_full_path()}" if request.method == "GET" else ""
-            return redirect(url + next_qs)
-
+            return redirect("productos:company_select")
         return super().dispatch(request, *args, **kwargs)
+
+
+class EmpresaScopeMixin(CompanyRequiredMixin):
+    """
+    Provee scope_queryset(qs) para filtrar por empresa actual.
+    Intenta usar 'id_empresa' si existe; si no, 'empresa' (FK clásica).
+    """
+    _field_cache = {}
+
+    def scope_queryset(self, qs):
+        emp_id = self.request.session.get("empresa_id")
+        if not emp_id or qs is None:
+            return qs
+
+        model = qs.model
+        key = model._meta.label_lower
+
+        # cachea qué campo usar para este modelo
+        field = self._field_cache.get(key)
+        if field is None:
+            names = {f.name for f in model._meta.get_fields()}
+            if "id_empresa" in names:
+                field = "id_empresa"
+            elif "empresa" in names:
+                field = "empresa"   # usaremos empresa_id en el filtro
+            else:
+                field = ""          # modelo sin campo empresa
+            self._field_cache[key] = field
+
+        if field == "id_empresa":
+            return qs.filter(id_empresa=emp_id)
+        elif field == "empresa":
+            return qs.filter(empresa_id=emp_id)
+        else:
+            return qs  # no hay campo empresa en este modelo; no filtra
+        
+# --- AÑADIR ---
+class SaveEmpresaMixin:
+    """
+    Si el modelo tiene campo 'id_empresa', lo completa desde la sesión.
+    Usar en CreateView/UpdateView.
+    """
+    def form_valid(self, form):
+        emp_id = self.request.session.get("empresa_id")
+        if emp_id and hasattr(form.instance, "id_empresa") and form.instance.id_empresa_id is None:
+            form.instance.id_empresa_id = emp_id
+        return super().form_valid(form)

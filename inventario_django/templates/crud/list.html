@@ -145,7 +145,19 @@
             <td>{{ item.etiqueta|default:"—" }}</td>
             <td>{{ item.equipo|default:"—" }}</td>
             <td>{{ item.fecha|date:"d-m-Y H:i"|default:"—" }}</td>
-            <td>{% firstof item.responsable_anterior_fk item.responsable_anterior "Nuevo" %}</td>
+            <td>
+              {% if item.responsable_anterior_fk %}
+                {{ item.responsable_anterior_fk }}
+              {% elif item.responsable_anterior %}
+                {% if item.responsable_anterior|lower == "nuevo" %}
+                  &mdash;
+                {% else %}
+                  {{ item.responsable_anterior }}
+                {% endif %}
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
             <td>{{ item.estado_anterior|default:"—" }}</td>
             <td>{{ item.estado_nuevo|default:"—" }}</td>
             <td>{{ item.responsable_actual|default:"—" }}</td>
