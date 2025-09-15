@@ -30,6 +30,8 @@ from django.db import transaction
 from django.core.exceptions import FieldDoesNotExist
 from .mixins import EmpresaScopeMixin
 from .mixins import SaveEmpresaMixin
+from .models_inventario import Empleado, Departamento  # al inicio del archivo
+
 
 
 
@@ -119,7 +121,7 @@ def infer_list_display(m: Type[Model]) -> List[str]:
 
     prefer_order = (
         "rut", "nombre", "apellido_paterno", "apellido_materno",
-        "correo", "telefono", "descripcion", "codigo", "serie",
+        "correo", "telefono", "descripcion", "observaciones", "codigo", "serie",
         "departamento", "empresa", "marca", "tipo_equipo"
     )
 
@@ -246,7 +248,12 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
             from productos.forms import EmpleadoForm        # ← usar el de forms.py
             return EmpleadoForm
         return _build_default_form(self.model)
-
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.model.__name__ in ("Mantencion", "Equipo"):
+            kwargs["request"] = self.request
+        return kwargs
     
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
@@ -342,10 +349,20 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
 
         return ctx
 
-class GenericUpdate(ModelPermsMixin, UpdateView):
+class GenericUpdate(EmpresaScopeMixin, ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
     action_perm = "change"
     crud_config: CrudConfig
+
+    def get_queryset(self):
+            qs = self.model.objects.all()
+            return self.scope_queryset(qs)
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.model.__name__ in ("Mantencion", "Equipo"):
+            kwargs["request"] = self.request
+        return kwargs
 
     def get_form_class(self):
         if self.model.__name__ == "Equipo":
@@ -456,6 +473,7 @@ class EquipoForm(forms.ModelForm):
             "id_empleado",       # responsable (opcional)
             "id_proveedor",
             "etiqueta",
+            "observaciones",
             "id_empresa",        # NUEVO: siempre visible en el form
             "id_departamento",   # NUEVO: siempre visible en el form
         ]
@@ -463,21 +481,47 @@ class EquipoForm(forms.ModelForm):
         # widgets = {
         #     "nombre_equipo": forms.TextInput(attrs={"class": "input input-bordered"}),
         # }
+    def __init__(self, *args, request=None, **kwargs):
+            super().__init__(*args, **kwargs)
+            emp_id = None
+            if request is not None and hasattr(request, "session"):
+                emp_id = request.session.get("empresa_id")
 
+            # Inicializa y (opcional) bloquea empresa en el form
+            if emp_id and "id_empresa" in self.fields:
+                self.fields["id_empresa"].initial = emp_id
+                # self.fields["id_empresa"].disabled = True  # opcional
+
+            # Empleados solo de la empresa
+            if "id_empleado" in self.fields:
+                qs = Empleado.objects.filter(activo=True)
+                if emp_id:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                self.fields["id_empleado"].queryset = qs.order_by("nombre", "apellido_paterno")
+
+            # Departamentos solo de la empresa
+            if "id_departamento" in self.fields:
+                dqs = Departamento.objects.all()
+                if emp_id:
+                    dqs = dqs.filter(id_empresa_id=emp_id)
+                self.fields["id_departamento"].queryset = dqs.order_by("nombre_departamento")
+                
     def clean(self):
         cleaned = super().clean()
         empleado = cleaned.get("id_empleado")
         emp = cleaned.get("id_empresa")
         dep = cleaned.get("id_departamento")
-
-        # Regla de negocio:
-        # Si NO hay responsable, el usuario DEBE seleccionar Empresa y Departamento
+        # Si no hay responsable, Empresa y Depto son obligatorios
         if empleado is None and (emp is None or dep is None):
-            raise ValidationError(
-                "Si no asignas responsable, debes seleccionar Empresa y Departamento."
-            )
-        return cleaned
+            raise ValidationError("Si no asignas responsable, debes seleccionar Empresa y Departamento.")
 
+        # Si hay responsable, valida que sea de la misma empresa
+        if empleado is not None and emp is not None:
+            if getattr(empleado, "id_empresa_id", None) != getattr(emp, "id_empresa", emp):
+                raise ValidationError("El responsable seleccionado no pertenece a la empresa elegida.")
+
+        return cleaned
+    
     # No generamos QR aquí: lo hace el modelo en Equipo.save()
     # Si no necesitas lógica extra, puedes omitir completamente este save().
     def save(self, commit=True):
@@ -486,10 +530,15 @@ class EquipoForm(forms.ModelForm):
             obj.save()
         return obj
 
-class GenericDelete(ModelPermsMixin, DeleteView):
+class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     template_name = "crud/delete.html"
     action_perm = "delete"
     crud_config: CrudConfig
+    
+
+    def get_queryset(self):
+        qs = self.model.objects.all()
+        return self.scope_queryset(qs)
 
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
@@ -571,7 +620,14 @@ def export_csv_view(model: Type[Model], cfg: CrudConfig):
 
         q = request.GET.get("q", "").strip()
         rows = model.objects.all()
+
+        # aplicar scope por empresa (helper sin hacks)
+        from .mixins import scope_qs_by_empresa
+        rows = scope_qs_by_empresa(request, rows)
+
+
         if q and cfg.search_fields:
+            from django.db.models import Q
             cond = Q()
             for f in cfg.search_fields:
                 cond |= Q(**{f"{f}__icontains": q})
@@ -675,21 +731,30 @@ def _dictfetchall(cursor):
 def historial_mantencion(request, id_mantencion: int):
     """
     Muestra el historial de una mantención específica (botón de detalle).
-    Lee desde la vista inventario.vw_historial_mantenciones.
+    Restringe por empresa actual usando el equipo de la mantención.
     """
-    # Valida que exista la mantención
+    emp_id = request.session.get("empresa_id")
+    if not emp_id:
+        raise Http404("Empresa no seleccionada.")
+
+    # 1) Validar que la mantención exista y pertenezca a la empresa actual
     with connection.cursor() as c:
         c.execute("""
             SELECT m.id_mantencion, m.id_equipo, m.descripcion, m.fecha
             FROM inventario.mantencion m
+            JOIN inventario.equipo e ON e.id_equipo = m.id_equipo
             WHERE m.id_mantencion = %s
-            """, [id_mantencion])
+              AND e.id_empresa = %s
+        """, [id_mantencion, emp_id])
         mant = _dictfetchall(c)
+
     if not mant:
-        raise Http404("Mantención no encontrada")
+        raise Http404("Mantención no encontrada para la empresa actual.")
+
     mantencion = mant[0]
 
-    # Trae historial
+    # 2) Traer historial desde la vista (filtramos por id_mantencion;
+    #    ya validamos empresa arriba)
     with connection.cursor() as c:
         c.execute("""
             SELECT
@@ -703,12 +768,8 @@ def historial_mantencion(request, id_mantencion: int):
             FROM inventario.vw_historial_mantenciones
             WHERE id_mantencion = %s
             ORDER BY fecha_evento DESC
-            """, [id_mantencion])
+        """, [id_mantencion])
         historial = _dictfetchall(c)
-
-    # Opcional: transformar JSONB (psycopg2 los entrega como dict si el adaptador está activo;
-    # si llegan como str, puedes parsear con json.loads)
-    # Aquí solo lo pasamos al template tal cual.
 
     ctx = {
         "mantencion": mantencion,
@@ -716,11 +777,16 @@ def historial_mantencion(request, id_mantencion: int):
     }
     return render(request, "mantenciones/historial_mantencion.html", ctx)
 
-
+# productos/crud.py
 def ultimos_cambios_mantenciones(request):
     """
-    Tablero global: últimos cambios en mantenciones (por defecto últimos 7 días, top 100).
+    Tablero global: últimos cambios en mantenciones (por defecto últimos 7 días, top 100),
+    restringido a la empresa en sesión (via equipo).
     """
+    emp_id = request.session.get("empresa_id")
+    if not emp_id:
+        raise Http404("Empresa no seleccionada.")
+
     dias = int(request.GET.get("dias", "7"))
     limite = int(request.GET.get("limit", "100"))
 
@@ -729,19 +795,22 @@ def ultimos_cambios_mantenciones(request):
             SELECT
               h.fecha_evento,
               h.accion,
-              COALESCE(h.detalle, '') AS detalle,
+              COALESCE(h.detalle, '')     AS detalle,
               h.id_mantencion,
               m.id_equipo,
-              est.tipo AS estado_actual,
+              est.tipo                    AS estado_actual,
               h.old_values,
               h.new_values
             FROM inventario.historial_mantenciones h
             JOIN inventario.mantencion m ON m.id_mantencion = h.id_mantencion
-            LEFT JOIN inventario.estado_mantencion est ON est.id_estado_mantencion = m.id_estado_mantencion
+            JOIN inventario.equipo     e ON e.id_equipo     = m.id_equipo
+            LEFT JOIN inventario.estado_mantencion est
+                   ON est.id_estado_mantencion = m.id_estado_mantencion
             WHERE h.fecha_evento >= NOW() - (%s || ' days')::interval
+              AND e.id_empresa = %s
             ORDER BY h.fecha_evento DESC
             LIMIT %s
-            """, [dias, limite])
+        """, [dias, emp_id, limite])
         eventos = _dictfetchall(c)
 
     ctx = {
@@ -750,8 +819,6 @@ def ultimos_cambios_mantenciones(request):
         "limite": limite,
     }
     return render(request, "mantenciones/ultimos_cambios_mantenciones.html", ctx)
-
-
 
 
 CRUD_CONFIGS = _collect_unique_crud_configs()

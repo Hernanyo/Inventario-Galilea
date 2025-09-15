@@ -136,6 +136,7 @@
           <th><a href="?q={{ q }}&o=empresa">Empresa</a></th>
           <th><a href="?q={{ q }}&o=departamento">Departamento</a></th>
           <th><a href="?q={{ q }}&o=usuario">Usuario</a></th>
+          <th><a href="?q={{ q }}&o=comentario">Observaciones</a></th>  <!-- NUEVO -->
         </tr>
       </thead>
       <tbody>
@@ -164,6 +165,7 @@
             <td>{{ item.empresa|default:"—" }}</td>
             <td>{{ item.departamento|default:"—" }}</td>
             <td>{{ item.usuario|default:"—" }}</td>
+            <td>{{ item.comentario|default:"—" }}</td>        <!-- NUEVO -->
           </tr>
         {% empty %}
           <tr><td colspan="11" class="text-center">No hay registros.</td></tr>
@@ -210,77 +212,131 @@
       <thead>
         <tr>
           {% for col in view.crud_config.list_display %}
-            <th><a href="?q={{ q }}&o={{ col }}">{{ col|underscores_to_spaces|title }}</a></th>
+            {% if view.crud_config.model_name == 'equipo' and col == 'observaciones' %}
+              <th class="obs-col">
+                <a href="?q={{ q }}&o={{ col }}">Observaciones</a>
+              </th>
+            {% else %}
+              <th><a href="?q={{ q }}&o={{ col }}">{{ col|underscores_to_spaces|title }}</a></th>
+            {% endif %}
           {% endfor %}
+
+
           {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
             <th class="text-right">Acciones</th>
           {% endif %}
         </tr>
       </thead>
       <tbody>
-        {% for item in items %}
-          <tr>
-            {% for col in view.crud_config.list_display %}
-              <td>{{ item|attr:col }}</td>
-            {% endfor %}
+  {% for item in items %}
+    <tr>
+      {% for col in view.crud_config.list_display %}
+        {% if view.crud_config.model_name == 'equipo' and col == 'observaciones' %}
+          <td class="obs-col">
+            <button type="button"
+                    class="btn btn-xs btn-secondary ver-obs"
+                    data-obs="{{ item.observaciones|default:'—'|escapejs }}">
+              Ver
+            </button>
+          </td>
+        {% else %}
+          <td>{{ item|attr:col }}</td>
+        {% endif %}
+      {% endfor %}
 
-            {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
-              <td class="text-right">
-                {# … tus botones existentes aquí, tal cual los tenías … #}
-                {% if view.crud_config.model_name == 'equipo' %}
-                  <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
-                    <i class="bi bi-pencil-square me-1"></i>Editar
-                  </a>
-                  {% if item.qr_code %}
-                    <a class="btn btn-xs btn-success" href="{% url 'productos:equipos_qr' item.id_equipo %}">
-                      <i class="bi bi-qr-code me-1"></i>Ver QR
-                    </a>
-                  {% else %}
-                    <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
-                      <i class="bi bi-qr-code me-1"></i>Completar QR
-                    </a>
-                  {% endif %}
-                  <a class="btn btn-xs btn-info" href="{% url 'productos:equipo_historial_list' item.id_equipo %}">
-                    <i class="bi bi-clock-history me-1"></i>Historial
-                  </a>
-                  <a class="btn btn-xs btn-danger" href="{% url 'productos:equipos_delete' item.id_equipo %}"
-                    onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
-                    <i class="bi bi-trash me-1"></i>Eliminar
-                  </a>
-                {% elif view.crud_config.model_name == 'atributosequipo' %}
-                  <a class="btn btn-xs btn-info" href="{% url 'productos:editar_atributos_por_tipo' item.id_tipo_equipo_id %}">
-                    Editar atributos
-                  </a>
-                  <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
-                    Editar
-                  </a>
-                  <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
-                    onclick="return confirm('¿Eliminar este registro?');">
-                    Eliminar
-                  </a>
-                {% else %}
-                  <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
-                    <i class="bi bi-pencil-square me-1"></i>Editar
-                  </a>
-                  <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
-                    onclick="return confirm('¿Eliminar este registro?');">
-                    <i class="bi bi-trash me-1"></i>Eliminar
-                  </a>
-                {% endif %}
-              </td>
+      {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
+        <td class="text-right">
+          {% if view.crud_config.model_name == 'equipo' %}
+            <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
+              <i class="bi bi-pencil-square me-1"></i>Editar
+            </a>
+            {% if item.qr_code %}
+              <a class="btn btn-xs btn-success" href="{% url 'productos:equipos_qr' item.id_equipo %}">
+                <i class="bi bi-qr-code me-1"></i>Ver QR
+              </a>
+            {% else %}
+              <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
+                <i class="bi bi-qr-code me-1"></i>Completar QR
+              </a>
             {% endif %}
-          </tr>
-        {% empty %}
-          <tr>
-            <td colspan="{{ view.crud_config.list_display|length|add:1 }}" class="text-center">No hay registros.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
+            <a class="btn btn-xs btn-info" href="{% url 'productos:equipo_historial_list' item.id_equipo %}">
+              <i class="bi bi-clock-history me-1"></i>Historial
+            </a>
+            <a class="btn btn-xs btn-danger" href="{% url 'productos:equipos_delete' item.id_equipo %}"
+               onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
+              <i class="bi bi-trash me-1"></i>Eliminar
+            </a>
+          {% elif view.crud_config.model_name == 'atributosequipo' %}
+            <a class="btn btn-xs btn-info" href="{% url 'productos:editar_atributos_por_tipo' item.id_tipo_equipo_id %}">
+              Editar atributos
+            </a>
+            <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+              Editar
+            </a>
+            <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+               onclick="return confirm('¿Eliminar este registro?');">
+              Eliminar
+            </a>
+          {% else %}
+            <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+              <i class="bi bi-pencil-square me-1"></i>Editar
+            </a>
+            <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+               onclick="return confirm('¿Eliminar este registro?');">
+              <i class="bi bi-trash me-1"></i>Eliminar
+            </a>
+          {% endif %}
+        </td>
+      {% endif %}
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="{{ view.crud_config.list_display|length|add:1 }}" class="text-center">No hay registros.</td>
+    </tr>
+  {% endfor %}
+</tbody>
     {% endif %}
 
   </table>
 
 </div>
+
+<!-- Modal Observaciones -->
+<div class="modal fade" id="obsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Observaciones del equipo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="obsText" class="mb-0" style="white-space: pre-wrap;"></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var modalEl = document.getElementById('obsModal');
+  var obsText = document.getElementById('obsText');
+  var modal = null;
+
+  // Delegación de eventos (sirve también con paginación)
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.ver-obs');
+    if (!btn) return;
+    obsText.textContent = btn.getAttribute('data-obs') || '—';
+    if (!modal) modal = new bootstrap.Modal(modalEl);
+    modal.show();
+  });
+});
+</script>
+
+
 
 <div class="join mt-4">
   {% if page_obj.has_previous %}
@@ -315,7 +371,16 @@ function updateDateTime() {
 setInterval(updateDateTime, 1000);
 updateDateTime();
 </script>
+
 <style>
+  th.obs-col, td.obs-col {
+    width: 90px;         /* angosta */
+    white-space: nowrap; /* evita salto */
+    text-align: left;
+  }
+  td.obs-col .btn {
+    padding: 2px 8px;    /* botón más compacto */
+  }
   td.text-right a.btn {
     display: inline-flex !important;
     margin: 0 2px;

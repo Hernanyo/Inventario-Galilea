@@ -1,0 +1,31 @@
+{# templates/empresa/select_company.html #}
+{% extends "base.html" %}
+{% block title %}Seleccionar empresa{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <h1 class="h4 mb-3">Selecciona tu empresa de trabajo</h1>
+
+  <form method="post" class="card p-3 shadow-sm" style="max-width: 520px;">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label for="empresa_id" class="form-label">Empresa</label>
+      <select name="empresa_id" id="empresa_id" class="form-select" required>
+        <option value="" disabled selected>— Elegir —</option>
+        {% for e in empresas %}
+          <option value="{{ e.id_empresa }}"
+            {% if e.id_empresa|stringformat:"s" == request.session.empresa_id|stringformat:"s" %}selected{% endif %}>
+            {{ e.nombre_empresa }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary" type="submit">Continuar</button>
+      {% if request.session.empresa_id %}
+        <a class="btn btn-outline-secondary" href="{% url 'productos:company_clear' %}">Cambiar / limpiar selección</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

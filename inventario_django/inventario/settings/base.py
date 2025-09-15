@@ -1,4 +1,3 @@
-#inventario_django/inventario/settings/base.py
 from pathlib import Path
 import environ
 import os
@@ -53,6 +52,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "productos.middleware.SetAppUsernameMiddleware",  # 👈
+    "productos.middleware.RequireCompanyMiddleware",
 
 ]
 

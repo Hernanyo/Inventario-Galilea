@@ -138,6 +138,7 @@ class Equipo(models.Model):
      # >>> NUEVOS CAMPOS <<<
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='departamento_id', blank=True, null=True)
+    observaciones = models.TextField(blank=True, null=True)
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
     @property

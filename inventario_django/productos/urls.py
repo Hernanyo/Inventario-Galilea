@@ -1,5 +1,20 @@
 # inventario_djanfo/productos/urls.py
 from django.urls import path, include
+from django.views.generic import RedirectView
+from .views import (
+    HomeView, CompanySelectView, company_clear,
+    EquiposDisponiblesView, EquiposDesasignarView,
+    mantencion_nueva, mantencion_editar, api_atributos_por_tipo,
+)
+
+# 👇 Importa las vistas que están en crud.py
+from .crud import (
+    urlpatterns as crud_urls,
+    qr_print_view,
+    historial_mantencion,
+    ultimos_cambios_mantenciones,
+)
+from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from productos.views_company import company_select, set_company
 from django.conf import settings
@@ -32,6 +47,12 @@ from productos.models_inventario import (
 from .views import HomeView
 from .overview import CardsGridView, ListVerticalView, MetricsDashboardView
 from .views_qr import qr_print_view
+from .views import CompanySelectView, company_clear
+from .views_auth import seleccionar_empresa, cambiar_empresa
+from django.views.generic import ListView
+from .models_inventario import HistorialMantenciones
+from .mixins import EmpresaScopeMixin, scope_qs_by_empresa
+
 
 from productos.crud import (
     GenericList,
@@ -89,11 +110,11 @@ historial_cfg = CrudConfig(
     list_display=[
         "id", "etiqueta", "equipo", "fecha", "responsable_anterior",
         "estado_anterior", "estado_nuevo", "responsable_actual", "empresa",
-        "departamento", "usuario",
+        "departamento", "usuario", "comentario",
     ],
     search_fields=[
-        "equipo__nombre_equipo", "usuario__nombre", "accion", "etiqueta",
-        "nombre_equipo",
+        "equipo__nombre_equipo", "usuario__nombre", "etiqueta",
+        "nombre_equipo", "comentario",
     ],
     ordering=["-fecha"],
 )
@@ -208,12 +229,16 @@ class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
         log_mantencion_event(self.request.user, self.object, "ACTUALIZAR", "Edición de mantención")
         return resp
 
-class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        self.crud_config.can_create = False
-        ctx["can_create"] = False
-        return ctx
+class HistorialMantencionesList(EmpresaScopeMixin, ListView):
+    template_name = "mantenciones/historial_mantenciones_list.html"
+    model = HistorialMantenciones
+    context_object_name = "items"
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # aplica multiempresa correctamente, sea FK o IntegerField
+        return scope_qs_by_empresa(self.request, qs).order_by("-fecha_evento")
 
 class HistorialMantencionDetalle(HistorialMantencionesList):
     def dispatch(self, request, *args, **kwargs):
@@ -322,4 +347,12 @@ urlpatterns += [
 
 urlpatterns += [
     path("empresas/set/", set_company, name="set_company"),     # ← AQUI
+]
+
+
+urlpatterns += [
+    # Historial SOLO de las mantenciones del equipo
+    path("equipos/<int:equipo_id>/historial/", views.historial_mantenciones_equipo, name="equipos_historial"),
+    # (Opcional) Historial detallado de una mantención específica si no estaba:
+    path("mantenciones/<int:id_mantencion>/historial/", historial_mantencion, name="mantencion_historial"),
 ]
