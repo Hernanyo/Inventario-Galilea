@@ -42,26 +42,23 @@
               href="{% url 'productos:home' %}"
             >Inicio</a>
 
-            <div class="dropdown d-inline-block me-2">
-              <a
-                class="btn btn-outline-light btn-sm dropdown-toggle {% if current == 'vistas_grid' or current == 'vistas_lista' %}active{% endif %}"
-                href="#"
-                data-bs-toggle="dropdown"
-                aria-expanded="false"
-              >Vistas</a>
-              <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item {% if current == 'vistas_grid' %}active{% endif %}" href="{% url 'productos:vistas_grid' %}">Cuadrícula</a></li>
-                <li><a class="dropdown-item {% if current == 'vistas_lista' %}active{% endif %}" href="{% url 'productos:vistas_lista' %}">Lista</a></li>
-              </ul>
-            </div>
-
             <a
               class="btn btn-outline-light btn-sm me-2 {% if current == 'dashboard' %}active{% endif %}"
               href="{% url 'productos:dashboard' %}"
             >Dashboard</a>
           {% endwith %}
 
-          <span class="text-white-50 me-3">{{ user.username }}</span>
+          {% with emp=user.empleado %}
+            <span class="text-white-50 me-3">
+              {% if emp %}
+                {{ emp.nombre }} {{ emp.apellido_paterno }}{% if emp.apellido_materno %} {{ emp.apellido_materno }}{% endif %}
+              {% elif user.get_full_name %}
+                {{ user.get_full_name }}
+              {% else %}
+                {{ user.username }}
+              {% endif %}
+            </span>
+          {% endwith %}
 
           <!-- IMPORTANTE: usa el logout de productos -->
           <form method="post" action="{% url 'productos:logout' %}" class="d-inline">

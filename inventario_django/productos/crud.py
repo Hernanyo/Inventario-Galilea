@@ -823,5 +823,10 @@ def ultimos_cambios_mantenciones(request):
 
 CRUD_CONFIGS = _collect_unique_crud_configs()
 
+# Ordenar Equipos por ID descendente por defecto (lo nuevo arriba)
+for _cfg in CRUD_CONFIGS:
+    if _cfg.model._meta.model_name == "equipo":
+        _cfg.ordering = ("-id_equipo",)
+
 def get_crud_configs():
     return CRUD_CONFIGS

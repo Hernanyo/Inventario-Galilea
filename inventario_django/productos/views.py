@@ -28,6 +28,7 @@ from django.db.models import Q
 from django.http import Http404
 from .models_inventario import Equipo, Mantencion
 from django.db import connection
+from .crud import GenericList, view_class
 
 # modelos opcionales (según tu app)
 try:
@@ -491,3 +492,42 @@ def api_atributos_por_tipo(request):
         .values("id_atributo_equipo", "atributo", "valor")  # valor = default si lo tuvieran
     )
     return JsonResponse({"items": attrs})
+
+# Config base del historial (si ya la tienes, reutilízala)
+hist_mant_cfg = type("Cfg", (), {
+    "model": HistorialMantencionesLog,
+    "slug": "historial_mantenciones",
+    "verbose_name": "Historial de mantenciones",
+    "verbose_name_plural": "Historial de mantenciones",
+    "list_display": [
+        "id_equipo", "etiqueta", "equipo_nombre",
+        "fecha_evento", "tipo_mantencion", "prioridad",
+        "estado_actual", "asignado_a", "descripcion", "detalle",
+        "usuario_app_username",
+    ],
+    "ordering": ["-fecha_evento"],
+    "can_create": False, "can_update": False, "can_delete": False,
+})()
+
+
+class HistorialMantencionIndividual(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
+    """Listado filtrado al id de mantención (pk)."""
+    def get_queryset(self):
+        return (
+            HistorialMantencionesLog.objects
+            .filter(id_mantencion=self.kwargs["pk"])
+            .order_by("-fecha_evento")
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # título/subtítulo bonito
+        try:
+            mant = Mantencion.objects.select_related("id_equipo").get(pk=self.kwargs["pk"])
+            ctx["subtitle"] = f"Mantención {mant.id_mantencion} · {mant.id_equipo}"
+        except Mantencion.DoesNotExist:
+            ctx["subtitle"] = f"Mantención {self.kwargs['pk']}"
+        # sin botón “Nuevo”
+        self.crud_config.can_create = False
+        ctx["can_create"] = False
+        return ctx

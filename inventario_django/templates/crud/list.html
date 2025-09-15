@@ -266,6 +266,19 @@
                onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
               <i class="bi bi-trash me-1"></i>Eliminar
             </a>
+                      {% elif view.crud_config.model_name == 'mantencion' %}
+            <a class="btn btn-xs btn-info" href="{% url 'productos:historial_mantencion' item.pk %}">
+              <i class="bi bi-clock-history me-1"></i>Historial
+            </a>
+            <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+              <i class="bi bi-pencil-square me-1"></i>Editar
+            </a>
+            <a class="btn btn-xs btn-danger"
+              href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+              onclick="return confirm('¿Eliminar la mantención {{ item.pk }}?');">
+              <i class="bi bi-trash me-1"></i>Eliminar
+            </a>
+
           {% elif view.crud_config.model_name == 'atributosequipo' %}
             <a class="btn btn-xs btn-info" href="{% url 'productos:editar_atributos_por_tipo' item.id_tipo_equipo_id %}">
               Editar atributos

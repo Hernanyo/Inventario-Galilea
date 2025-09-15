@@ -83,10 +83,6 @@ DetalleFacturaList = view_class(DetalleFactura, cfg_detalle, GenericList)
 urlpatterns = [
     path("", HomeView.as_view(), name="home"),
 
-    # Vistas (navbar)
-    path("vistas/cuadricula/", CardsGridView.as_view(), name="vistas_grid"),
-    path("vistas/lista/", ListVerticalView.as_view(), name="vistas_lista"),
-
     # Dashboard
     path("dashboard/", MetricsDashboardView.as_view(), name="dashboard"),
 
@@ -229,16 +225,12 @@ class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
         log_mantencion_event(self.request.user, self.object, "ACTUALIZAR", "Edición de mantención")
         return resp
 
-class HistorialMantencionesList(EmpresaScopeMixin, ListView):
-    template_name = "mantenciones/historial_mantenciones_list.html"
-    model = HistorialMantenciones
-    context_object_name = "items"
-    paginate_by = 50
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        # aplica multiempresa correctamente, sea FK o IntegerField
-        return scope_qs_by_empresa(self.request, qs).order_by("-fecha_evento")
+class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        self.crud_config.can_create = False
+        ctx["can_create"] = False
+        return ctx
 
 class HistorialMantencionDetalle(HistorialMantencionesList):
     def dispatch(self, request, *args, **kwargs):
@@ -355,4 +347,5 @@ urlpatterns += [
     path("equipos/<int:equipo_id>/historial/", views.historial_mantenciones_equipo, name="equipos_historial"),
     # (Opcional) Historial detallado de una mantención específica si no estaba:
     path("mantenciones/<int:id_mantencion>/historial/", historial_mantencion, name="mantencion_historial"),
+    path("mantenciones/<int:pk>/historial/", views.HistorialMantencionIndividual.as_view(), name="historial_mantencion"),
 ]
