@@ -1,6 +1,7 @@
 # inventario_djanfo/productos/urls.py
 from productos.crud import GenericList, view_class
 from django.urls import path, include
+from .views_atributos import atributos_nuevo_wizard
 from django.views.generic import RedirectView
 from .views import (
     HomeView, CompanySelectView, company_clear,
@@ -157,6 +158,10 @@ class HistorialPorEquipo(HistorialList):
 
 urlpatterns += [
     path("equipos/<int:pk>/historial/", HistorialPorEquipo.as_view(), name="equipo_historial_list"),
+]
+
+urlpatterns += [
+    path("atributosequipos/nuevo/", atributos_nuevo_wizard, name="atributosequipos_create"),
 ]
 
 # --- Rutas CRUD autogeneradas (todas las demás tablas) ---
@@ -365,3 +370,4 @@ MantencionList = view_class(Mantencion, mant_cfg, GenericList)
 urlpatterns += [
     path("mantencions/", MantencionList.as_view(), name="mantencions_list"),
 ]
+

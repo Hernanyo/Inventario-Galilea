@@ -34,36 +34,41 @@ class CompanyRequiredMixin(LoginRequiredMixin):
 
 def scope_qs_by_empresa(request, qs):
     """
-    Limita un queryset a la empresa activa en sesión.
-    Soporta:
-      - Modelos con id_empresa (FK o entero)
-      - Modelos con empresa (FK)
-      - Modelos que cuelgan de Equipo/Empleado vía relación (incluye reverse)
+    Limita un queryset a la empresa activa en sesión solo cuando el modelo
+    tiene un campo directo que lo permite (id_empresa/empresa) o un FK
+    directo a Equipo/Empleado (id_equipo / id_empleado). No usa relaciones
+    inversas para evitar ocultar filas (p.ej., Marcas sin equipos).
     """
     if qs is None:
         return qs
+
     emp_id = request.session.get("empresa_id")
     if not emp_id:
         return qs
 
-    model = qs.model
-    fields = {f.name: f for f in model._meta.get_fields() if hasattr(f, "name")}
+    m = qs.model
+    # Solo campos "forward": tienen .attname; excluye relaciones inversas auto_creadas
+    fwd = {f.name: f for f in m._meta.get_fields() if getattr(f, "attname", None)}
 
-    # 1) Campo directo id_empresa
-    if "id_empresa" in fields:
-        f = fields["id_empresa"]
-        return qs.filter(id_empresa_id=emp_id) if getattr(f, "is_relation", False) else qs.filter(id_empresa=emp_id)
+    # 1) Campo directo id_empresa (FK o entero)
+    if "id_empresa" in fwd:
+        f = fwd["id_empresa"]
+        if getattr(f, "is_relation", False):
+            return qs.filter(id_empresa_id=emp_id)
+        return qs.filter(id_empresa=emp_id)
 
     # 2) Campo 'empresa' como FK
-    if "empresa" in fields:
+    if "empresa" in fwd:
         return qs.filter(empresa_id=emp_id)
 
-    # 3) Derivar por relaciones comunes (forward o reverse) -> usar DISTINCT
-    for rel in ("id_equipo", "equipo", "id_empleado", "empleado"):
-        if rel in fields:
-            return qs.filter(**{f"{rel}__id_empresa": emp_id}).distinct()
+    # 3) FK directo a Equipo / Empleado (forward)
+    if "id_equipo" in fwd:
+        return qs.filter(id_equipo__id_empresa=emp_id)
 
-    # 4) Si no hay forma clara, no tocar
+    if "id_empleado" in fwd:
+        return qs.filter(id_empleado__id_empresa=emp_id)
+
+    # 4) Sin forma clara de scoping -> no tocar
     return qs
 
 
