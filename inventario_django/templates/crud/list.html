@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% load object_extras %}
+{% load tz %}
+
 
 {% block title %}{{ view.crud_config.verbose_plural }}{% endblock %}
 
@@ -194,14 +196,14 @@
             <td>{{ item.id_equipo|default:"—" }}</td>
             <td>{{ item.etiqueta|default:"—" }}</td>
             <td>{{ item.equipo_nombre|default:"—" }}</td>
-            <td>{{ item.fecha_evento|date:"d-m-Y H:i"|default:"—" }}</td>
+            <td>{{ item.fecha_evento|localtime|date:"d-m-Y H:i" }}</td>
             <td>{{ item.tipo_mantencion|default:"—" }}</td>
             <td>{{ item.prioridad|default:"—" }}</td>
             <td>{{ item.estado_actual|default:"—" }}</td>
             <td>{{ item.asignado_a|default:"—" }}</td>
             <td>{{ item.descripcion|default:"—" }}</td>
             <td>{{ item.detalle|default:"—" }}</td>
-            <td>{{ item.usuario_app_username|default:request.user.get_username }}</td>
+            <td>{{ item.usuario_app_username|default:user.get_full_name|default:user.username }}</td>
           </tr>
         {% empty %}
           <tr><td colspan="11" class="text-center">No hay registros.</td></tr>

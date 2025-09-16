@@ -557,7 +557,12 @@ def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
     Inserta una 'foto' del estado de la mantención en historial_mantenciones_log.
     Usa INSERT...SELECT para que el DEFAULT now() de fecha_evento se aplique.
     """
-    username = user.get_username() if getattr(user, "is_authenticated", False) else None
+
+    # nombre visible: Full Name > nombre del Empleado vinculado > username
+    if getattr(user, "is_authenticated", False):
+        display_name = (user.get_full_name() or "").strip() or (str(getattr(user, "empleado", "")) or user.get_username())
+    else:
+        display_name = None
 
     with connection.cursor() as c:
         c.execute("""
@@ -608,7 +613,7 @@ def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
         """, [
             (accion or "").upper(),
             (detalle or ""),
-            username,
+            display_name, 
             mantencion_obj.id_mantencion,
         ])
 # ---------- Export CSV ----------
@@ -827,6 +832,18 @@ CRUD_CONFIGS = _collect_unique_crud_configs()
 for _cfg in CRUD_CONFIGS:
     if _cfg.model._meta.model_name == "equipo":
         _cfg.ordering = ("-id_equipo",)
+    if _cfg.model._meta.model_name == "mantencion":
+        _cfg.ordering = ("-id_mantencion",)
+    if _cfg.model._meta.model_name == "factura":
+        _cfg.ordering = ("-id_factura",)
+    if _cfg.model._meta.model_name == "detallefactura":
+        _cfg.ordering = ("-id_detalle_factura",)
+    if _cfg.model._meta.model_name == "proveedor":
+        _cfg.ordering = ("-id_proveedor",)
+    if _cfg.model._meta.model_name == "marca":
+        _cfg.ordering = ("-id_marca",)
+    if _cfg.model._meta.model_name == "empleado":
+        _cfg.ordering = ("-id_empleado",)
 
 def get_crud_configs():
     return CRUD_CONFIGS

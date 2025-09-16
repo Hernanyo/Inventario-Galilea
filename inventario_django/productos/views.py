@@ -174,12 +174,16 @@ class HomeView(CompanyRequiredMixin, TemplateView):
         return ctx
 
 def _log_mantencion_snapshot(mant: Mantencion, accion: str, user, detalle: str = ""):
+    # Nombre visible: full_name → nombre del Empleado → username
+    emp = getattr(user, "empleado", None)
+    visible_name = (user.get_full_name() or (str(emp) if emp else "") or user.username)
+
     HistorialMantencionesLog.objects.create(
         id_mantencion=mant.id_mantencion,
         fecha_evento=timezone.now(),
         accion=accion,
         detalle=detalle or "",
-        usuario_app_username=getattr(user, 'username', ''),
+        usuario_app_username=visible_name,   # <<--- aquí
 
         id_equipo=mant.id_equipo_id,
         etiqueta=getattr(mant.id_equipo, 'etiqueta', None),

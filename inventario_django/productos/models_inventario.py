@@ -264,6 +264,9 @@ class Mantencion(models.Model):
     fecha = models.DateField(blank=True, null=True)
     descripcion = models.TextField(blank=True, null=True)
 
+ # 👇 NUEVO: mapea la columna existente en BD
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    
     # NUEVOS (coinciden con SQL)
     responsable = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_id',
                                     null=True, blank=True, related_name='mantenciones_responsable')

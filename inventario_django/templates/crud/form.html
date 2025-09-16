@@ -93,7 +93,12 @@
                 {% if object and object.qr_code %}
                   <a href="{% url 'productos:equipos_qr' object.pk %}" class="btn btn-primary btn-sm">Ver QR</a>
                 {% else %}
-                  <span class="text-muted small">🕓 QR a la espera de creación</span>
+                  {% if view.crud_config.model_name == 'equipo' and not object %}
+                    <div class="text-xs text-gray-500 flex items-center gap-2 mt-2">
+                      <i class="bi bi-clock-history"></i>
+                        QR a la espera de creación
+                    </div>
+                  {% endif %}
                 {% endif %}
               </div>
 

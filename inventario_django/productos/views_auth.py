@@ -3,6 +3,9 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.utils.text import slugify
 from .models_inventario import Empresa
+from django.shortcuts import redirect
+from django.contrib import messages
+
 
 def seleccionar_empresa(request):
     """

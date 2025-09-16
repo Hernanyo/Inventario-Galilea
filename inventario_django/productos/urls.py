@@ -1,4 +1,5 @@
 # inventario_djanfo/productos/urls.py
+from productos.crud import GenericList, view_class
 from django.urls import path, include
 from django.views.generic import RedirectView
 from .views import (
@@ -206,8 +207,17 @@ mant_cfg = CrudConfig(
         "id_estado_mantencion", "id_tipo_mantencion", "id_prioridad",
     ],
     search_fields=["descripcion", "id_equipo__etiqueta", "id_equipo__nombre_equipo"],
-    ordering=["-fecha"],
+    ordering=["-id_mantencion"], 
 )
+
+# (opcional pero recomendado) en el mismo archivo o en views.py si prefieres:
+class MantencionList(view_class(Mantencion, mant_cfg, GenericList)):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # si NO hay ?o= (orden solicitado desde la UI), ordena por ID DESC
+        if "o" not in self.request.GET:
+            return qs.order_by("-id_mantencion")
+        return qs
 
 class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
     form_class = MantencionForm
@@ -348,4 +358,10 @@ urlpatterns += [
     # (Opcional) Historial detallado de una mantención específica si no estaba:
     path("mantenciones/<int:id_mantencion>/historial/", historial_mantencion, name="mantencion_historial"),
     path("mantenciones/<int:pk>/historial/", views.HistorialMantencionIndividual.as_view(), name="historial_mantencion"),
+]
+
+MantencionList = view_class(Mantencion, mant_cfg, GenericList)
+
+urlpatterns += [
+    path("mantencions/", MantencionList.as_view(), name="mantencions_list"),
 ]
