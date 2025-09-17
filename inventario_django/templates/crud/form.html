@@ -116,7 +116,7 @@
       <div class="card shadow-sm">
         <div class="card-body">
           {% if view.crud_config.model_name == "equipo" %}
-            <h2 class="h6 fw-semibold mb-3">Últimos 5 equipos</h2>
+            <h2 class="h6 fw-semibold mb-3">Últimos equipos</h2>
             {% if ultimos_equipos %}
               <ul class="small mb-0">
                 {% for eq in ultimos_equipos %}
@@ -206,6 +206,93 @@
             {% else %}
               <p class="text-muted small mb-0">No hay facturas aún.</p>
             {% endif %}
+
+            <!-- Los que faltan -->
+            {% elif view.crud_config.model_name == "departamento" %}
+              <h2 class="h6 fw-semibold mb-3">Últimos departamentos</h2>
+              {% if side_items %}
+                <ul class="small mb-0">
+                  {% for d in side_items %}
+                    <li>{{ d.nombre_departamento }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="text-muted small mb-0">No hay departamentos aún.</p>
+              {% endif %}
+
+              {% elif view.crud_config.model_name == "detallefactura" %}
+              <h2 class="h6 fw-semibold mb-3">Últimos detalles de facturas</h2>
+              {% if side_items %}
+                <ul class="small mb-0">
+                  {% for df in side_items %}
+                    <li>Factura #{{ df.id_factura }} - Producto: {{ df.producto.nombre_producto }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="text-muted small mb-0">No hay detalles de facturas aún.</p>
+              {% endif %}
+
+              {% elif view.crud_config.model_name == "estadomantencion" %}
+              <h2 class="h6 fw-semibold mb-3">Últimos estados de mantención</h2>
+              {% if side_items %}
+                <ul class="small mb-0">
+                  {% for em in side_items %}
+                    <li>{{ em.tipo }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="text-muted small mb-0">No hay estados de mantención aún.</p>
+              {% endif %}
+
+              {% elif view.crud_config.model_name == "tipomantencion" %}
+                <h2 class="h6 fw-semibold mb-3">Últimos tipos de mantención</h2>
+                {% if side_items %}
+                  <ul class="small mb-0">
+                    {% for tm in side_items %}
+                      <li>{{ tm.nombre }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="text-muted small mb-0">No hay tipos de mantención aún.</p>
+                {% endif %}
+
+              {% elif view.crud_config.model_name == "prioridadmantencion" %}
+                <h2 class="h6 fw-semibold mb-3">Últimas prioridades de mantención</h2>
+                {% if side_items %}
+                  <ul class="small mb-0">
+                    {% for pm in side_items %}
+                      <li>{{ pm.nombre }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="text-muted small mb-0">No hay prioridades de mantención aún.</p>
+                {% endif %}
+
+              {% elif view.crud_config.model_name == "tipoequipo" %}
+              <h2 class="h6 fw-semibold mb-3">Últimos tipos de equipos</h2>
+              {% if side_items %}
+                <ul class="small mb-0">
+                  {% for te in side_items %}
+                    <li>{{ te.tipo_equipo }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="text-muted small mb-0">No hay tipos de equipos aún.</p>
+              {% endif %}
+
+              {% elif view.crud_config.model_name == "estadoequipo" %}
+              <h2 class="h6 fw-semibold mb-3">Últimos estados de equipo</h2>
+              {% if side_items %}
+                <ul class="small mb-0">
+                  {% for se in side_items %}
+                    <li>{{ se.descripcion }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="text-muted small mb-0">No hay estados de equipo aún.</p>
+              {% endif %}
+
+
 
           {% else %}
             <h2 class="h6 fw-semibold mb-3">Resumen</h2>

@@ -1,5 +1,8 @@
 # productos/crud.py
 from dataclasses import dataclass, field
+from django.core.exceptions import FieldDoesNotExist
+from django.db.models import ForeignKey, OneToOneField
+from .models_inventario import Marca, Proveedor, TipoEquipo, EstadoEquipo
 from typing import Sequence, List, Type
 import csv
 from django.apps import apps
@@ -61,6 +64,19 @@ def _build_default_form(model):
             widgets[f.name] = forms.TextInput(attrs={"class": "form-control"})
     return modelform_factory(model, fields="__all__", widgets=widgets)
 
+def _empresa_field_info(model) -> tuple[bool, bool]:
+    """
+    Devuelve (existe, es_relacion) para el campo 'id_empresa' del modelo.
+    """
+    try:
+        f = model._meta.get_field("id_empresa")
+    except FieldDoesNotExist:
+        return (False, False)
+    return (True, isinstance(f, (ForeignKey, OneToOneField)))
+
+def _model_has_empresa_fk(model) -> bool:
+    f = next((f for f in model._meta.get_fields() if getattr(f, "name", None) == "id_empresa"), None)
+    return bool(f and getattr(f, "is_relation", False))
 
 # ---------- Config e inferencia ----------
 
@@ -240,63 +256,48 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
     def get_form_class(self):
         if self.model.__name__ == "Equipo":
             return EquipoForm
-        if self.model.__name__ == "Mantencion":     # ← añade esto
+        if self.model.__name__ == "Mantencion":
             from productos.forms import MantencionForm
             return MantencionForm
-        #return _build_default_form(self.model)
         if self.model.__name__ == "Empleado":
-            from productos.forms import EmpleadoForm        # ← usar el de forms.py
+            from productos.forms import EmpleadoForm
             return EmpleadoForm
+        # fallback genérico para cualquier otro modelo (Departamento, Marca, etc.)
         return _build_default_form(self.model)
-    
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        if self.model.__name__ in ("Mantencion", "Equipo"):
-            kwargs["request"] = self.request
-        return kwargs
-    
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        emp_id = self.request.session.get("empresa_id")
+        if not emp_id:
+            return form
+
+        for field in form.fields.values():
+            qs = getattr(field, "queryset", None)
+            if qs is None:
+                continue
+
+            mdl = qs.model
+
+            # Si el combo es Empresa -> filtra por pk
+            if mdl._meta.model_name == "empresa":
+                field.queryset = mdl.objects.filter(pk=emp_id)
+                continue
+
+            # Si el modelo del combo TIENE FK id_empresa -> filtra por esa FK
+            if _model_has_empresa_fk(mdl):
+                field.queryset = qs.filter(id_empresa_id=emp_id)
+            else:
+                # si existiera id_empresa como entero en ese modelo relacionado:
+                exists, _ = _empresa_field_info(mdl)
+                if exists:
+                    field.queryset = qs.filter(id_empresa=emp_id)
+
+            # Si no, lo dejamos tal cual
+        return form
+
     def get_success_url(self):
+        # productos: <slug>_list  -> p.ej. productos:departamentos_list
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
-
-    def form_valid(self, form):
-        if self.model.__name__ == "Equipo":
-            # guarda el usuario actual (Empleado vinculado)
-            form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
-        #return super().form_valid(form)
-        
-        # 👇 Nuevo: setear solicitante automáticamente al crear mantención
-        if self.model.__name__ == "Mantencion":
-            if not getattr(form.instance, "solicitante_user_id", None):
-                form.instance.solicitante_user = self.request.user
-
-        resp = super().form_valid(form)
-            # === GUARDAR VALORES DE ATRIBUTOS (solo Equipo) ===
-
-    # 2) si es Equipo → guardar valores de atributos después de crear
-        if self.model.__name__ == "Equipo":
-            equipo = self.object
-            tipo_id = self.request.POST.get("id_id_tipo_equipo") or getattr(equipo, "id_tipo_equipo_id", None)
-            if tipo_id:
-                attrs = list(
-                    AtributosEquipo.objects
-                    .filter(id_tipo_equipo_id=tipo_id)
-                    .values_list("id_atributo_equipo", flat=True)
-                )
-                with transaction.atomic():
-                    AgregacionAtributosPorEquipo.objects.filter(equipo_id=equipo.id_equipo).delete()
-                    nuevos = []
-                    for attr_id in attrs:
-                        v = (self.request.POST.get(f"attr_{attr_id}", "") or "").strip()
-                        nuevos.append(AgregacionAtributosPorEquipo(
-                            equipo_id=equipo.id_equipo,
-                            atributo_id=attr_id,
-                            valor=v or None
-                        ))
-                    if nuevos:
-                        AgregacionAtributosPorEquipo.objects.bulk_create(nuevos, ignore_conflicts=True)
-
-        # 3) devolver la respuesta normal de CreateView
-        return resp
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -304,21 +305,30 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
 
+        emp_id = self.request.session.get("empresa_id")  # ⬅️ añade esto
+
         # EQUIPO: ya tenías sidebar propio
         if self.model.__name__ == "Equipo":
-            ultimos = Equipo.objects.order_by("-id_equipo")[:15]
-            ultima = Equipo.objects.order_by("-id_equipo").first()
+            qs = Equipo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)              # ⬅️ filtro
+            ultimos = qs.order_by("-id_equipo")[:15]
+            ultima  = qs.order_by("-id_equipo").first()
             ctx["ultimos_equipos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
         # MANTENCION: últimas mantenciones
         elif self.model.__name__ == "Mantencion":
             from .models_inventario import Mantencion as Mant
+            qs = Mant.objects.all()
+            if emp_id:
+                # si el modelo no tiene id_empresa, filtramos por el equipo
+                if "id_empresa" in {f.name for f in Mant._meta.get_fields()}:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                else:
+                    qs = qs.filter(id_equipo__id_empresa_id=emp_id)
             ctx["side_title"] = "Últimas mantenciones"
-            ctx["side_items"] = (
-                Mant.objects.select_related("id_equipo")
-                .order_by("-id_mantencion")[:15]
-            )
+            ctx["side_items"] = qs.select_related("id_equipo").order_by("-id_mantencion")[:15]
 
         # EMPRESA: últimas empresas
         elif self.model.__name__ == "Empresa":
@@ -333,23 +343,101 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
 
         elif self.model.__name__ == "Marca":
             from .models_inventario import Marca as M
+            qs = M.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)      # ⬅️ filtro
             ctx["side_title"] = "Últimas marcas"
-            ctx["side_items"] = M.objects.order_by("-id_marca")[:15]
+            ctx["side_items"] = qs.order_by("-id_marca")[:15]   # ⬅️ usa qs
 
         elif self.model.__name__ == "Proveedor":
             from .models_inventario import Proveedor as P
+            qs = P.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)      # ⬅️ filtro
             ctx["side_title"] = "Últimos proveedores"
-            ctx["side_items"] = P.objects.order_by("-id_proveedor")[:15]
+            ctx["side_items"] = qs.order_by("-id_proveedor")[:15]  # ⬅️ usa qs
 
         elif self.model.__name__ == "Factura":
             from .models_inventario import Factura as F
             ctx["side_title"] = "Últimas facturas"
             ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
 
+        elif self.model.__name__ == "Departamento":
+            from .models_inventario import Departamento as D
+            qs = D.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos departamentos"
+            ctx["side_items"] = qs.order_by("-id_departamento")[:5]  # Los últimos 5 registros
+        
+        elif self.model.__name__ == "Factura":
+            from .models_inventario import Factura as F
+            qs = F.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimas facturas"
+            ctx["side_items"] = qs.order_by("-id_factura")[:5]  # Los últimos 5 registros
 
+        elif self.model.__name__ == "EstadoEquipo":
+            from .models_inventario import EstadoEquipo
+            qs = EstadoEquipo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos estados de equipo"
+            ctx["side_items"] = qs.order_by("-id_estado_equipo")[:15]
+
+        elif self.model.__name__ == "TipoMantencion":
+            from .models_inventario import TipoMantencion
+            qs = TipoMantencion.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos tipos de mantención"
+            ctx["side_items"] = qs.order_by("-id_tipo_mantencion")[:15]
+        
+        elif self.model.__name__ == "PrioridadMantencion":
+            from .models_inventario import PrioridadMantencion
+            qs = PrioridadMantencion.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa=emp_id)
+            ctx["side_title"] = "Últimas prioridades de mantención"
+            ctx["side_items"] = qs.order_by("-id_prioridad")[:15]
+            
+        elif self.model.__name__ == "EstadoMantencion":
+            from .models_inventario import EstadoMantencion
+            qs = EstadoMantencion.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos estados de mantención"
+            ctx["side_items"] = qs.order_by("-id_estado_mantencion")[:15]
+
+
+
+        elif self.model.__name__ == "TipoMantencion":
+            from .models_inventario import TipoMantencion
+            qs = TipoMantencion.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos tipos de mantención"
+            ctx["side_items"] = qs.order_by("-id_tipo_mantencion")[:15]
+
+        elif self.model.__name__ == "TipoEquipo":
+            from .models_inventario import TipoEquipo
+            qs = TipoEquipo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos tipos de equipo"
+            ctx["side_items"] = qs.order_by("-id_tipo_equipo")[:15]
+
+        elif self.model.__name__ == "DetalleFactura":
+            from .models_inventario import DetalleFactura
+            qs = DetalleFactura.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimos detalles de factura"
+            ctx["side_items"] = qs.order_by("-id_detalle_factura")[:15]
         return ctx
 
-class GenericUpdate(EmpresaScopeMixin, ModelPermsMixin, UpdateView):
+class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
     action_perm = "change"
     crud_config: CrudConfig
@@ -375,6 +463,36 @@ class GenericUpdate(EmpresaScopeMixin, ModelPermsMixin, UpdateView):
             from productos.forms import EmpleadoForm        # ← usar el de forms.py
             return EmpleadoForm
         return _build_default_form(self.model)
+    
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        emp_id = self.request.session.get("empresa_id")
+        if not emp_id:
+            return form
+
+        for field in form.fields.values():
+            qs = getattr(field, "queryset", None)
+            if qs is None:
+                continue
+
+            mdl = qs.model
+
+            # Si el combo es Empresa -> filtra por pk
+            if mdl._meta.model_name == "empresa":
+                field.queryset = mdl.objects.filter(pk=emp_id)
+                continue
+
+            # Si el modelo del combo TIENE FK id_empresa -> filtra por esa FK
+            if _model_has_empresa_fk(mdl):
+                field.queryset = qs.filter(id_empresa_id=emp_id)
+            else:
+                # si existiera id_empresa como entero en ese modelo relacionado:
+                exists, _ = _empresa_field_info(mdl)
+                if exists:
+                    field.queryset = qs.filter(id_empresa=emp_id)
+
+            # Si no, lo dejamos tal cual
+        return form
 
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
@@ -387,7 +505,7 @@ class GenericUpdate(EmpresaScopeMixin, ModelPermsMixin, UpdateView):
         # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Equipo) ===
         if self.model.__name__ == "Equipo":
             equipo = self.object
-            tipo_id = self.request.POST.get("id_id_tipo_equipo") or getattr(equipo, "id_tipo_equipo_id", None)
+            tipo_id = self.request.POST.get("id_tipo_equipo") or getattr(equipo, "id_tipo_equipo_id", None)
             if tipo_id:
                 attrs = list(
                     AtributosEquipo.objects
@@ -419,19 +537,28 @@ class GenericUpdate(EmpresaScopeMixin, ModelPermsMixin, UpdateView):
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
 
+        emp_id = self.request.session.get("empresa_id")
+        
+
         if self.model.__name__ == "Equipo":
-            ultimos = Equipo.objects.order_by("-id_equipo")[:15]
-            ultima = Equipo.objects.order_by("-id_equipo").first()
+            qs = Equipo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ultimos = qs.order_by("-id_equipo")[:15]
+            ultima  = qs.order_by("-id_equipo").first()
             ctx["ultimos_equipos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
         elif self.model.__name__ == "Mantencion":
             from .models_inventario import Mantencion as Mant
-            ctx["side_title"] = "Últimas mantenciones"
-            ctx["side_items"] = (
-                Mant.objects.select_related("id_equipo")
-                .order_by("-id_mantencion")[:15]
-            )
+            qs = Mant.objects.all()  # <-- paréntesis cerrado
+            if emp_id:
+                if "id_empresa" in {f.name for f in Mant._meta.get_fields()}:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                else:
+                    qs = qs.filter(id_equipo__id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimas mantencionesSS"
+            ctx["side_items"] = qs.select_related("id_equipo").order_by("-id_mantencion")[:15]
 
         elif self.model.__name__ == "Empresa":
             from .models_inventario import Empresa as Emp
@@ -442,16 +569,23 @@ class GenericUpdate(EmpresaScopeMixin, ModelPermsMixin, UpdateView):
             from .models_inventario import Empleado as Emp
             ctx["side_title"] = "Últimos empleados"
             ctx["side_items"] = Emp.objects.order_by("-id_empleado")[:15]
+    
 
         elif self.model.__name__ == "Marca":
             from .models_inventario import Marca as M
+            qs = M.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
             ctx["side_title"] = "Últimas marcas"
-            ctx["side_items"] = M.objects.order_by("-id_marca")[:15]
+            ctx["side_items"] = qs.order_by("-id_marca")[:15]  # <-- usa qs
 
         elif self.model.__name__ == "Proveedor":
             from .models_inventario import Proveedor as P
+            qs = P.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
             ctx["side_title"] = "Últimos proveedores"
-            ctx["side_items"] = P.objects.order_by("-id_proveedor")[:15]
+            ctx["side_items"] = qs.order_by("-id_proveedor")[:15]  # <-- usa qs
 
         elif self.model.__name__ == "Factura":
             from .models_inventario import Factura as F
@@ -483,6 +617,7 @@ class EquipoForm(forms.ModelForm):
         # }
     def __init__(self, *args, request=None, **kwargs):
             super().__init__(*args, **kwargs)
+
             emp_id = None
             if request is not None and hasattr(request, "session"):
                 emp_id = request.session.get("empresa_id")
@@ -505,6 +640,40 @@ class EquipoForm(forms.ModelForm):
                 if emp_id:
                     dqs = dqs.filter(id_empresa_id=emp_id)
                 self.fields["id_departamento"].queryset = dqs.order_by("nombre_departamento")
+            
+            # Marcas solo de la empresa
+            if "id_marca" in self.fields:
+                from .models_inventario import Marca
+                qs = Marca.objects.all()
+                if emp_id:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                self.fields["id_marca"].queryset = qs.order_by("nombre_marca")
+
+            # Proveedores solo de la empresa
+            if "id_proveedor" in self.fields:
+                from .models_inventario import Proveedor
+                qs = Proveedor.objects.all()
+                if emp_id:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                self.fields["id_proveedor"].queryset = qs.order_by("nombre_proveedor")
+
+            # Tipos de equipo solo de la empresa
+            if "id_tipo_equipo" in self.fields:
+                from .models_inventario import TipoEquipo
+                qs = TipoEquipo.objects.all()
+                if emp_id:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                self.fields["id_tipo_equipo"].queryset = qs.order_by("tipo_equipo")
+
+            # Estados de equipo solo de la empresa
+            if "id_estado_equipo" in self.fields:
+                from .models_inventario import EstadoEquipo
+                qs = EstadoEquipo.objects.all()
+                if emp_id:
+                    qs = qs.filter(id_empresa_id=emp_id)
+                self.fields["id_estado_equipo"].queryset = qs.order_by("descripcion")
+
+            
                 
     def clean(self):
         cleaned = super().clean()

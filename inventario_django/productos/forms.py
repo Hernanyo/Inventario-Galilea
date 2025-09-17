@@ -4,6 +4,10 @@ from .models_inventario import Mantencion, Empleado   # asegúrate de tener Empl
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from .models_inventario import Mantencion, Empleado, Equipo  # 👈 añade Equipo
+from .models_inventario import (
+    Mantencion, Equipo, Empleado,
+    EstadoMantencion, TipoMantencion, PrioridadMantencion
+)
 
 class MantencionForm(forms.ModelForm):
     class Meta:
@@ -34,41 +38,89 @@ class MantencionForm(forms.ModelForm):
     def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
 
-        for f in ['id_equipo','id_estado_mantencion','id_tipo_mantencion','id_prioridad','responsable']:
-            if f in self.fields:
-                self.fields[f].widget.attrs.update({'class': 'form-select'})
+        # clases para selects/inputs
+        for name, field in self.fields.items():
+            w = field.widget
+            css = w.attrs.get("class", "")
+            if w.__class__.__name__ in ("Select", "SelectMultiple"):
+                w.attrs["class"] = (css + " form-select").strip()
+            else:
+                w.attrs["class"] = (css + " form-control").strip()
 
         emp_id = request.session.get("empresa_id") if request is not None else None
 
+        # Filtrar todos los combos por empresa activa
         if emp_id:
-            if 'responsable' in self.fields:
-                self.fields['responsable'].queryset = (
-                    Empleado.objects
-                    .filter(activo=True, id_empresa_id=emp_id)
-                    .order_by('nombre','apellido_paterno','apellido_materno')
+            if "id_equipo" in self.fields:
+                self.fields["id_equipo"].queryset = (
+                    Equipo.objects.filter(id_empresa_id=emp_id)
+                    .order_by("nombre_equipo")
                 )
-            if 'id_equipo' in self.fields:
-                self.fields['id_equipo'].queryset = (
-                    Equipo.objects
-                    .filter(id_empresa_id=emp_id)
-                    .order_by('nombre_equipo')
+            if "id_estado_mantencion" in self.fields:
+                self.fields["id_estado_mantencion"].queryset = (
+                    EstadoMantencion.objects.filter(id_empresa_id=emp_id)
+                    .order_by("tipo")
+                )
+            if "id_tipo_mantencion" in self.fields:
+                self.fields["id_tipo_mantencion"].queryset = (
+                    TipoMantencion.objects.filter(id_empresa_id=emp_id)
+                    .order_by("nombre")
+                )
+            if "id_prioridad" in self.fields:
+                self.fields["id_prioridad"].queryset = (
+                    PrioridadMantencion.objects.filter(id_empresa_id=emp_id)
+                    .order_by("nombre")
+                )
+            if "responsable" in self.fields:
+                self.fields["responsable"].queryset = (
+                    Empleado.objects.filter(id_empresa_id=emp_id, activo=True)
+                    .order_by("nombre", "apellido_paterno", "apellido_materno")
                 )
         else:
-            if 'responsable' in self.fields:
-                self.fields['responsable'].queryset = Empleado.objects.filter(activo=True).order_by('nombre')
+            # fallback si no hay empresa en sesión
+            if "responsable" in self.fields:
+                self.fields["responsable"].queryset = (
+                    Empleado.objects.filter(activo=True).order_by("nombre")
+                )
 
-        if 'fecha' in self.fields:
-            # Si es nuevo => mínimo hoy; si edita, no fijamos min
-            if not getattr(self.instance, "pk", None):
-                self.fields['fecha'].widget.attrs['min'] = date.today().isoformat()
-                self.fields['fecha'].initial = date.today()
+        # fecha mínima (= hoy) sólo en creación
+        if "fecha" in self.fields and not getattr(self.instance, "pk", None):
+            self.fields["fecha"].widget.attrs["min"] = date.today().isoformat()
+            self.fields["fecha"].initial = date.today()
+
+        self._request = request  # por si lo necesitas luego
 
     def clean_fecha(self):
         f = self.cleaned_data.get("fecha")
-        if not getattr(self.instance, "pk", None):  # solo al crear
-            if f and f < date.today():
-                raise ValidationError("La fecha no puede ser anterior a hoy.")
+        if not getattr(self.instance, "pk", None) and f and f < date.today():
+            raise ValidationError("La fecha no puede ser anterior a hoy.")
         return f
+
+    def clean(self):
+        cleaned = super().clean()
+        equipo = cleaned.get("id_equipo")
+        if equipo is None:
+            return cleaned
+
+        emp_id = getattr(equipo, "id_empresa_id", None)
+
+        # Autocompletar empresa de la mantención si viene vacía
+        if getattr(self.instance, "id_empresa_id", None) in (None, ""):
+            self.instance.id_empresa_id = emp_id
+
+        # Validar coherencia de empresa en catálogos seleccionados
+        checks = (
+            ("id_estado_mantencion", "Estado de mantención"),
+            ("id_tipo_mantencion", "Tipo de mantención"),
+            ("id_prioridad", "Prioridad"),
+            ("responsable", "Responsable"),
+        )
+        for field_name, label in checks:
+            obj = cleaned.get(field_name)
+            if obj is not None and getattr(obj, "id_empresa_id", emp_id) != emp_id:
+                raise ValidationError({field_name: f"{label} pertenece a otra empresa."})
+
+        return cleaned
     
 class EmpleadoForm(forms.ModelForm):
     class Meta:

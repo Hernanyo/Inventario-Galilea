@@ -76,11 +76,18 @@ class Empleado(models.Model):
 
 class Marca(models.Model):
     id_marca = models.AutoField(primary_key=True)
-    nombre_marca = models.CharField(unique=True, max_length=100)
+    nombre_marca = models.CharField(max_length=100)
+    id_empresa = models.ForeignKey(
+        'Empresa',
+        models.DO_NOTHING,
+        db_column='id_empresa',
+        null=True, blank=True
+    )
 
     class Meta:
         managed = False
-        db_table = 'marca'
+        db_table = 'inventario"."marca'
+        unique_together = (('id_empresa', 'nombre_marca'),)
 
     def __str__(self):
         return self.nombre_marca
@@ -88,11 +95,13 @@ class Marca(models.Model):
 
 class EstadoEquipo(models.Model):
     id_estado_equipo = models.AutoField(primary_key=True)
-    descripcion = models.CharField(unique=True, max_length=100)
-
+    descripcion = models.CharField(max_length=100)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
+                                   db_column='id_empresa', null=True, blank=True)
     class Meta:
         managed = False
-        db_table = 'estado_equipo'
+        db_table = 'inventario"."estado_equipo'
+        unique_together = (('id_empresa', 'descripcion'),)
 
     def __str__(self):
         return self.descripcion
@@ -101,11 +110,14 @@ class EstadoEquipo(models.Model):
 class Proveedor(models.Model):
     id_proveedor = models.AutoField(primary_key=True)
     nombre_proveedor = models.CharField(max_length=200)
-    rut_proveedor = models.CharField(unique=True, max_length=20, blank=True, null=True)
+    rut_proveedor = models.CharField(max_length=20, blank=True, null=True)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
+                                   db_column='id_empresa', null=True, blank=True)
 
     class Meta:
         managed = False
-        db_table = 'proveedor'
+        db_table = 'inventario"."proveedor'
+        unique_together = (('id_empresa', 'rut_proveedor'),)
         verbose_name = "Proveedor"
         verbose_name_plural = "Proveedores"
 
@@ -115,11 +127,13 @@ class Proveedor(models.Model):
 
 class TipoEquipo(models.Model):
     id_tipo_equipo = models.AutoField(primary_key=True)
-    tipo_equipo = models.CharField(unique=True, max_length=100)
-
+    tipo_equipo = models.CharField(max_length=100)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
+                                   db_column='id_empresa', null=True, blank=True)
     class Meta:
         managed = False
-        db_table = 'tipo_equipo'
+        db_table = 'inventario"."tipo_equipo'
+        unique_together = (('id_empresa', 'tipo_equipo'),)
 
     def __str__(self):
         return self.tipo_equipo
@@ -180,10 +194,12 @@ class AtributosEquipo(models.Model):
     id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
     atributo = models.CharField(max_length=100)
     valor = models.CharField(max_length=250, blank=True, null=True)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
+                                   db_column='id_empresa', null=True, blank=True)
 
     class Meta:
         managed = False
-        db_table = 'atributos_equipo'
+        db_table = 'inventario"."atributos_equipo'
         unique_together = (('id_tipo_equipo', 'atributo'),)
 
     def __str__(self):
@@ -215,22 +231,27 @@ class AgregacionAtributosPorEquipo(models.Model):
 
 class EstadoMantencion(models.Model):
     id_estado_mantencion = models.AutoField(primary_key=True)
-    tipo = models.CharField(unique=True, max_length=50)
-
+    tipo = models.CharField(max_length=50)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING,
+                                   db_column='id_empresa', null=True, blank=True)
     class Meta:
         managed = False
-        db_table = 'estado_mantencion'
+        db_table = 'inventario"."estado_mantencion'
+        unique_together = (('id_empresa', 'tipo'),)
 
     def __str__(self):
         return self.tipo
     
 class TipoMantencion(models.Model):
     id_tipo_mantencion = models.AutoField(primary_key=True)
-    nombre = models.CharField(unique=True, max_length=50)
+    nombre = models.CharField(max_length=50)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING,
+                                   db_column='id_empresa', null=True, blank=True)
 
     class Meta:
         managed = False
-        db_table = "tipo_mantencion"
+        db_table = 'inventario"."tipo_mantencion'
+        unique_together = (('id_empresa', 'nombre'),)
         verbose_name = "Tipo de mantención"
         verbose_name_plural = "Tipos de mantención"
 
@@ -241,11 +262,14 @@ class TipoMantencion(models.Model):
 
 class PrioridadMantencion(models.Model):
     id_prioridad = models.AutoField(primary_key=True)
-    nombre = models.CharField(unique=True, max_length=50)
+    nombre = models.CharField(max_length=50)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
+    
 
     class Meta:
         managed = False
-        db_table = "prioridad_mantencion"
+        db_table = 'inventario"."prioridad_mantencion'
+        unique_together = (('id_empresa', 'nombre'),)
         verbose_name = "Prioridad de mantención"
         verbose_name_plural = "Prioridades de mantención"
 
@@ -266,7 +290,7 @@ class Mantencion(models.Model):
 
  # 👇 NUEVO: mapea la columna existente en BD
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
-    
+
     # NUEVOS (coinciden con SQL)
     responsable = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_id',
                                     null=True, blank=True, related_name='mantenciones_responsable')
@@ -309,6 +333,7 @@ class DetalleFactura(models.Model):
     valor_neto = models.IntegerField(blank=True, null=True)
     iva = models.IntegerField(blank=True, null=True)
     valor_total = models.IntegerField(blank=True, null=True)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
 
     class Meta:
         managed = False

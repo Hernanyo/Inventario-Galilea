@@ -226,6 +226,12 @@ class MantencionList(view_class(Mantencion, mant_cfg, GenericList)):
 
 class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
     form_class = MantencionForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["request"] = self.request          # <- PASA request AL FORM
+        return kwargs
+
     def form_valid(self, form):
         form.instance.solicitante_user = self.request.user   # ← AQUÍ
         form.instance.id_empresa_id = form.instance.id_empresa_id or self.request.session.get("empresa_id")
@@ -235,6 +241,12 @@ class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
 
 class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
     form_class = MantencionForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["request"] = self.request          # <- PASA request AL FORM
+        return kwargs
+
     def form_valid(self, form):
         resp = super().form_valid(form)
         log_mantencion_event(self.request.user, self.object, "ACTUALIZAR", "Edición de mantención")
