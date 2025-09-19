@@ -1,6 +1,21 @@
 # productos/signals.py
 from __future__ import annotations
 
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.contrib.auth.models import User
+from .models_inventario import Empleado
+from .utils import sync_user_groups_for_empleado, crear_usuario_y_enviar_correo
+
+# productos/signals.py
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from .models_inventario import Empleado
+from .utils import ensure_auth_user_for_empleado, sync_user_groups_for_empleado, send_password_set_link
+
+
+
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -168,3 +183,16 @@ def _equipo_log_cambio_observaciones(sender, instance: Equipo, created: bool, **
             getattr(instance, "_usuario_actual", None),
         )
         instance._obs_log_msg = None
+
+@receiver(post_save, sender=Empleado)
+def empleado_post_save(sender, instance: Empleado, created, **kwargs):
+    # Si se crea un empleado con correo y sin user → crea user + envía link
+    if created and instance.correo and not instance.user:
+        crear_usuario_y_enviar_correo(instance)
+
+    # Mantener grupos según rol siempre que exista user
+    try:
+        sync_user_groups_for_empleado(instance)
+    except Exception:
+        # evita romper guardado si aún no están los grupos al boot
+        pass

@@ -63,6 +63,7 @@ class Empleado(models.Model):
         blank=True, null=True,
         related_name="empleado",
     )
+    correo = models.CharField(max_length=255, unique=True, blank=True, null=True)  # <-- NUEVO
 
 
     class Meta:

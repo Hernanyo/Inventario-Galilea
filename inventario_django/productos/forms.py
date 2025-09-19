@@ -129,6 +129,7 @@ class EmpleadoForm(forms.ModelForm):
         exclude = ["user"]
         # (opcional) widgets básicos para look & feel
         widgets = {
+            #"RUT":
             "nombre": forms.TextInput(attrs={"class": "form-control"}),
             "apellido_paterno": forms.TextInput(attrs={"class": "form-control"}),
             "apellido_materno": forms.TextInput(attrs={"class": "form-control"}),
@@ -138,4 +139,5 @@ class EmpleadoForm(forms.ModelForm):
             "id_empresa": forms.Select(attrs={"class": "form-select"}),
             "id_departamento": forms.Select(attrs={"class": "form-select"}),
             "rol": forms.TextInput(attrs={"class": "form-control"}),
+            "correo": forms.EmailInput(attrs={"class": "form-control"}),
         }

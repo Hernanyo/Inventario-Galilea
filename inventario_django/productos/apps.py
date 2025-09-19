@@ -17,6 +17,7 @@ class ProductosConfig(AppConfig):
     def ready(self):
         # Importa señales para registrar los handlers
         from . import signals  # noqa
+        import productos.signals  # noqa
 
 class ProductosConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"

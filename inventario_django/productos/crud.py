@@ -1,4 +1,7 @@
 # productos/crud.py
+from .utils import crear_usuario_y_enviar_correo, sync_user_groups_for_empleado
+
+from productos.utils import crear_usuario_y_enviar_correo
 from dataclasses import dataclass, field
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey, OneToOneField
@@ -34,6 +37,8 @@ from django.core.exceptions import FieldDoesNotExist
 from .mixins import EmpresaScopeMixin
 from .mixins import SaveEmpresaMixin
 from .models_inventario import Empleado, Departamento  # al inicio del archivo
+from .utils import crear_usuario_y_enviar_correo
+
 
 
 
@@ -223,29 +228,27 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
 
-                # 👇 ESTA ES LA CLAVE: calcula si el usuario puede crear este modelo
-        can_create = self.request.user.has_perm(
-            f"{self.model._meta.app_label}.add_{self.model._meta.model_name}"
-        )
+        user = self.request.user
+        app = self.model._meta.app_label
+        model = self.model._meta.model_name
 
-        # 🚫 Si el modelo es unmanaged (vista SQL), no mostrar botón "Nuevo"
-        #if not getattr(self.model._meta, "managed", True):
-        #    can_create = False
+        can_create = user.has_perm(f"{app}.add_{model}")
+        can_change = user.has_perm(f"{app}.change_{model}")
+        can_delete = user.has_perm(f"{app}.delete_{model}")
 
-
-
-        # pásalo al template como parte del config (para que el template actual funcione)
+        # disponibles tanto en cfg como en el contexto
         self.crud_config.can_create = can_create
-        # (opcional) también en el contexto por si te sirve en otros templates
+        self.crud_config.can_change = can_change
+        self.crud_config.can_delete = can_delete
         ctx["can_create"] = can_create
+        ctx["can_change"] = can_change
+        ctx["can_delete"] = can_delete
 
         if self.model._meta.model_name == "atributosequipo":
             from .models_inventario import TipoEquipo
             ctx["tipos_equipo"] = TipoEquipo.objects.order_by("tipo_equipo")
 
         return ctx
-    
-
 
 
 class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView):
@@ -401,7 +404,7 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
                 qs = qs.filter(id_empresa=emp_id)
             ctx["side_title"] = "Últimas prioridades de mantención"
             ctx["side_items"] = qs.order_by("-id_prioridad")[:15]
-            
+
         elif self.model.__name__ == "EstadoMantencion":
             from .models_inventario import EstadoMantencion
             qs = EstadoMantencion.objects.all()
@@ -436,6 +439,14 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
             ctx["side_title"] = "Últimos detalles de factura"
             ctx["side_items"] = qs.order_by("-id_detalle_factura")[:15]
         return ctx
+    
+    def form_valid(self, form):
+        resp = super().form_valid(form)
+        if self.model.__name__ == "Empleado" and form.instance.correo:
+            crear_usuario_y_enviar_correo(form.instance)
+            sync_user_groups_for_empleado(form.instance)
+        return resp
+
 
 class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
@@ -500,8 +511,24 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
     def form_valid(self, form):
         if self.model.__name__ == "Equipo":
             form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
-        resp= super().form_valid(form)
-    
+
+        resp = super().form_valid(form)
+
+        if self.model.__name__ == "Empleado":
+            obj = self.object
+            # Si no tiene user y ahora hay correo → crea user + link
+            if not obj.user_id and obj.correo:
+                crear_usuario_y_enviar_correo(obj)
+            # Si tiene user, alinea email
+            if obj.user_id:
+                from django.contrib.auth.models import User
+                u = User.objects.filter(pk=obj.user_id).first()
+                if u and u.email != (obj.correo or ""):
+                    u.email = obj.correo or ""
+                    u.save(update_fields=["email"])
+            # Alinea grupos según rol
+            sync_user_groups_for_empleado(obj)
+            
         # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Equipo) ===
         if self.model.__name__ == "Equipo":
             equipo = self.object
@@ -591,9 +618,31 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
             from .models_inventario import Factura as F
             ctx["side_title"] = "Últimas facturas"
             ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
-
-
         return ctx
+    
+    def form_valid(self, form):
+        was_new_user_linked = False
+        if self.model.__name__ == "Empleado":
+            old = self.model.objects.get(pk=self.object.pk)  # antes del save
+            resp = super().form_valid(form)
+            obj = self.object
+
+            # si no tenía user y ahora sí hay correo → crear user y mandar link
+            if not old.user_id and obj.correo:
+                crear_usuario_y_enviar_correo(obj)
+                was_new_user_linked = True
+
+            # si ya tiene user pero cambió el correo → reflejar en auth_user.email
+            if old.correo != obj.correo and obj.user_id:
+                from django.contrib.auth.models import User
+                u = User.objects.filter(pk=obj.user_id).first()
+                if u and u.email != obj.correo:
+                    u.email = obj.correo
+                    u.save(update_fields=["email"])
+            return resp
+        else:
+            return super().form_valid(form)
+
     
 class EquipoForm(forms.ModelForm):
     class Meta:
@@ -718,6 +767,12 @@ class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
         ctx["cfg"] = self.crud_config
         return ctx
+    
+    # Otros métodos
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.empleado.rol != 'admin':
+            return HttpResponseForbidden("No tienes permisos para eliminar.")
+        return super().dispatch(request, *args, **kwargs)
 
 from django.db import connection
 

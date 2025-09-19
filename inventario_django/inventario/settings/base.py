@@ -1,3 +1,4 @@
+#inventario/settings/base.py
 from pathlib import Path
 import environ
 import os
@@ -126,7 +127,6 @@ LANGUAGE_CODE = "es-cl"
 TIME_ZONE = "America/Santiago"
 USE_TZ = True
 USE_I18N = True
-USE_TZ = True
 
 # === Archivos estáticos / media ===
 STATIC_URL = "static/"
@@ -146,7 +146,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 
 # === Email (robusto ante valores vacíos) ===
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+#EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 EMAIL_HOST = env("EMAIL_HOST", default="")
 
 _email_port_raw = env("EMAIL_PORT", default=None)
@@ -187,3 +187,7 @@ LOGIN_REDIRECT_URL = "productos:home"           # <----- Opcional (después de l
 LOGOUT_REDIRECT_URL = "productos:company_select"  # <----- Opcional
 
 DATABASES['default']['OPTIONS'] = {'options': '-c search_path=public,inventario'}
+
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "Inventario <no-reply@inventario.local>"
+SITE_URL = "http://127.0.0.1:8000"  # o tu host

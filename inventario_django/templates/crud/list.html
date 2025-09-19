@@ -19,7 +19,8 @@
 
 <div class="flex items-center justify-between mb-4">
   <div class="flex items-center gap-2 w-full justify-end">
-    {% if view.crud_config.can_create %}
+
+    {% if can_create %}
       <a class="btn btn-primary btn-sm"
         href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
         Nuevo {{ view.crud_config.verbose_name }}
@@ -249,9 +250,12 @@
       {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
         <td class="text-right">
           {% if view.crud_config.model_name == 'equipo' %}
-            <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
-              <i class="bi bi-pencil-square me-1"></i>Editar
-            </a>
+            {% if can_change %}
+              <a class="btn btn-xs btn-warning" href="{% url 'productos:equipos_update' item.id_equipo %}">
+                <i class="bi bi-pencil-square me-1"></i>Editar
+              </a>
+            {% endif %}
+
             {% if item.qr_code %}
               <a class="btn btn-xs btn-success" href="{% url 'productos:equipos_qr' item.id_equipo %}">
                 <i class="bi bi-qr-code me-1"></i>Ver QR
@@ -264,42 +268,61 @@
             <a class="btn btn-xs btn-info" href="{% url 'productos:equipo_historial_list' item.id_equipo %}">
               <i class="bi bi-clock-history me-1"></i>Historial
             </a>
-            <a class="btn btn-xs btn-danger" href="{% url 'productos:equipos_delete' item.id_equipo %}"
-               onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
-              <i class="bi bi-trash me-1"></i>Eliminar
-            </a>
-                      {% elif view.crud_config.model_name == 'mantencion' %}
+            {% if can_delete %}
+              <a class="btn btn-xs btn-danger" href="{% url 'productos:equipos_delete' item.id_equipo %}"
+                onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
+                <i class="bi bi-trash me-1"></i>Eliminar
+              </a>
+            {% endif %}
+
+          {% elif view.crud_config.model_name == 'mantencion' %}
             <a class="btn btn-xs btn-info" href="{% url 'productos:historial_mantencion' item.pk %}">
               <i class="bi bi-clock-history me-1"></i>Historial
             </a>
-            <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
-              <i class="bi bi-pencil-square me-1"></i>Editar
-            </a>
-            <a class="btn btn-xs btn-danger"
-              href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
-              onclick="return confirm('¿Eliminar la mantención {{ item.pk }}?');">
-              <i class="bi bi-trash me-1"></i>Eliminar
-            </a>
+
+            {% if can_change %}
+              <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                <i class="bi bi-pencil-square me-1"></i>Editar
+              </a>
+            {% endif %}
+
+            {% if can_delete %}
+              <a class="btn btn-xs btn-danger"
+                href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                onclick="return confirm('¿Eliminar la mantención {{ item.pk }}?');">
+                <i class="bi bi-trash me-1"></i>Eliminar
+              </a>
+            {% endif %}
 
           {% elif view.crud_config.model_name == 'atributosequipo' %}
             <a class="btn btn-xs btn-info" href="{% url 'productos:editar_atributos_por_tipo' item.id_tipo_equipo_id %}">
               Editar atributos
             </a>
-            <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
-              Editar
-            </a>
-            <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
-               onclick="return confirm('¿Eliminar este registro?');">
-              Eliminar
-            </a>
+
+            {% if can_change %}
+              <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                Editar
+              </a>
+            {% endif %}
+
+            {% if can_delete %}
+              <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                onclick="return confirm('¿Eliminar este registro?');">
+                Eliminar
+              </a>
+            {% endif %}
           {% else %}
-            <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
-              <i class="bi bi-pencil-square me-1"></i>Editar
-            </a>
-            <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
-               onclick="return confirm('¿Eliminar este registro?');">
-              <i class="bi bi-trash me-1"></i>Eliminar
-            </a>
+              {% if can_change %}
+                <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                  <i class="bi bi-pencil-square me-1"></i>Editar
+                </a>
+              {% endif %}
+              {% if can_delete %}
+                <a class="btn btn-xs btn-danger" href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                  onclick="return confirm('¿Eliminar este registro?');">
+                  <i class="bi bi-trash me-1"></i>Eliminar
+                </a>  
+              {% endif %}   
           {% endif %}
         </td>
       {% endif %}
