@@ -29,8 +29,8 @@
 
             {% if view.crud_config.model_name == "equipo" %}
               <hr class="my-4">
-              <h5 class="mb-2">Atributos del equipo</h5>
-              <p class="text-muted small">Se generan a partir del tipo de equipo seleccionado.</p>
+              <h5 class="mb-2">Atributos del activo</h5>
+              <p class="text-muted small">Se generan a partir del tipo de activo seleccionado.</p>
 
               <div id="attrs-container" class="vstack gap-2"></div>
 
@@ -116,7 +116,7 @@
       <div class="card shadow-sm">
         <div class="card-body">
           {% if view.crud_config.model_name == "equipo" %}
-            <h2 class="h6 fw-semibold mb-3">Últimos equipos</h2>
+            <h2 class="h6 fw-semibold mb-3">Últimos Activos</h2>
             {% if ultimos_equipos %}
               <ul class="small mb-0">
                 {% for eq in ultimos_equipos %}
@@ -124,7 +124,7 @@
                 {% endfor %}
               </ul>
             {% else %}
-              <p class="text-muted small mb-0">No hay equipos aún.</p>
+              <p class="text-muted small mb-0">No hay activos aún.</p>
             {% endif %}
 
           {% elif view.crud_config.model_name == "mantencion" %}
@@ -269,7 +269,7 @@
                 {% endif %}
 
               {% elif view.crud_config.model_name == "tipoequipo" %}
-              <h2 class="h6 fw-semibold mb-3">Últimos tipos de equipos</h2>
+              <h2 class="h6 fw-semibold mb-3">Últimos tipos de activos</h2>
               {% if side_items %}
                 <ul class="small mb-0">
                   {% for te in side_items %}
@@ -277,11 +277,11 @@
                   {% endfor %}
                 </ul>
               {% else %}
-                <p class="text-muted small mb-0">No hay tipos de equipos aún.</p>
+                <p class="text-muted small mb-0">No hay tipos de activos aún.</p>
               {% endif %}
 
               {% elif view.crud_config.model_name == "estadoequipo" %}
-              <h2 class="h6 fw-semibold mb-3">Últimos estados de equipo</h2>
+              <h2 class="h6 fw-semibold mb-3">Últimos estados de activos</h2>
               {% if side_items %}
                 <ul class="small mb-0">
                   {% for se in side_items %}
@@ -289,7 +289,7 @@
                   {% endfor %}
                 </ul>
               {% else %}
-                <p class="text-muted small mb-0">No hay estados de equipo aún.</p>
+                <p class="text-muted small mb-0">No hay estados de activos aún.</p>
               {% endif %}
 
 

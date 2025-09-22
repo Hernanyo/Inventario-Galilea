@@ -49,7 +49,7 @@ def editar_atributos_por_tipo(request, tipo_id):
                     obj.delete()
 
             messages.success(request, "Atributos actualizados correctamente.")  # ✅ feedback
-            return redirect("productos:atributosquipos_list")
+            return redirect("productos:atributosequipos_list")
 
     else:
         formset = FormSet(queryset=qs, prefix="attrs")

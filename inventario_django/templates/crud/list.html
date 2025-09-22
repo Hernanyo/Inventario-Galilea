@@ -10,7 +10,7 @@
 <h1 class="text-2xl font-semibold">
   Listado de {{ view.crud_config.verbose_plural }}
   {% if equipo %}
-    <span class="badge bg-secondary ms-2">Equipo {{ equipo.id_equipo }} · {{ equipo.nombre_equipo }}</span>
+    <span class="badge bg-secondary ms-2">Activo {{ equipo.id_equipo }} · {{ equipo.nombre_equipo }}</span>
   {% endif %}
   {% if subtitle %}
     <span class="badge bg-secondary ms-2">{{ subtitle }}</span>
@@ -56,10 +56,10 @@
     {% endif %}
 
     {% if view.crud_config.model_name == 'equipo' %}
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">Tipos de Equipos</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">Atributos de Equipos</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">Estados de Equipos</a>
-      <a href="{% url 'productos:historial_equipos_list' %}" class="btn btn-info">Historial de Equipos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">Tipos de Activos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">Atributos de Activos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">Estados de Activos</a>
+      <a href="{% url 'productos:historial_equipos_list' %}" class="btn btn-info">Historial de Activos</a>
     {% endif %}
 
     {% if view.crud_config.model_name == 'mantencion' %}
@@ -98,7 +98,7 @@
       <thead>
         <tr>
           <th style="width:30%">Tipo</th>
-          <th style="width:20%"># Atributos</th>
+          <th style="width:20%">Atributos</th>
           <th class="text-right">Acciones</th>
         </tr>
       </thead>
@@ -128,9 +128,9 @@
     {% elif view.crud_config.model_name == 'historialequipos' %}
       <thead>
         <tr>
-          <th><a href="?q={{ q }}&o=equipo__id_equipo">ID Equipo</a></th>
+          <th><a href="?q={{ q }}&o=equipo__id_equipo">ID Activo</a></th>
           <th><a href="?q={{ q }}&o=etiqueta">Etiqueta</a></th>
-          <th><a href="?q={{ q }}&o=equipo">Equipo</a></th>
+          <th><a href="?q={{ q }}&o=equipo">Activo</a></th>
           <th><a href="?q={{ q }}&o=fecha">Fecha</a></th>
           <th><a href="?q={{ q }}&o=responsable_anterior_fk">Responsable Anterior</a></th>
           <th><a href="?q={{ q }}&o=estado_anterior">Estado Anterior</a></th>
@@ -178,9 +178,9 @@
     {% elif view.crud_config.slug == 'historial_mantenciones' %}
       <thead>
         <tr>
-          <th><a href="?q={{ q }}&o=id_equipo">Id Equipo</a></th>
+          <th><a href="?q={{ q }}&o=id_equipo">Id Activo</a></th>
           <th><a href="?q={{ q }}&o=etiqueta">Etiqueta</a></th>
-          <th><a href="?q={{ q }}&o=equipo_nombre">Equipo Nombre</a></th>
+          <th><a href="?q={{ q }}&o=equipo_nombre">Nombre Activo</a></th>
           <th><a href="?q={{ q }}&o=fecha_evento">Fecha Evento</a></th>
           <th><a href="?q={{ q }}&o=tipo_mantencion">Tipo Mantención</a></th>
           <th><a href="?q={{ q }}&o=prioridad">Prioridad</a></th>
@@ -220,11 +220,11 @@
                 <a href="?q={{ q }}&o={{ col }}">Observaciones</a>
               </th>
             {% else %}
-              <th><a href="?q={{ q }}&o={{ col }}">{{ col|underscores_to_spaces|title }}</a></th>
+              <th>
+                <a href="?q={{ q }}&o={{ col }}">{{ col|column_label }}</a>
+              </th>
             {% endif %}
           {% endfor %}
-
-
           {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
             <th class="text-right">Acciones</th>
           {% endif %}
@@ -270,7 +270,7 @@
             </a>
             {% if can_delete %}
               <a class="btn btn-xs btn-danger" href="{% url 'productos:equipos_delete' item.id_equipo %}"
-                onclick="return confirm('¿Eliminar el equipo {{ item.id_equipo }}?');">
+                onclick="return confirm('¿Eliminar el activo {{ item.id_equipo }}?');">
                 <i class="bi bi-trash me-1"></i>Eliminar
               </a>
             {% endif %}
@@ -344,7 +344,7 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Observaciones del equipo</h5>
+        <h5 class="modal-title">Observaciones del activo</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">

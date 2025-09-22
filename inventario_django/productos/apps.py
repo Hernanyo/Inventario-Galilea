@@ -1,5 +1,6 @@
 from django.apps import AppConfig
 # productos/views.py
+from django.db.utils import OperationalError, ProgrammingError
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
@@ -15,9 +16,12 @@ class ProductosConfig(AppConfig):
 
     
     def ready(self):
-        # Importa señales para registrar los handlers
-        from . import signals  # noqa
-        import productos.signals  # noqa
+        try:
+            from .utils import ensure_history_view_perms
+            ensure_history_view_perms()   # idempotente
+        except (OperationalError, ProgrammingError):
+            # DB aún no lista; ignorar en arranques tempranos
+            pass
 
 class ProductosConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"

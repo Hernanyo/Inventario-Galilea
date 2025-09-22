@@ -66,7 +66,7 @@
     <div class="col-md-3">
       <div class="card h-100 shadow-sm">
         <div class="card-body text-center kpi-body">
-          <h6 class="text-muted">Equipos</h6>
+          <h6 class="text-muted">Activos</h6>
           <div class="display-6">{{ total_equipos|default:0 }}</div>
           <small class="text-muted">registrados</small>
         </div>
@@ -80,7 +80,7 @@
           <div class="card-body text-center kpi-body">
             <h6 class="text-muted">Disponibles</h6>
             <div class="display-6">{{ disponibles|default:0 }}</div>
-            <small class="text-muted">equipos</small>
+            <small class="text-muted">activos</small>
           </div>
         </div>
       </a>
@@ -93,7 +93,7 @@
           <div class="card-body text-center kpi-body">
             <h6 class="text-muted">En uso</h6>
             <div class="display-6">{{ en_uso|default:0 }}</div>
-            <small class="text-muted">equipos</small>
+            <small class="text-muted">eactivos</small>
           </div>
         </div>
       </a>
@@ -115,7 +115,7 @@
     <div class="row g-3 mb-3">
       <div class="col-lg-6">
         <div class="card shadow-sm h-100">
-          <div class="card-header">Equipos por Tipo</div>
+          <div class="card-header">Activos por Tipo</div>
           <div class="card-body">
             <div style="position:relative;height:300px"><canvas id="chartTipos"></canvas></div>
           </div>
@@ -134,7 +134,7 @@
     <div class="row g-3">
       <div class="col-lg-6">
         <div class="card shadow-sm">
-          <div class="card-header">Últimos equipos</div>
+          <div class="card-header">Últimos activos</div>
           <div class="card-body table-responsive">
             <table class="table table-sm align-middle">
               <thead>
@@ -163,7 +163,7 @@
           <div class="card-body table-responsive">
             <table class="table table-sm align-middle">
               <thead>
-                <tr><th>#</th><th>Equipo</th><th>Estado</th><th>Fecha</th></tr>
+                <tr><th>#</th><th>Activo</th><th>Estado</th><th>Fecha</th></tr>
               </thead>
               <tbody>
                 {% for m in ultimas_mantenciones %}

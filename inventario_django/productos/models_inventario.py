@@ -103,6 +103,8 @@ class EstadoEquipo(models.Model):
         managed = False
         db_table = 'inventario"."estado_equipo'
         unique_together = (('id_empresa', 'descripcion'),)
+        verbose_name = "Estado de activo"
+        verbose_name_plural = "Estados de activo"
 
     def __str__(self):
         return self.descripcion
@@ -135,6 +137,8 @@ class TipoEquipo(models.Model):
         managed = False
         db_table = 'inventario"."tipo_equipo'
         unique_together = (('id_empresa', 'tipo_equipo'),)
+        verbose_name = "Tipo de activo"
+        verbose_name_plural = "Tipos de activo"
 
     def __str__(self):
         return self.tipo_equipo
@@ -184,6 +188,8 @@ class Equipo(models.Model):
     class Meta:
         managed = False
         db_table = 'equipo'
+        verbose_name="Activo"
+        verbose_name_plural="Activos"
 
     def __str__(self):
         # Nombre + marca + tipo para que sea fácil identificarlo
@@ -202,6 +208,8 @@ class AtributosEquipo(models.Model):
         managed = False
         db_table = 'inventario"."atributos_equipo'
         unique_together = (('id_tipo_equipo', 'atributo'),)
+        verbose_name = "Atributo de activo"
+        verbose_name_plural = "Atributos de activo"
 
     def __str__(self):
         # Ej: "Notebook · RAM = 16GB"
@@ -221,8 +229,8 @@ class AgregacionAtributosPorEquipo(models.Model):
         managed = False  # tabla creada en BD
         db_table = 'inventario"."agregacion_atributos_por_equipo'
         unique_together = (('equipo', 'atributo'),)
-        verbose_name = "Valor de atributo por equipo"
-        verbose_name_plural = "Valores de atributos por equipo"
+        verbose_name = "Valor de atributo por activo"
+        verbose_name_plural = "Valores de atributos por activos"
 
     def __str__(self):
         nombre_attr = getattr(self.atributo, "atributo", "Atributo")
@@ -417,6 +425,8 @@ class HistorialEquipos(models.Model):
         managed = False
         db_table = 'historial_equipos'
         ordering = ['-fecha']
+        verbose_name = "Historial de activos"
+        verbose_name_plural = "Historial de activos"
 
     def __str__(self):
         eq = getattr(self, "equipo", None)

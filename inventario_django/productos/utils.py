@@ -1,4 +1,9 @@
 # utils.py
+from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth.models import Group, Permission
+
+from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.tokens import default_token_generator
 from django.urls import reverse
@@ -228,3 +233,28 @@ def send_password_set_link(user):
     token = default_token_generator.make_token(user)
     url = f"{settings.SITE_URL}{reverse('password_reset_confirm', kwargs={'uidb64': uidb64, 'token': token})}"
     print(f"[DEV] Link para definir contraseña de {user.username}: {url}")
+
+def ensure_history_view_perms():
+    app_label = "productos"
+    model_codenames = [
+        "historialequipos",            # -> view_historialequipos
+        "historialmantencioneslog",    # -> view_historialmantencioneslog
+    ]
+    # crea/obtiene los Permission por si el modelo es unmanaged
+    for model_lower in model_codenames:
+        ct, _ = ContentType.objects.get_or_create(app_label=app_label, model=model_lower)
+        Permission.objects.get_or_create(
+            content_type=ct,
+            codename=f"view_{model_lower}",
+            defaults={"name": f"Can view {model_lower}"}
+        )
+
+    # asígnalos a los grupos de la app
+    groups = ["rol_usuario", "rol_admin"]   # añade aquí cualquier otro grupo que uses
+    perms = list(Permission.objects.filter(
+        content_type__app_label=app_label,
+        codename__in=["view_historialequipos", "view_historialmantencioneslog"]
+    ))
+    for gname in groups:
+        g, _ = Group.objects.get_or_create(name=gname)
+        g.permissions.add(*perms)

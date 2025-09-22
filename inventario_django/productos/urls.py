@@ -104,7 +104,7 @@ urlpatterns = auth_selector_patterns + urlpatterns
 historial_cfg = CrudConfig(
     model=HistorialEquipos,
     slug="historial_equipos",
-    verbose_plural="Historial de Equipos",
+    verbose_plural="Historial de Activos",
     list_display=[
         "id", "etiqueta", "equipo", "fecha", "responsable_anterior",
         "estado_anterior", "estado_nuevo", "responsable_actual", "empresa",
@@ -118,6 +118,7 @@ historial_cfg = CrudConfig(
 )
 
 class HistorialList(view_class(HistorialEquipos, historial_cfg, GenericList)):
+    action_perm = None
     def get_queryset(self):
         qs = super().get_queryset().select_related(
             "equipo", "usuario", "estado_anterior", "estado_nuevo",
@@ -142,6 +143,7 @@ urlpatterns += [
 
 # --- Historial filtrado por equipo ---
 class HistorialPorEquipo(HistorialList):
+    action_perm = None
     def dispatch(self, request, *args, **kwargs):
         self.equipo = get_object_or_404(Equipo, pk=kwargs["pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -253,6 +255,7 @@ class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
         return resp
 
 class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
+    action_perm = None  
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         self.crud_config.can_create = False
@@ -260,6 +263,7 @@ class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_c
         return ctx
 
 class HistorialMantencionDetalle(HistorialMantencionesList):
+    action_perm = None 
     def dispatch(self, request, *args, **kwargs):
         self.id_mantencion = kwargs["id_mantencion"]
         return super().dispatch(request, *args, **kwargs)

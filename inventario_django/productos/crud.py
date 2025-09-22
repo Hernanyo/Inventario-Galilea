@@ -1,4 +1,6 @@
 # productos/crud.py
+
+from django.contrib.auth.decorators import login_required
 from .utils import crear_usuario_y_enviar_correo, sync_user_groups_for_empleado
 
 from productos.utils import crear_usuario_y_enviar_correo
@@ -246,8 +248,11 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
 
         if self.model._meta.model_name == "atributosequipo":
             from .models_inventario import TipoEquipo
-            ctx["tipos_equipo"] = TipoEquipo.objects.order_by("tipo_equipo")
-
+            emp_id = self.request.session.get("empresa_id")
+            te_qs = TipoEquipo.objects.all()
+            if emp_id:
+                te_qs = te_qs.filter(id_empresa_id=emp_id)
+            ctx["tipos_equipo"] = te_qs.order_by("tipo_equipo")
         return ctx
 
 
@@ -336,13 +341,21 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         # EMPRESA: últimas empresas
         elif self.model.__name__ == "Empresa":
             from .models_inventario import Empresa as Emp
+            emp_id = self.request.session.get("empresa_id")
+            qs = Emp.objects.all()
+            if emp_id:
+                qs = qs.filter(pk=emp_id)
             ctx["side_title"] = "Últimas empresas"
-            ctx["side_items"] = Emp.objects.order_by("-id_empresa")[:15]
+            ctx["side_items"] = qs.order_by("-id_empresa")[:15]
 
         elif self.model.__name__ == "Empleado":
             from .models_inventario import Empleado as Emp
+            emp_id = self.request.session.get("empresa_id")
+            qs = Emp.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
             ctx["side_title"] = "Últimos empleados"
-            ctx["side_items"] = Emp.objects.order_by("-id_empleado")[:15]
+            ctx["side_items"] = qs.order_by("-id_empleado")[:15]
 
         elif self.model.__name__ == "Marca":
             from .models_inventario import Marca as M
@@ -589,13 +602,21 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
 
         elif self.model.__name__ == "Empresa":
             from .models_inventario import Empresa as Emp
+            emp_id = self.request.session.get("empresa_id")
+            qs = Emp.objects.all()
+            if emp_id:
+                qs = qs.filter(pk=emp_id)
             ctx["side_title"] = "Últimas empresas"
-            ctx["side_items"] = Emp.objects.order_by("-id_empresa")[:15]
+            ctx["side_items"] = qs.order_by("-id_empresa")[:15]
 
         elif self.model.__name__ == "Empleado":
             from .models_inventario import Empleado as Emp
+            emp_id = self.request.session.get("empresa_id")
+            qs = Emp.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
             ctx["side_title"] = "Últimos empleados"
-            ctx["side_items"] = Emp.objects.order_by("-id_empleado")[:15]
+            ctx["side_items"] = qs.order_by("-id_empleado")[:15]
     
 
         elif self.model.__name__ == "Marca":
@@ -660,6 +681,18 @@ class EquipoForm(forms.ModelForm):
             "id_empresa",        # NUEVO: siempre visible en el form
             "id_departamento",   # NUEVO: siempre visible en el form
         ]
+        labels = {
+            "nombre_equipo": "Nombre Activo",
+            "id_marca": "Marca",
+            "id_tipo_equipo": "Tipo Activo",
+            "id_estado_equipo": "Estado Activo",
+            "id_empleado": "Responsable",
+            "id_proveedor": "Proveedor",
+            "etiqueta": "Etiqueta",
+            "observaciones": "Observaciones",
+            "id_empresa": "Empresa",
+            "id_departamento": "Departamento",
+        }
         # (opcional) puedes añadir widgets si quieres inputs más bonitos:
         # widgets = {
         #     "nombre_equipo": forms.TextInput(attrs={"class": "input input-bordered"}),
@@ -905,6 +938,13 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
         DeleteCls = view_class(m, cfg, GenericDelete)
         csv_view  = export_csv_view(m, cfg)
 
+        # --- 👇 SOLO LOGIN REQUERIDO PARA LOS HISTORIALES ---
+        if m._meta.model_name == "historialequipos":
+            ListCls.action_perm = None
+        if cfg.slug == "historial_mantenciones":
+            ListCls.action_perm = None
+        # ----------------------------------------------------
+
 
         patterns += [
             path(f"{cfg.slug}/",                  ListCls.as_view(),    name=f"{cfg.slug}_list"),
@@ -1049,6 +1089,17 @@ def ultimos_cambios_mantenciones(request):
     }
     return render(request, "mantenciones/ultimos_cambios_mantenciones.html", ctx)
 
+SLUG_ALIASES = {
+    "equipo": "activos",
+    "tipoequipo": "tipos_activo",
+    "atributosequipo": "atributos_activo",
+}
+
+def make_slug(m: Type[Model]) -> str:
+    base = m._meta.model_name
+    if base in SLUG_ALIASES:
+        return SLUG_ALIASES[base]
+    return base if base.endswith("s") else f"{base}s"
 
 CRUD_CONFIGS = _collect_unique_crud_configs()
 
