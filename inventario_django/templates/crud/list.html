@@ -85,11 +85,78 @@
   </div>
 </div>
 
-<form method="get" class="mb-3 flex gap-2">
-  <input class="input input-bordered w-full max-w-md"
-         type="search" name="q" value="{{ q }}" placeholder="Buscar…">
-  <button class="btn">Buscar</button>
-</form>
+
+<!-- 11111111111111######################################################################################################################################## -->
+<div class="row align-items-end mb-3 toolbar g-3">
+
+  <!-- Formulario de BÚSQUEDA -->
+  <div class="col-12 col-md-4 col-lg-3">
+    <form method="get" class="d-flex flex-column gap-2">
+      <label class="form-label mb-0">Buscar</label>
+      <div class="d-flex gap-2">
+        <input class="form-control" type="search" name="q" value="{{ q }}" placeholder="Buscar…">
+        <button class="btn btn-outline-primary">Buscar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Formulario de FILTRO AVANZADO -->
+  <div class="col-12 col-md-8 col-lg-9">
+    <form method="get">
+      <!-- conserva el término de búsqueda actual -->
+      <input type="hidden" name="q" value="{{ q }}">
+
+      <div class="row row-cols-1 row-cols-md-auto g-2 align-items-end">
+        <div class="col">
+          <label for="adv_f" class="form-label mb-0">Filtrar por</label>
+          <select id="adv_f" name="f" class="form-select">
+            {% for fld in adv_fields %}
+              <option value="{{ fld.name }}" {% if fld.name == f %}selected{% endif %}>
+                {{ fld.label|default:fld.name|title }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col" id="adv_val_text">
+          <label class="form-label mb-0">Valor</label>
+          <input id="adv_fv_text" type="text" name="fv"
+                 value="{{ fv|default_if_none:'' }}" class="form-control" placeholder="Valor…">
+        </div>
+
+        <div class="col" id="adv_val_select" style="display:none">
+          <label class="form-label mb-0">Valor</label>
+          <select id="adv_fv_select" name="fv" class="form-select"></select>
+        </div>
+
+        <div class="col">
+          <button class="btn btn-primary">Aplicar</button>
+        </div>
+
+        {% if q or f or fv %}
+        <div class="col">
+          <a class="btn btn-outline-secondary" href="?">Limpiar</a>
+        </div>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+<style>
+  /* evita que los controles queden aplastados */
+  .min-w-\[12rem\]{min-width:12rem}
+  .min-w-\[10rem\]{min-width:10rem}
+  /* Limita el ancho para que no se vean gigantes en desktops */
+.toolbar .form-control,
+.toolbar .form-select { max-width: 320px; }
+
+/* En pantallas pequeñas que ocupen todo el ancho */
+@media (max-width: 767.98px) {
+  .toolbar .form-control,
+  .toolbar .form-select { max-width: 100%; }
+}
+</style>
+<!-- 22222222222222222222222222######################################################################################################################################## -->
 
 <div class="table-responsive bg-white shadow rounded-3 w-100" style="overflow-x: auto;">
   <table class="table table-striped table-hover table-sm align-middle w-100">
@@ -243,7 +310,13 @@
             </button>
           </td>
         {% else %}
-          <td>{{ item|attr:col }}</td>
+          <td>
+            {% if q %}
+              {{ item|attr:col|underline_match:q }}
+            {% else %}
+              {{ item|attr:col }}
+            {% endif %}
+          </td>
         {% endif %}
       {% endfor %}
 
@@ -410,6 +483,64 @@ setInterval(updateDateTime, 1000);
 updateDateTime();
 </script>
 
+<!-- ######################################################################################################################################## -->
+<script>
+  (function() {
+    const advChoices = JSON.parse('{{ adv_choices_json|default:"{}"|escapejs }}');
+    const advFields  = JSON.parse('{{ adv_fields_json|default:"[]"|escapejs }}');
+
+    const selField = document.getElementById('adv_f');
+    const wrapText = document.getElementById('adv_val_text');
+    const wrapSelect = document.getElementById('adv_val_select');
+    const selValue = document.getElementById('adv_fv_select');
+    if (!selField || !wrapText || !wrapSelect || !selValue) return;
+
+    function fieldType(name) {
+      const it = (advFields || []).find(x => x.name === name);
+      return it ? it.type : null;
+    }
+
+    function renderFor(field) {
+      const t = fieldType(field);
+      if (t === 'fk' || t === 'bool') {
+        wrapText.style.display = 'none';
+        wrapSelect.style.display = '';
+        // poblar select
+        selValue.innerHTML = '';
+        let choices = [];
+        if (t === 'bool') {
+          choices = [
+            {value: 'true', label: 'True'},
+            {value: 'false', label: 'False'},
+          ];
+        } else {
+          choices = (advChoices[field] || []);
+        }
+        const current = "{{ fv|default_if_none:''|escapejs }}";
+        // opción vacía
+        const opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = '—';
+        selValue.appendChild(opt0);
+        choices.forEach(c => {
+          const o = document.createElement('option');
+          o.value = c.value;
+          o.textContent = c.label;
+          if (String(c.value) === String(current)) o.selected = true;
+          selValue.appendChild(o);
+        });
+      } else {
+        wrapText.style.display = '';
+        wrapSelect.style.display = 'none';
+      }
+    }
+
+    selField.addEventListener('change', () => renderFor(selField.value));
+    renderFor(selField.value);
+  })();
+</script>
+<!-- ######################################################################################################################################## -->
+
 <style>
   th.obs-col, td.obs-col {
     width: 90px;         /* angosta */
@@ -426,6 +557,13 @@ updateDateTime();
   td.text-right {
     white-space: nowrap;
   }
+  .hl {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+    background: transparent; /* por si usas <mark> en otros lados */
+  }
+
 </style>
 
 {% endblock %}

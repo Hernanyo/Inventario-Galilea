@@ -1,4 +1,6 @@
 # productos/crud.py
+from django.utils.dateparse import parse_date
+import json
 
 from django.contrib.auth.decorators import login_required
 from .utils import crear_usuario_y_enviar_correo, sync_user_groups_for_empleado
@@ -188,6 +190,150 @@ def build_config(m: Type[Model]) -> CrudConfig:
     )
 
 
+#####################################################
+#####################################################
+# ---------- Filtro avanzado (helpers seguros) ----------
+
+def _field_kind(model, field_name):
+    """
+    Devuelve 'fk' | 'char' | 'num' | 'bool' | 'date' | 'other'
+    o None si no existe el campo en el modelo.
+    """
+    try:
+        f = model._meta.get_field(field_name)
+    except Exception:
+        return None
+    from django.db.models import (
+        CharField, TextField, BooleanField, IntegerField, BigIntegerField, FloatField,
+        DateField, DateTimeField, ForeignKey, OneToOneField
+    )
+    if isinstance(f, (ForeignKey, OneToOneField)):
+        return "fk"
+    if isinstance(f, (CharField, TextField)):
+        return "char"
+    if isinstance(f, (IntegerField, BigIntegerField, FloatField)):
+        return "num"
+    if isinstance(f, BooleanField):
+        return "bool"
+    if isinstance(f, (DateField, DateTimeField)):
+        return "date"
+    return "other"
+
+
+def _build_adv_fields_from_list_display(model, list_display):
+    """
+    Devuelve [{"name":..., "label":..., "type":...}, ...] para columnas reales del modelo.
+    No rompe si una col no es un Field real (la salta).
+    """
+    label_overrides = {
+        "id_equipo": "Id Activo",
+        "nombre_equipo": "Nombre Activo",
+        "id_tipo_equipo": "Id Tipo Activo",
+        "id_estado_equipo": "Id Estado Activo",
+        "id_marca": "Id Marca",
+        "id_proveedor": "Id Proveedor",
+        "id_empleado": "Responsable",
+        "observaciones": "Observaciones",
+        "etiqueta": "Etiqueta",
+    }
+    out = []
+    for col in list_display:
+        kind = _field_kind(model, col)
+        if not kind:
+            continue
+        label = label_overrides.get(col) or col.replace("_", " ").title()
+        out.append({"name": col, "label": label, "type": kind})
+    return out
+
+
+def _adv_choices_for_fk_fields(request, model, adv_fields):
+    """
+    Para campos 'fk' arma choices [{value: pk, label: str(obj)}] con scope por empresa si aplica.
+    """
+    emp_id = request.session.get("empresa_id")
+    choices = {}
+    for af in adv_fields:
+        if af["type"] != "fk":
+            continue
+        f = model._meta.get_field(af["name"])  # ForeignKey
+        rel = f.remote_field.model
+        qs = rel.objects.all()
+        # Si el relacionado tiene id_empresa, filtra
+        if hasattr(rel, "id_empresa_id") and emp_id:
+            qs = qs.filter(id_empresa_id=emp_id)
+        # orden legible si existe
+        for cand in ("nombre", "descripcion", "razon_social", "tipo_equipo", "marca", "modelo"):
+            try:
+                rel._meta.get_field(cand)
+                qs = qs.order_by(cand)
+                break
+            except Exception:
+                continue
+        choices[af["name"]] = [{"value": obj.pk, "label": str(obj)} for obj in qs[:500]]
+    return choices
+
+
+def _apply_advanced_filter(qs, model, field_name, raw_value):
+    """
+    Aplica filtro seguro según el tipo del campo.
+    - fk: si fv es dígito filtra por pk; si no, intenta buscar por campos 'nombre/descripcion/...'
+    - char: icontains
+    - num: exact (si es dígito); si no, none()
+    - bool: true/false/1/0/si/no
+    - date/datetime: intenta parsear YYYY-MM-DD -> __date, si no, startswith como string
+    """
+    if not field_name:
+        return qs
+    kind = _field_kind(model, field_name)
+    if not kind:
+        return qs
+
+    fv = (raw_value or "").strip()
+    if fv == "":
+        return qs
+
+    from django.db.models import Q, CharField, TextField, ForeignKey, OneToOneField, DateField, DateTimeField
+    f = model._meta.get_field(field_name)
+
+    if kind in ("char",):
+        return qs.filter(**{f"{field_name}__icontains": fv})
+
+    if kind == "num":
+        return qs.filter(**{field_name: fv}) if fv.isdigit() else qs.none()
+
+    if kind == "bool":
+        v = fv.lower()
+        t = {"true", "1", "t", "y", "yes", "si", "sí"}
+        fa = {"false", "0", "f", "n", "no"}
+        if v in t:
+            return qs.filter(**{field_name: True})
+        if v in fa:
+            return qs.filter(**{field_name: False})
+        return qs
+
+    if kind == "date":
+        d = parse_date(fv)
+        if d:
+            return qs.filter(**{f"{field_name}__date": d})
+        return qs.filter(**{f"{field_name}__startswith": fv})
+
+    if kind == "fk":
+        if fv.isdigit():
+            return qs.filter(**{field_name: int(fv)})
+        # búsqueda “humana” en el relacionado si no vino id
+        rel = f.remote_field.model
+        for cand in ("nombre", "descripcion", "razon_social", "tipo_equipo", "marca", "modelo"):
+            try:
+                rel._meta.get_field(cand)
+                return qs.filter(**{f"{field_name}__{cand}__icontains": fv})
+            except Exception:
+                continue
+        return qs
+
+    # other -> no filtra
+    return qs
+#####################################################
+#####################################################
 # ---------- Vistas y helpers ----------
 
 def qr_print_view(request, pk):
@@ -206,15 +352,110 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
     action_perm = "view"
     crud_config: CrudConfig
 
+#111111111111111111111111111##########################################################################################################
     def get_queryset(self):
-        q = self.request.GET.get("q", "").strip()
-        order = self.request.GET.get("o", "")
+        q = (self.request.GET.get("q") or "").strip()
+        order = (self.request.GET.get("o") or "").strip()
         qs = self.model.objects.all()
-        if q and self.crud_config.search_fields:
+
+        # === BÚSQUEDA RÁPIDA: textos + (si q es número) IDs/numéricos/FKs ===
+        if q:
             cond = Q()
-            for f in self.crud_config.search_fields:
-                cond |= Q(**{f"{f}__icontains": q})
+
+            # 1) Texto sobre search_fields
+            if getattr(self.crud_config, "search_fields", None):
+                for f in self.crud_config.search_fields:
+                    cond |= Q(**{f"{f}__icontains": q})
+
+            # 2) Si q es número: PK + numéricos + FKs
+            if q.isdigit():
+                num = int(q)
+                pk_name = self.model._meta.pk.name
+                cond |= Q(**{pk_name: num})
+
+                from django.db.models import IntegerField, BigIntegerField, ForeignKey
+                for f in self.model._meta.fields:
+                    if f.name == pk_name:
+                        continue
+                    if isinstance(f, (IntegerField, BigIntegerField)):
+                        cond |= Q(**{f.name: num})
+                    elif isinstance(f, ForeignKey):
+                        cond |= Q(**{f.name: num})  # usar el nombre del FK (no *_id)
+
             qs = qs.filter(cond)
+
+        # === FILTRO AVANZADO: ?f=<campo>&fv=<valor> ===
+        f = (self.request.GET.get("f") or "").strip()
+        fv = (self.request.GET.get("fv") or "").strip()
+
+        if f and fv != "":
+            # Si viene "id" desde algún select, reemplazar por el nombre real del PK
+            if f == "id":
+                f = self.model._meta.pk.name
+
+            base = f.split("__")[0]  # por si algún día usamos lookups relacionados
+            try:
+                field = self.model._meta.get_field(base)
+            except Exception:
+                field = None
+
+            from django.db.models import (
+                CharField, TextField, IntegerField, BigIntegerField, BooleanField,
+                DateField, DateTimeField, ForeignKey
+            )
+            from django.utils.dateparse import parse_date
+
+            if field is not None:
+                # Texto
+                if isinstance(field, (CharField, TextField)):
+                    qs = qs.filter(**{f"{f}__icontains": fv})
+
+                # Numérico
+                elif isinstance(field, (IntegerField, BigIntegerField)):
+                    try:
+                        qs = qs.filter(**{f: int(fv)})
+                    except ValueError:
+                        qs = qs.none()
+
+                # Booleano
+                elif isinstance(field, BooleanField):
+                    v = fv.strip().lower()
+                    truthy = {"true", "1", "t", "sí", "si", "y", "yes"}
+                    falsy  = {"false", "0", "f", "no", "n"}
+                    if v in truthy:
+                        qs = qs.filter(**{f: True})
+                    elif v in falsy:
+                        qs = qs.filter(**{f: False})
+                    # si no matchea, no filtra
+
+                # Fecha / FechaHora
+                elif isinstance(field, (DateField, DateTimeField)):
+                    d = parse_date(fv)
+                    if d:
+                        if isinstance(field, DateTimeField):
+                            qs = qs.filter(**{f"{f}__date": d})
+                        else:
+                            qs = qs.filter(**{f: d})
+                    else:
+                        qs = qs.filter(**{f"{f}__startswith": fv})
+
+                # ForeignKey
+                elif isinstance(field, ForeignKey):
+                    if fv.isdigit():
+                        qs = qs.filter(**{f: int(fv)})  # nombre del FK
+                    else:
+                        rel_model = field.remote_field.model
+                        for cand in ("nombre", "descripcion", "tipo_equipo",
+                                    "razon_social", "empresa", "marca", "modelo"):
+                            try:
+                                rel_model._meta.get_field(cand)
+                                qs = qs.filter(**{f"{f}__{cand}__icontains": fv})
+                                break
+                            except Exception:
+                                continue
+                # otros tipos: sin filtro
+
+        # Orden
         if order:
             pk_name = self.model._meta.pk.name
             if order.lstrip("-") == "id":
@@ -222,7 +463,10 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
             qs = qs.order_by(order)
         else:
             qs = qs.order_by(*self.crud_config.ordering)
+
+        # Alcance por empresa (u otros)
         return self.scope_queryset(qs)
+##2222222222222222222222222222222#########################################################################################################
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -230,6 +474,7 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
 
+        # permisos para botones (Nuevo/Editar/Eliminar)
         user = self.request.user
         app = self.model._meta.app_label
         model = self.model._meta.model_name
@@ -245,6 +490,20 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["can_create"] = can_create
         ctx["can_change"] = can_change
         ctx["can_delete"] = can_delete
+
+        ###########################################################################################################
+        # === NUEVO: datos del filtro avanzado (no rompe si no se usa) ===
+        adv_fields = _build_adv_fields_from_list_display(self.model, self.crud_config.list_display)
+        ctx["adv_fields"] = adv_fields
+        ctx["f"] = (self.request.GET.get("f") or "").strip()
+        ctx["fv"] = (self.request.GET.get("fv") or "").strip()
+        # choices para FKs (en JSON para usar desde JS si quieres)
+        adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields)
+        ctx["adv_choices_json"] = json.dumps(adv_choices, ensure_ascii=False)
+        
+        ctx["adv_fields_json"] = json.dumps(adv_fields, ensure_ascii=False)
+        
+        #############################################################################################################
 
         if self.model._meta.model_name == "atributosequipo":
             from .models_inventario import TipoEquipo
@@ -894,6 +1153,14 @@ def export_csv_view(model: Type[Model], cfg: CrudConfig):
             for f in cfg.search_fields:
                 cond |= Q(**{f"{f}__icontains": q})
             rows = rows.filter(cond)
+
+############################################################################################################################
+        # Filtro avanzado en CSV (mismo contrato f/fv)
+        f = (request.GET.get("f") or "").strip()
+        fv = (request.GET.get("fv") or "").strip()
+        if f:
+            rows = _apply_advanced_filter(rows, model, f, fv)
+############################################################################################################################
 
         resp = HttpResponse(content_type="text/csv")
         resp["Content-Disposition"] = f'attachment; filename="{cfg.slug}.csv"'

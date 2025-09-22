@@ -1,5 +1,7 @@
 # productos/templatetags/object_extras.py
 from django import template
+from django.utils.html import conditional_escape, mark_safe
+import re
 
 register = template.Library()
 
@@ -45,3 +47,27 @@ def column_label(col_name: str) -> str:
     if not col_name:
         return ""
     return mapping.get(col_name, col_name.replace("_", " ").title())
+
+#11111111111111111#############################################################################
+@register.filter(needs_autoescape=True)
+def underline_match(value, q, autoescape=True):
+    """
+    Subraya (con un <span class="hl">...</span>) las coincidencias de `q`
+    dentro de `value`. Case-insensitive y seguro (escapa HTML).
+    """
+    if not q or value is None:
+        return value
+    try:
+        s = str(value)
+    except Exception:
+        return value
+
+    esc = conditional_escape if autoescape else (lambda x: x)
+    s_esc = esc(s)
+    q_esc = re.escape(esc(q))
+
+    # reemplazo case-insensitive
+    pattern = re.compile(q_esc, re.IGNORECASE)
+    result = pattern.sub(r'<span class="hl">\g<0></span>', s_esc)
+    return mark_safe(result)
+#222222222222222222222222222222222222##############################################################################
