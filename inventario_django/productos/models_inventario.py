@@ -143,12 +143,33 @@ class TipoEquipo(models.Model):
     def __str__(self):
         return self.tipo_equipo
 
+#11111111111111111111#23-19-2025##########################################################################
+class CategoriaEquipo(models.Model):
+    id_categoria_equipo = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=100)
+    id_tipo_equipo = models.ForeignKey(TipoEquipo, on_delete=models.RESTRICT, db_column='id_tipo_equipo')
+    id_empresa = models.ForeignKey(Empresa, null=True, blank=True, on_delete=models.SET_NULL, db_column='id_empresa')
+
+    class Meta:
+        db_table = 'inventario"."categoria_equipo'
+        unique_together = ('id_tipo_equipo', 'nombre')
+        verbose_name = "Categoría de Activo"
+        verbose_name_plural = "Categorías de Activo"
+
+    def __str__(self):
+        return self.nombre
+#222222222222222222222#23-19-2025##########################################################################
 
 class Equipo(models.Model):
     id_equipo = models.AutoField(primary_key=True)
     nombre_equipo = models.CharField(max_length=150)
     id_marca = models.ForeignKey(Marca, models.DO_NOTHING, db_column='id_marca')
-    id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
+#11111111111111111111#23-19-2025##################################################################################################################
+    #id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
+
+    id_tipo_equipo = models.ForeignKey(TipoEquipo, on_delete=models.PROTECT, db_column='id_tipo_equipo')
+    id_categoria_equipo = models.ForeignKey(CategoriaEquipo, null=True, blank=True, on_delete=models.SET_NULL, db_column='id_categoria_equipo')
+#22222222222222222222#23-19-2025###################################################################################################################
     id_estado_equipo = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='id_estado_equipo', blank=True, null=True)
     id_empleado = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='id_empleado', blank=True, null=True)
     id_proveedor = models.ForeignKey(Proveedor, models.DO_NOTHING, db_column='id_proveedor', blank=True, null=True)
@@ -198,7 +219,12 @@ class Equipo(models.Model):
 
 class AtributosEquipo(models.Model):
     id_atributo_equipo = models.AutoField(primary_key=True)
-    id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
+
+#11111111111111111111#23-19-2025##################################################################################################################
+    #id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
+    id_tipo_equipo = models.ForeignKey(TipoEquipo, on_delete=models.CASCADE, db_column='id_tipo_equipo')
+    id_categoria_equipo = models.ForeignKey( CategoriaEquipo, null=True, blank=True, on_delete=models.CASCADE, db_column='id_categoria_equipo')
+#222222222222222222222#23-19-2025##################################################################################################################
     atributo = models.CharField(max_length=100)
     valor = models.CharField(max_length=250, blank=True, null=True)
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
@@ -235,7 +261,7 @@ class AgregacionAtributosPorEquipo(models.Model):
     def __str__(self):
         nombre_attr = getattr(self.atributo, "atributo", "Atributo")
         return f"{self.equipo_id} · {nombre_attr} = {self.valor or '—'}"
-
+    
 
 
 class EstadoMantencion(models.Model):

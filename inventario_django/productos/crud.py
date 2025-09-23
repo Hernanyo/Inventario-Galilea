@@ -1,4 +1,5 @@
 # productos/crud.py
+from .models_inventario import CategoriaEquipo
 from django.utils.dateparse import parse_date
 import json
 
@@ -932,6 +933,9 @@ class EquipoForm(forms.ModelForm):
             "nombre_equipo",
             "id_marca",
             "id_tipo_equipo",
+#1111111111111111111##########23-09-2025#######################################################################################
+            'id_categoria_equipo',
+#2222222222222222222##########23-09-2025#######################################################################################
             "id_estado_equipo",
             "id_empleado",       # responsable (opcional)
             "id_proveedor",
@@ -967,6 +971,23 @@ class EquipoForm(forms.ModelForm):
             if emp_id and "id_empresa" in self.fields:
                 self.fields["id_empresa"].initial = emp_id
                 # self.fields["id_empresa"].disabled = True  # opcional
+
+#111111111111111####23-09-2025################################################################################################################################
+#            if "id_categoria_equipo" in self.fields:
+#                cqs = CategoriaEquipo.objects.all()
+#                if emp_id:
+#                    cqs = cqs.filter(id_empresa_id=emp_id)
+#                # Si ya viene un tipo elegido (POST o instance), filtra por ese tipo
+#                chosen_tipo = None
+#                if self.data.get("id_tipo_equipo"):
+#                    chosen_tipo = self.data.get("id_tipo_equipo")
+#                elif getattr(self.instance, "id_tipo_equipo_id", None):
+#                    chosen_tipo = self.instance.id_tipo_equipo_id
+#
+#                if chosen_tipo:
+#                    cqs = cqs.filter(id_tipo_equipo_id=chosen_tipo)
+#                self.fields["id_categoria_equipo"].queryset = cqs.order_by("nombre")
+#222222222222222####23-09-2025################################################################################################################################
 
             # Empleados solo de la empresa
             if "id_empleado" in self.fields:

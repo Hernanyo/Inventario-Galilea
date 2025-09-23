@@ -1,4 +1,5 @@
 # productos/views.py
+#from productos.models_inventario import CategoriaEquipo
 
 from django.shortcuts import render
 from .models_inventario import Departamento, EstadoMantencion, TipoMantencion, PrioridadMantencion

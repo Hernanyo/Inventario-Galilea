@@ -1,4 +1,5 @@
 # inventario_djanfo/productos/urls.py
+#from productos.models_inventario import CategoriaEquipo
 from productos.crud import GenericList, view_class
 from django.urls import path, include
 from .views_atributos import atributos_nuevo_wizard
