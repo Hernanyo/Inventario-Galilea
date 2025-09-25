@@ -726,6 +726,32 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         if self.model.__name__ == "Empleado" and form.instance.correo:
             crear_usuario_y_enviar_correo(form.instance)
             sync_user_groups_for_empleado(form.instance)
+
+###################################################################################2509
+        # >>> NUEVO: historial “a la segura” al CREAR equipo desde CRUD
+        if self.model.__name__ == "Equipo":
+            try:
+                from .models_inventario import HistorialEquipos
+                e = self.object
+                usuario_empleado = getattr(self.request.user, "empleado", None)
+                HistorialEquipos.objects.create(
+                    equipo=e,
+                    etiqueta=e.etiqueta,
+                    nombre_equipo=e.nombre_equipo,
+                    modelo=None,  # si no usas modelo en Equipo
+                    tipo_equipo=getattr(e, "id_tipo_equipo", None),
+                    accion="CREACION",
+                    usuario=usuario_empleado,
+                    id_empresa=getattr(e, "id_empresa", None),
+                    departamento=getattr(e, "id_departamento", None),
+                    estado_nuevo=getattr(e, "id_estado_equipo", None),
+                    responsable_actual=getattr(e, "id_empleado", None),
+                    comentario="Creado desde CRUD",
+                )
+            except Exception:
+                # nunca romper el guardado por el historial
+                pass
+###################################################################################2509
         return resp
 
 
@@ -790,6 +816,26 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
     def form_valid(self, form):
+        ###########################################################################################2509
+        # >>> NUEVO: snapshot ANTES de guardar, solo para Equipo
+        prev_emp_id = prev_estado_id = None
+        if self.model.__name__ == "Equipo":
+            try:
+                prev_obj = self.get_object()
+                prev_emp_id = prev_obj.id_empleado_id
+                prev_estado_id = prev_obj.id_estado_equipo_id
+            except Exception:
+                pass
+        ###########################################################################################2509
+
+        # >>> NUEVO: snapshot ANTES de guardar, solo para Empleado (tu lógica antigua)
+        old_empleado = None
+        if self.model.__name__ == "Empleado":
+            try:
+                old_empleado = self.model.objects.get(pk=self.get_object().pk)
+            except Exception:
+                old_empleado = None
+
         if self.model.__name__ == "Equipo":
             form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
 
@@ -797,19 +843,23 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
 
         if self.model.__name__ == "Empleado":
             obj = self.object
-            # Si no tiene user y ahora hay correo → crea user + link
-            if not obj.user_id and obj.correo:
+            old = old_empleado
+
+            # Si NO tenía user y ahora hay correo → crear user y mandar link
+            if old and not getattr(old, "user_id", None) and obj.correo:
                 crear_usuario_y_enviar_correo(obj)
-            # Si tiene user, alinea email
-            if obj.user_id:
+
+            # Si ya tiene user, alinear email en auth_user SOLO si cambió
+            if getattr(obj, "user_id", None):
                 from django.contrib.auth.models import User
                 u = User.objects.filter(pk=obj.user_id).first()
-                if u and u.email != (obj.correo or ""):
+                if old and (old.correo != obj.correo) and u and u.email != (obj.correo or ""):
                     u.email = obj.correo or ""
                     u.save(update_fields=["email"])
-            # Alinea grupos según rol
+
+            # Mantén tu sincronización de grupos
             sync_user_groups_for_empleado(obj)
-            
+
         # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Equipo) ===
         if self.model.__name__ == "Equipo":
             equipo = self.object
@@ -835,6 +885,7 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
                         AgregacionAtributosPorEquipo.objects.bulk_create(nuevos, ignore_conflicts=True)
 
         return resp
+
 
 
     def get_context_data(self, **kwargs):
@@ -918,28 +969,29 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
         return ctx
 
 #2#######################################################################################################################24-09-2025########   
-    def form_valid(self, form):
-        was_new_user_linked = False
-        if self.model.__name__ == "Empleado":
-            old = self.model.objects.get(pk=self.object.pk)  # antes del save
-            resp = super().form_valid(form)
-            obj = self.object
-
-            # si no tenía user y ahora sí hay correo → crear user y mandar link
-            if not old.user_id and obj.correo:
-                crear_usuario_y_enviar_correo(obj)
-                was_new_user_linked = True
-
-            # si ya tiene user pero cambió el correo → reflejar en auth_user.email
-            if old.correo != obj.correo and obj.user_id:
-                from django.contrib.auth.models import User
-                u = User.objects.filter(pk=obj.user_id).first()
-                if u and u.email != obj.correo:
-                    u.email = obj.correo
-                    u.save(update_fields=["email"])
-            return resp
-        else:
-            return super().form_valid(form)
+#    def form_valid(self, form):
+#        
+#        was_new_user_linked = False
+#        if self.model.__name__ == "Empleado":
+#            old = self.model.objects.get(pk=self.object.pk)  # antes del save
+#            resp = super().form_valid(form)
+#            obj = self.object
+#
+#            # si no tenía user y ahora sí hay correo → crear user y mandar link
+#            if not old.user_id and obj.correo:
+#                crear_usuario_y_enviar_correo(obj)
+#                was_new_user_linked = True
+#
+#            # si ya tiene user pero cambió el correo → reflejar en auth_user.email
+#            if old.correo != obj.correo and obj.user_id:
+#                from django.contrib.auth.models import User
+#                u = User.objects.filter(pk=obj.user_id).first()
+#               if u and u.email != obj.correo:
+#                    u.email = obj.correo
+#                    u.save(update_fields=["email"])
+#            return resp
+#        else:
+#            return super().form_valid(form)
 
     
 class EquipoForm(forms.ModelForm):
@@ -950,9 +1002,6 @@ class EquipoForm(forms.ModelForm):
             "id_tipo_equipo",
             "nombre_equipo",
             "id_marca",
-#1111111111111111111##########23-09-2025#######################################################################################
-#            'id_categoria_equipo',
-#2222222222222222222##########23-09-2025#######################################################################################
             "id_estado_equipo",
             "id_empleado",       # responsable (opcional)
             "id_proveedor",

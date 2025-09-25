@@ -147,12 +147,7 @@ class Equipo(models.Model):
     id_equipo = models.AutoField(primary_key=True)
     nombre_equipo = models.CharField(max_length=150)
     id_marca = models.ForeignKey(Marca, models.DO_NOTHING, db_column='id_marca')
-#11111111111111111111#23-19-2025##################################################################################################################
     id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
-
-    #id_tipo_equipo = models.ForeignKey(TipoEquipo, on_delete=models.PROTECT, db_column='id_tipo_equipo')
-    #id_categoria_equipo = models.ForeignKey(CategoriaEquipo, null=True, blank=True, on_delete=models.SET_NULL, db_column='id_categoria_equipo')
-#22222222222222222222#23-19-2025###################################################################################################################
     id_estado_equipo = models.ForeignKey(EstadoEquipo, models.DO_NOTHING, db_column='id_estado_equipo', blank=True, null=True)
     id_empleado = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='id_empleado', blank=True, null=True)
     id_proveedor = models.ForeignKey(Proveedor, models.DO_NOTHING, db_column='id_proveedor', blank=True, null=True)
@@ -162,7 +157,6 @@ class Equipo(models.Model):
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='departamento_id', blank=True, null=True)
     observaciones = models.TextField(blank=True, null=True)
-
     # Nuevos campos
     activo_critico = models.BooleanField(default=False)
     confidencialidad = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
@@ -179,6 +173,7 @@ class Equipo(models.Model):
 
 
     def save(self, *args, **kwargs):
+
         from .utils import generar_qr
 
         # Autorellenar empresa/depto desde el empleado si faltan
@@ -191,10 +186,10 @@ class Equipo(models.Model):
         is_new = self._state.adding
         super().save(*args, **kwargs)  # guarda primero para tener ID
 
+
         if is_new and self.etiqueta and not self.qr_code:
             generar_qr(self)
             super().save(update_fields=["qr_code"])
-
 
 
 
@@ -211,11 +206,7 @@ class Equipo(models.Model):
 
 class AtributosEquipo(models.Model):
     id_atributo_equipo = models.AutoField(primary_key=True)
-#11111111111111111111#24-19-2025##################################################################################################################
     id_tipo_equipo = models.ForeignKey(TipoEquipo, models.DO_NOTHING, db_column='id_tipo_equipo')
-    #id_tipo_equipo = models.ForeignKey(TipoEquipo, on_delete=models.CASCADE, db_column='id_tipo_equipo')
-    #id_categoria_equipo = models.ForeignKey( CategoriaEquipo, null=True, blank=True, on_delete=models.CASCADE, db_column='id_categoria_equipo')
-#222222222222222222222#24-19-2025##################################################################################################################
     atributo = models.CharField(max_length=100)
     valor = models.CharField(max_length=250, blank=True, null=True)
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
