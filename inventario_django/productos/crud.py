@@ -1,5 +1,5 @@
 # productos/crud.py
-from .models_inventario import CategoriaEquipo
+#from .models_inventario import CategoriaEquipo
 from django.utils.dateparse import parse_date
 import json
 
@@ -574,7 +574,15 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         ctx["cfg"] = self.crud_config
 
         emp_id = self.request.session.get("empresa_id")  # ⬅️ añade esto
-
+#1#############################################################################################24-09-2025
+                # Filtrar los tipos de equipo por la empresa activa
+        if self.model.__name__ == "Equipo":
+            from .models_inventario import TipoEquipo
+            qs = TipoEquipo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)  # Aquí se filtra por empresa activa
+            ctx["tipos_equipo"] = qs.order_by("tipo_equipo")
+#2#############################################################################################24-09-2025
         # EQUIPO: ya tenías sidebar propio
         if self.model.__name__ == "Equipo":
             qs = Equipo.objects.all()
@@ -899,8 +907,17 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
             from .models_inventario import Factura as F
             ctx["side_title"] = "Últimas facturas"
             ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
+
+#1#######################################################################################################################24-09-2025########
+        elif self.model.__name__ == "AtributosEquipo":  # Aquí se aplica el filtro solo para AtributosEquipo
+            from .models_inventario import TipoEquipo
+            qs = TipoEquipo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)  # Filtro por empresa activa
+            ctx["tipos_equipo"] = qs.order_by("tipo_equipo")
         return ctx
-    
+
+#2#######################################################################################################################24-09-2025########   
     def form_valid(self, form):
         was_new_user_linked = False
         if self.model.__name__ == "Empleado":
@@ -930,11 +947,11 @@ class EquipoForm(forms.ModelForm):
         model = Equipo
         # Importante: incluimos Empresa y Departamento en el formulario
         fields = [
+            "id_tipo_equipo",
             "nombre_equipo",
             "id_marca",
-            "id_tipo_equipo",
 #1111111111111111111##########23-09-2025#######################################################################################
-            'id_categoria_equipo',
+#            'id_categoria_equipo',
 #2222222222222222222##########23-09-2025#######################################################################################
             "id_estado_equipo",
             "id_empleado",       # responsable (opcional)
@@ -943,7 +960,31 @@ class EquipoForm(forms.ModelForm):
             "observaciones",
             "id_empresa",        # NUEVO: siempre visible en el form
             "id_departamento",   # NUEVO: siempre visible en el form
+            "activo_critico",    # El nuevo campo para marcar si el activo es crítico
+            "confidencialidad",  # Nuevo campo solo visible si se marca "activo crítico"
+            "integridad",        # Nuevo campo solo visible si se marca "activo crítico"
+            "disponibilidad",    # Nuevo campo solo visible si se marca "activo crítico"
         ]
+        widgets = {
+            "id_empresa": forms.Select(attrs={"class": "form-select"}),
+            "id_estado_equipo": forms.Select(attrs={"class": "form-select"}),
+            "id_empleado": forms.Select(attrs={"class": "form-select"}),
+            "id_proveedor": forms.Select(attrs={"class": "form-select"}),
+            "id_departamento": forms.Select(attrs={"class": "form-select"}),
+            "id_marca": forms.Select(attrs={"class": "form-select"}),
+            "id_tipo_equipo": forms.Select(attrs={"class": "form-select"}),
+            "nombre_equipo": forms.TextInput(attrs={"class": "form-control"}),
+            "etiqueta": forms.TextInput(attrs={"class": "form-control"}),
+            "observaciones": forms.Textarea(attrs={"class": "form-control", "rows": 3, "placeholder": "Escribe tus observaciones aquí..."}),
+            # Nuevo checkbox para "Activo Crítico"
+            "activo_critico": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            # Los campos confidencialidad, integridad y disponibilidad
+            "confidencialidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Numerico"}),
+            "integridad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Numerico"}),
+            "disponibilidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Numerico"}),
+        
+        }
+
         labels = {
             "nombre_equipo": "Nombre Activo",
             "id_marca": "Marca",
@@ -962,15 +1003,35 @@ class EquipoForm(forms.ModelForm):
         # }
     def __init__(self, *args, request=None, **kwargs):
             super().__init__(*args, **kwargs)
+#1#########################################################################################################24-09-2025
+            # Lógica para ocultar los campos basados en el tipo de activo
+            tipo_activo = self.initial.get('id_tipo_equipo')
 
-            emp_id = None
-            if request is not None and hasattr(request, "session"):
-                emp_id = request.session.get("empresa_id")
+            if tipo_activo == 'Información':  # Cuando el tipo de activo sea "Información"
+                self.fields['id_marca'].widget = forms.HiddenInput()
+                self.fields['id_estado_equipo'].widget = forms.HiddenInput()
+                self.fields['id_empleado'].widget = forms.HiddenInput()
+                self.fields['id_proveedor'].widget = forms.HiddenInput()
+                self.fields['confidencialidad'].widget.attrs['style'] = 'display: none'
+                self.fields['integridad'].widget.attrs['style'] = 'display: none'
+                self.fields['disponibilidad'].widget.attrs['style'] = 'display: none'
 
-            # Inicializa y (opcional) bloquea empresa en el form
-            if emp_id and "id_empresa" in self.fields:
-                self.fields["id_empresa"].initial = emp_id
-                # self.fields["id_empresa"].disabled = True  # opcional
+
+            self.request=request
+            emp_id = request.session.get("empresa_id") if request else None
+
+            if emp_id:
+                self.fields["id_empresa"].queryset = self.fields["id_empresa"].queryset.filter(id_empresa=emp_id)
+                #self.fields["id_tipo_equipo"].queryset = TipoEquipo.objects.filter(id_empresa_id=emp_id)
+#2#########################################################################################################24-09-2025
+#            emp_id = None
+#            if request is not None and hasattr(request, "session"):
+#                emp_id = request.session.get("empresa_id")
+#
+#            # Inicializa y (opcional) bloquea empresa en el form
+#            if emp_id and "id_empresa" in self.fields:
+#                self.fields["id_empresa"].initial = emp_id
+#                # self.fields["id_empresa"].disabled = True  # opcional
 
 #111111111111111####23-09-2025################################################################################################################################
 #            if "id_categoria_equipo" in self.fields:
@@ -988,6 +1049,12 @@ class EquipoForm(forms.ModelForm):
 #                    cqs = cqs.filter(id_tipo_equipo_id=chosen_tipo)
 #                self.fields["id_categoria_equipo"].queryset = cqs.order_by("nombre")
 #222222222222222####23-09-2025################################################################################################################################
+
+            # Lógica para mostrar/ocultar los campos de seguridad solo si el activo es crítico
+            if not self.instance.activo_critico:  # Si no es un activo crítico, ocultamos los campos
+                self.fields["confidencialidad"].widget.attrs['style'] = 'display: none'
+                self.fields["integridad"].widget.attrs['style'] = 'display: none'
+                self.fields["disponibilidad"].widget.attrs['style'] = 'display: none'
 
             # Empleados solo de la empresa
             if "id_empleado" in self.fields:
@@ -1035,10 +1102,15 @@ class EquipoForm(forms.ModelForm):
                     qs = qs.filter(id_empresa_id=emp_id)
                 self.fields["id_estado_equipo"].queryset = qs.order_by("descripcion")
 
-            
-                
+
     def clean(self):
         cleaned = super().clean()
+
+        # Validaciones adicionales si el activo es crítico
+        if cleaned.get("activo_critico"):
+            if not cleaned.get("confidencialidad") or not cleaned.get("integridad") or not cleaned.get("disponibilidad"):
+                raise ValidationError("Si el activo es crítico, debes completar los campos de Confidencialidad, Integridad y Disponibilidad.")
+            
         empleado = cleaned.get("id_empleado")
         emp = cleaned.get("id_empresa")
         dep = cleaned.get("id_departamento")
@@ -1055,11 +1127,31 @@ class EquipoForm(forms.ModelForm):
     
     # No generamos QR aquí: lo hace el modelo en Equipo.save()
     # Si no necesitas lógica extra, puedes omitir completamente este save().
+    #def save(self, commit=True):
+    #    obj = super().save(commit=False)
+    #    if commit:
+    #        obj.save()
+    #    return obj
+    
     def save(self, commit=True):
-        obj = super().save(commit=False)
-        if commit:
-            obj.save()
-        return obj
+        with transaction.atomic():
+            equipo = super().save(commit=commit)
+            if commit and self.request:
+                #equipo.atributos_dinamicos.all().delete()
+                tipo_id = self.cleaned_data.get("id_tipo_equipo")
+                if tipo_id:
+                    atributos = AtributosEquipo.objects.filter(id_tipo_equipo=tipo_id)
+                    if self.request.session.get("empresa_id"):
+                        atributos = atributos.filter(id_tipo_equipo__id_empresa_id=self.request.session.get("empresa_id"))
+                    for attr in atributos:
+                        valor = self.request.POST.get(f"atributo_{attr.id_atributo_equipo}")
+                        if valor:
+                            AgregacionAtributosPorEquipo.objects.create(
+                                id_equipo=equipo,
+                                id_atributo_equipo=attr,
+                                valor=valor
+                            )
+        return equipo
 
 class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     template_name = "crud/delete.html"
@@ -1407,6 +1499,7 @@ for _cfg in CRUD_CONFIGS:
         _cfg.ordering = ("-id_marca",)
     if _cfg.model._meta.model_name == "empleado":
         _cfg.ordering = ("-id_empleado",)
+
 
 def get_crud_configs():
     return CRUD_CONFIGS

@@ -26,6 +26,10 @@
     background-color: #b8141b !important; /* tono más oscuro al pasar el mouse */
     border-color: #a51218 !important;
   }
+  .campo-critico {
+    display: none;
+}
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -128,5 +132,80 @@
     }, 3000);
   });
 </script>
+
+<script>
+  
+    document.addEventListener('DOMContentLoaded', function() {
+        const activoCriticoCheckbox = document.querySelector('#id_activo_critico');
+        const confidencialidadField = document.querySelector('#id_confidencialidad');
+        const integridadField = document.querySelector('#id_integridad');
+        const disponibilidadField = document.querySelector('#id_disponibilidad');
+
+        // Función para mostrar u ocultar los campos
+        function toggleFields() {
+            if (activoCriticoCheckbox.checked) {
+                confidencialidadField.style.display = 'block';
+                integridadField.style.display = 'block';
+                disponibilidadField.style.display = 'block';
+            } else {
+                confidencialidadField.style.display = 'none';
+                integridadField.style.display = 'none';
+                disponibilidadField.style.display = 'none';
+            }
+        }
+
+        // Ejecutar al cargar la página
+        toggleFields();
+
+        // Añadir el evento para cuando cambie el checkbox
+        activoCriticoCheckbox.addEventListener('change', toggleFields);
+    });
+</script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Obtener los campos del formulario
+    const tipoActivoSelect = document.querySelector('#id_id_tipo_equipo'); // Campo Tipo de Activo
+    const marcaField = document.querySelector('#id_marca'); // Campo Marca
+    const estadoActivoField = document.querySelector('#id_estado_equipo'); // Campo Estado Activo
+    const responsableField = document.querySelector('#id_empleado'); // Campo Responsable
+    const proveedorField = document.querySelector('#id_proveedor'); // Campo Proveedor
+    const confidencialidadField = document.querySelector('#id_confidencialidad');
+    const integridadField = document.querySelector('#id_integridad');
+    const disponibilidadField = document.querySelector('#id_disponibilidad');
+
+    // Función para mostrar/ocultar campos según tipo de activo
+    function toggleTipoActivoFields() {
+      const tipoActivo = tipoActivoSelect.value;  // Obtener el valor seleccionado de Tipo de Activo
+
+      if (tipoActivo === "Información") {
+        // Si el tipo de activo es "Información", ocultar los campos
+        marcaField.style.display = 'none';
+        estadoActivoField.style.display = 'none';
+        responsableField.style.display = 'none';
+        proveedorField.style.display = 'none';
+        confidencialidadField.style.display = 'none';
+        integridadField.style.display = 'none';
+        disponibilidadField.style.display = 'none';
+      } else {
+        // Si no es "Información", mostrar los campos
+        marcaField.style.display = 'block';
+        estadoActivoField.style.display = 'block';
+        responsableField.style.display = 'block';
+        proveedorField.style.display = 'block';
+        confidencialidadField.style.display = 'block';
+        integridadField.style.display = 'block';
+        disponibilidadField.style.display = 'block';
+      }
+    }
+
+    // Ejecutar al cargar la página para establecer el estado inicial
+    toggleTipoActivoFields();
+
+    // Añadir el evento para cuando cambie el tipo de activo
+    tipoActivoSelect.addEventListener('change', toggleTipoActivoFields);
+  });
+</script>
+
 </body>
 </html>

@@ -388,3 +388,15 @@ urlpatterns += [
     path("mantencions/", MantencionList.as_view(), name="mantencions_list"),
 ]
 
+
+#1#########################################################324-05-2025
+from django.urls import path
+from . import views_atributos
+urlpatterns += [
+    path("atributosequipos/", views_atributos.atributosequipos_list, name="atributosequipos_list"),
+    path("tipoequipos/<int:tipo_id>/atributos/", views_atributos.editar_atributos_por_tipo, name="editar_atributos_por_tipo"),
+    path("tipoequipos/<int:tipo_id>/atributos/ver/", views_atributos.ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
+    path("atributosequipos/nuevo/", views_atributos.atributos_nuevo_wizard, name="atributosequipos_create"),
+    path("api/atributos-por-tipo/", views.api_atributos_por_tipo, name="api_atributos_por_tipo"),
+]
+#2#########################################################324-05-2025

@@ -1,5 +1,9 @@
 # productos/views.py
 #from productos.models_inventario import CategoriaEquipo
+#from django.views.generic.edit import CreateView
+from .crud import EquipoForm
+
+
 
 from django.shortcuts import render
 from .models_inventario import Departamento, EstadoMantencion, TipoMantencion, PrioridadMantencion
@@ -586,14 +590,17 @@ class EquiposDesasignarView(CompanyRequiredMixin, TemplateView):
 @login_required
 def api_atributos_por_tipo(request):
     tipo_id = request.GET.get("tipo_id")
+    emp_id = request.session.get("empresa_id")
+    print("Empresa ID en api_atributos_por_tipo:", emp_id)  # Depuración
     if not tipo_id:
         return JsonResponse({"items": []})
-    attrs = list(
-        AtributosEquipo.objects
-        .filter(id_tipo_equipo_id=tipo_id)
-        .values("id_atributo_equipo", "atributo", "valor")  # valor = default si lo tuvieran
-    )
-    return JsonResponse({"items": attrs})
+    attrs = AtributosEquipo.objects.filter(id_tipo_equipo_id=tipo_id)
+    if emp_id:
+        attrs = attrs.filter(id_empresa_id=emp_id)
+
+    items = list(attrs.values("id_atributo_equipo", "atributo", "valor"))
+    return JsonResponse({"items": items})
+
 
 # Config base del historial (si ya la tienes, reutilízala)
 hist_mant_cfg = type("Cfg", (), {
@@ -643,3 +650,17 @@ def nuevos_estados_mantencion(request):
     return render(request, 'nombre_del_template.html', {
         'side_items': estados  # Aquí pasamos los estados a side_items
     })
+
+#class EquipoCreateView(CreateView):
+#    model = Equipo
+#    form_class = EquipoForm
+#    template_name = 'equipo_form.html'
+#
+#    def form_valid(self, form):
+#        # Verifica si el equipo es crítico
+#        if form.cleaned_data['activo_critico']:
+#            # Aquí puedes guardar o hacer algo adicional si el activo es crítico
+#            # Por ejemplo, guardar los datos de confidencialidad, integridad, disponibilidad.
+#            pass
+#
+#        return super().form_valid(form)

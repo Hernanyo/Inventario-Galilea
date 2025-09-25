@@ -18,10 +18,33 @@ class AttrForm(forms.ModelForm):
         for f in self.fields.values():
             css = f.widget.attrs.get("class", "")
             f.widget.attrs["class"] = (css + " form-control").strip()
+#1##################################################################################################24-09-2025
+def atributosequipos_list(request):
+    emp_id = request.session.get("empresa_id")
+    tipos = TipoEquipo.objects.all()
+    if emp_id:
+        tipos = tipos.filter(id_empresa_id=emp_id).order_by("tipo_equipo")
 
+    return render(request, "atributos/list.html", {
+        "tipos_equipo": tipos,
+        "crud_config": {
+            "model_name": "atributosequipo",
+            "verbose_name": "Atributo de activo",
+            "verbose_name_plural": "Atributos de Activos",
+            "slug": "atributosequipos",
+            "can_create": True
+        }
+    })
+
+#2##################################################################################################24-09-2025
 
 def editar_atributos_por_tipo(request, tipo_id):
     tipo = get_object_or_404(TipoEquipo, pk=tipo_id)
+#1################################################################################################24-05-2025
+    emp_id = request.session.get("empresa_id")
+    if emp_id and tipo.id_empresa_id != emp_id:
+        raise Http404("Tipo no pertenece a la empresa actual.")
+#2#################################################################################################24-05-2025 
     # 👇 IMPORTANTE: definir aquí, fuera del if POST/GET
     FormSet = modelformset_factory(
         AtributosEquipo,
@@ -42,6 +65,7 @@ def editar_atributos_por_tipo(request, tipo_id):
                 # asigna el tipo a los nuevos/actualizados
                 for obj in objs:
                     obj.id_tipo_equipo_id = tipo_id
+                    obj.id_empresa_id = tipo.id_empresa_id  # Asegurar id_empresa
                     obj.save()
 
                 # elimina marcados
@@ -63,6 +87,10 @@ def editar_atributos_por_tipo(request, tipo_id):
 # Vista “ver” (solo lectura) para mostrar muchos atributos en su propia página.
 def ver_atributos_por_tipo(request, tipo_id):
     tipo = get_object_or_404(TipoEquipo, pk=tipo_id)
+    emp_id = request.session.get("empresa_id")
+    if emp_id and tipo.id_empresa_id != emp_id:
+        raise Http404("Tipo no pertenece a la empresa actual.")
+    
     attrs = AtributosEquipo.objects.filter(id_tipo_equipo=tipo_id).order_by("atributo")
     return render(request, "atributos/ver_por_tipo.html", {
         "tipo": tipo,
@@ -76,9 +104,19 @@ def atributos_nuevo_wizard(request):
     redirigimos a la pantalla de 'Editar atributos' para ese tipo.
     Así el usuario puede añadir varias filas de una vez.
     """
+    emp_id = request.session.get("empresa_id")
+    print("Empresa ID en atributos_nuevo_wizard:", emp_id)  # Depuración
+    tipos = TipoEquipo.objects.all()
+    if emp_id:
+        tipos = tipos.filter(id_empresa_id=emp_id)
+
+
     if request.method == "POST":
         tipo_id = request.POST.get("tipo_id") or request.POST.get("id_tipo_equipo")
         if tipo_id:
+            tipo = get_object_or_404(TipoEquipo, pk=tipo_id)
+            if emp_id and tipo.id_empresa_id != emp_id:
+                raise Http404("Tipo no pertenece a la empresa actual.")
             # Después de guardar, vuelve al listado de atributos (no a tipo equipos)
             next_url = reverse("productos:atributosequipos_list")
             edit_url = reverse("productos:editar_atributos_por_tipo", kwargs={"tipo_id": tipo_id})

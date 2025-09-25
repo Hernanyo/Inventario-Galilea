@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Atributos · {{ categoria.nombre }}{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-3">Atributos de {{ categoria.nombre }}</h1>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    {% if attrs %}
+      <ul class="mb-0">
+        {% for a in attrs %}
+          <li><strong>{{ a.atributo }}</strong>{% if a.valor %}: {{ a.valor }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted mb-0">Sin atributos.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <a class="btn btn-info" href="{% url 'productos:editar_atributos_por_categoria' categoria.id_categoria_equipo %}">Editar</a>
+  <a class="btn btn-outline-secondary" href="javascript:history.back()">Volver</a>
+</div>
+{% endblock %}

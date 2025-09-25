@@ -33,15 +33,15 @@ def column_label(col_name: str) -> str:
         # Activos
         "id_equipo": "Id Activo",
         "nombre_equipo": "Nombre Activo",
-        "equipo": "Activo",
+        "equipo": "Detalle Activo",
         # Tipos/estados de activo
-        "id_tipo_equipo": "Id Tipo Activo",
+        "id_tipo_equipo": "Tipo Activo",
         "tipo_equipo": "Tipo Activo",
-        "id_estado_equipo": "Id Estado Activo",
+        "id_estado_equipo": "Estado Activo",
         # Otros que se vean con 'equipo' en el nombre:
-        "id_empleado": "Responsable",
-        "id_marca": "Id Marca",
-        "id_proveedor": "Id Proveedor",
+        "id_empleado": "Empleado",
+        "id_marca": "Marca",
+        "id_proveedor": "Proveedor",
         "observaciones": "Observaciones",
     }
     if not col_name:

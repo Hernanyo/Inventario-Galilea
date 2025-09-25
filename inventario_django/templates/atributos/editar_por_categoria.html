@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Atributos de {{ categoria.nombre|default:categoria }}{% endblock %}
+
+{% block content %}
+<div class="container mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h4 mb-0">Atributos de {{ categoria.nombre|default:categoria }}</h1>
+    <a href="javascript:history.back()" class="btn btn-outline-secondary btn-sm">Atrás</a>
+  </div>
+
+  <!-- Mensajes -->
+  {% if messages %}
+    {% for m in messages %}
+      <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Errores globales del formset -->
+  {% if formset.non_form_errors %}
+    <div class="alert alert-danger">
+      {{ formset.non_form_errors }}
+    </div>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ formset.management_form }}
+
+    <div id="rows" class="vstack gap-2">
+      {% for form in formset %}
+        <div class="card p-3 form-row">
+          <!-- ⚠️ Importante: ocultos del form (incluye form.id) -->
+          {% for h in form.hidden_fields %}{{ h }}{% endfor %}
+
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label">Atributo</label>
+              {{ form.atributo }}
+              {% if form.atributo.errors %}
+                <div class="text-danger small">{{ form.atributo.errors }}</div>
+              {% endif %}
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Valor (opcional)</label>
+              {{ form.valor }}
+              {% if form.valor.errors %}
+                <div class="text-danger small">{{ form.valor.errors }}</div>
+              {% endif %}
+            </div>
+            <div class="col-md-2">
+              <!-- ✅ Mostrar DELETE siempre; si la fila es nueva no afecta -->
+              <div class="form-check mt-4">
+                {{ form.DELETE }} <label class="form-check-label">Eliminar</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% empty %}
+        <div class="alert alert-info">Aún no hay atributos para esta categoría.</div>
+      {% endfor %}
+    </div>
+
+    <!-- Plantilla de fila vacía (usaremos empty_form para traer también ocultos) -->
+    <template id="empty-template">
+      <div class="card p-3 form-row">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label">Atributo</label>
+            <span data-slot="attr"></span>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Valor (opcional)</label>
+            <span data-slot="val"></span>
+          </div>
+          <div class="col-md-2">
+            <div class="form-check mt-4">
+              <span data-slot="delete"></span>
+              <label class="form-check-label">Eliminar</label>
+            </div>
+          </div>
+        </div>
+        <div class="d-none" data-slot="hidden"></div>
+      </div>
+    </template>
+
+    <div class="d-flex gap-2 mt-3">
+      <button id="btn-add" type="button" class="btn btn-info">+ Añadir atributo</button>
+      <button class="btn btn-primary" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  const prefix     = "{{ formset.prefix }}";               // "attrs"
+  const totalInput = document.getElementById("id_" + prefix + "-TOTAL_FORMS");
+  const container  = document.getElementById("rows");
+  const btnAdd     = document.getElementById("btn-add");
+
+  // empty_form renderizado (incluye id y DELETE)
+  const emptyHtml  = `{% filter escapejs %}{{ formset.empty_form.as_p }}{% endfilter %}`;
+
+  function newRow(idx) {
+    // 1) Genero el HTML del empty_form con índice real
+    const html = emptyHtml.replaceAll("__prefix__", idx);
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+
+    // 2) Tomo los inputs reales
+    const attrInput = tmp.querySelector(`input[name="${prefix}-${idx}-atributo"]`);
+    const valInput  = tmp.querySelector(`input[name="${prefix}-${idx}-valor"]`);
+    const idHidden  = tmp.querySelector(`input[name="${prefix}-${idx}-id"]`);
+    const delInput  = tmp.querySelector(`input[name="${prefix}-${idx}-DELETE"]`);
+
+    attrInput.classList.add("form-control");
+    valInput.classList.add("form-control");
+
+    // 3) Inserto en la tarjeta visual
+    const frag = document.getElementById("empty-template").content.cloneNode(true);
+    frag.querySelector('[data-slot="attr"]').replaceWith(attrInput);
+    frag.querySelector('[data-slot="val"]').replaceWith(valInput);
+
+    const delSlot = frag.querySelector('[data-slot="delete"]');
+    if (delInput) delSlot.replaceWith(delInput); else delSlot.parentElement.remove();
+
+    const hiddenBucket = frag.querySelector('[data-slot="hidden"]');
+    if (idHidden) hiddenBucket.appendChild(idHidden);
+
+    return frag;
+  }
+
+  btnAdd.addEventListener("click", () => {
+    const idx = parseInt(totalInput.value, 10);
+    container.appendChild(newRow(idx));
+    totalInput.value = idx + 1;
+  });
+})();
+</script>
+
+{% endblock %}

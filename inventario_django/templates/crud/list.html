@@ -59,7 +59,6 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">Tipos de Activos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">Atributos de Activos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">Estados de Activos</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:categoriaequipos_list' %}">Categorías de Activos</a>
       <a href="{% url 'productos:historial_equipos_list' %}" class="btn btn-info">Historial de Activos</a>
     {% endif %}
 
@@ -285,7 +284,7 @@
           {% for col in view.crud_config.list_display %}
             {% if view.crud_config.model_name == 'equipo' and col == 'observaciones' %}
               <th class="obs-col">
-                <a href="?q={{ q }}&o={{ col }}">Observaciones</a>
+                <a href="?q={{ q }}&o={{ col }}">Obs.</a>
               </th>
             {% else %}
               <th>
@@ -293,6 +292,9 @@
               </th>
             {% endif %}
           {% endfor %}
+          {% if view.crud_config.model_name == 'equipo' %}
+            <th>Crítico</th>
+          {% endif %}
           {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
             <th class="text-right">Acciones</th>
           {% endif %}
@@ -320,6 +322,60 @@
           </td>
         {% endif %}
       {% endfor %}
+      {% if view.crud_config.model_name == 'equipo' %}
+        <td class="crit-col">
+          <button type="button"
+                  class="btn btn-sm {% if item.activo_critico %}btn-outline-danger{% else %}btn-outline-secondary{% endif %} ver-critico"
+                  data-nombre="{{ item.nombre_equipo|escapejs }}"
+                  data-c="{{ item.confidencialidad|default:'—' }}"
+                  data-i="{{ item.integridad|default:'—' }}"
+                  data-d="{{ item.disponibilidad|default:'—' }}">
+            {% if item.activo_critico %}Crítico{% else %}No Crítico{% endif %}
+          </button>
+        </td>
+      {% endif %}
+
+
+
+
+        <!-- Modal Criticidad -->
+        <div class="modal fade" id="critModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">
+                  Criticidad del activo <span id="critNombre" class="fw-semibold"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row text-center">
+                  <div class="col">
+                    <div class="small text-muted">Confidencialidad</div>
+                    <div id="critC" class="fs-3"></div>
+                  </div>
+                  <div class="col">
+                    <div class="small text-muted">Integridad</div>
+                    <div id="critI" class="fs-3"></div>
+                  </div>
+                  <div class="col">
+                    <div class="small text-muted">Disponibilidad</div>
+                    <div id="critD" class="fs-3"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        
+
+
+
+
 
       {% if view.crud_config.slug != 'historial_equipos' and view.crud_config.slug != 'historial_mantenciones' %}
         <td class="text-right">
@@ -447,8 +503,29 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var critModalEl = document.getElementById('critModal');
+  var critNombre  = document.getElementById('critNombre');
+  var critC       = document.getElementById('critC');
+  var critI       = document.getElementById('critI');
+  var critD       = document.getElementById('critD');
+  var critModal   = null;
 
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.ver-critico');
+    if (!btn) return;
 
+    critNombre.textContent = btn.getAttribute('data-nombre') || '';
+    critC.textContent = btn.getAttribute('data-c') || '—';
+    critI.textContent = btn.getAttribute('data-i') || '—';
+    critD.textContent = btn.getAttribute('data-d') || '—';
+
+    if (!critModal) critModal = new bootstrap.Modal(critModalEl);
+    critModal.show();
+  });
+});
+</script>
 
 <div class="join mt-4">
   {% if page_obj.has_previous %}
@@ -563,6 +640,10 @@ updateDateTime();
     text-decoration-thickness: 2px;
     text-underline-offset: 2px;
     background: transparent; /* por si usas <mark> en otros lados */
+
+  .crit-col { white-space: nowrap; width: 90px; }
+  .crit-col .btn { padding: 2px 8px; }
+
   }
 
 </style>
