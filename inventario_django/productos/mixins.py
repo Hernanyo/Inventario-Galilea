@@ -79,7 +79,7 @@ def scope_qs_by_empresa(request, qs):
                 continue
             rel_field_names = {rf.name for rf in rel._meta.get_fields() if hasattr(rf, "name")}
             if "id_empresa" in rel_field_names:
-                # filtra a través de la relación detectada (ej: tipo_equipo__id_empresa)
+                # filtra a través de la relación detectada (ej: tipo_activo__id_empresa)
                 return qs.filter(**{f"{f.name}__id_empresa": emp_id}).distinct()
 
     return qs

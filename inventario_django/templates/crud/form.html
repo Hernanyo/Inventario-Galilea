@@ -27,7 +27,7 @@
             {% csrf_token %}
             {{ form.as_p }}
 
-            {% if view.crud_config.model_name == "equipo" %}
+            {% if view.crud_config.model_name == "activo" %}
               <hr class="my-4">
               <h5 class="mb-2">Atributos del activo</h5>
               <p class="text-muted small">Se generan a partir del tipo de activo seleccionado.</p>
@@ -36,7 +36,7 @@
 
               <script>
                 (function(){
-                  const tipoSelect = document.getElementById('id_id_tipo_equipo');
+                  const tipoSelect = document.getElementById('id_id_tipo_activo');
                   const container  = document.getElementById('attrs-container');
 
                   async function loadAttrs(tipoId) {
@@ -60,7 +60,7 @@
                       const defVal = item.valor || '';
                       col2.innerHTML = `
                         <input type="text" class="form-control"
-                              name="attr_${item.id_atributo_equipo}"
+                              name="attr_${item.id_atributo_activo}"
                               placeholder="Valor"
                               value="${defVal.replaceAll('"','&quot;')}">
                       `;
@@ -91,9 +91,9 @@
               </div>
               <div class="mb-3">
                 {% if object and object.qr_code %}
-                  <a href="{% url 'productos:equipos_qr' object.pk %}" class="btn btn-primary btn-sm">Ver QR</a>
+                  <a href="{% url 'productos:activos_qr' object.pk %}" class="btn btn-primary btn-sm">Ver QR</a>
                 {% else %}
-                  {% if view.crud_config.model_name == 'equipo' and not object %}
+                  {% if view.crud_config.model_name == 'activo' and not object %}
                     <div class="text-xs text-gray-500 flex items-center gap-2 mt-2">
                       <i class="bi bi-clock-history"></i>
                         QR a la espera de creación
@@ -115,12 +115,12 @@
     <div class="col-12 col-lg-4">
       <div class="card shadow-sm">
         <div class="card-body">
-          {% if view.crud_config.model_name == "equipo" %}
+          {% if view.crud_config.model_name == "activo" %}
             <h2 class="h6 fw-semibold mb-3">Últimos Activos</h2>
-            {% if ultimos_equipos %}
+            {% if ultimos_activos %}
               <ul class="small mb-0">
-                {% for eq in ultimos_equipos %}
-                  <li>{{ eq.nombre_equipo }} <span class="text-muted">({{ eq.etiqueta }})</span></li>
+                {% for eq in ultimos_activos %}
+                  <li>{{ eq.nombre_activo }} <span class="text-muted">({{ eq.etiqueta }})</span></li>
                 {% endfor %}
               </ul>
             {% else %}
@@ -132,7 +132,7 @@
             {% if side_items %}
               <ul class="small mb-0">
                 {% for m in side_items %}
-                  <li>M#{{ m.id_mantencion }} — {{ m.id_equipo|default:"Equipo s/i" }}</li>
+                  <li>M#{{ m.id_mantencion }} — {{ m.id_activo|default:"Activo s/i" }}</li>
                 {% endfor %}
               </ul>
             {% else %}
@@ -268,19 +268,19 @@
                   <p class="text-muted small mb-0">No hay prioridades de mantención aún.</p>
                 {% endif %}
 
-              {% elif view.crud_config.model_name == "tipoequipo" %}
+              {% elif view.crud_config.model_name == "tipoactivo" %}
               <h2 class="h6 fw-semibold mb-3">Últimos tipos de activos</h2>
               {% if side_items %}
                 <ul class="small mb-0">
                   {% for te in side_items %}
-                    <li>{{ te.tipo_equipo }}</li>
+                    <li>{{ te.tipo_activo }}</li>
                   {% endfor %}
                 </ul>
               {% else %}
                 <p class="text-muted small mb-0">No hay tipos de activos aún.</p>
               {% endif %}
 
-              {% elif view.crud_config.model_name == "estadoequipo" %}
+              {% elif view.crud_config.model_name == "estadoactivo" %}
               <h2 class="h6 fw-semibold mb-3">Últimos estados de activos</h2>
               {% if side_items %}
                 <ul class="small mb-0">

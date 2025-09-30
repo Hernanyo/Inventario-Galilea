@@ -9,11 +9,11 @@ from .crud import get_crud_configs
 # Modelos opcionales para métricas
 try:
     from .models_inventario import (
-        Empleado, Departamento, Equipo, TipoEquipo,
+        Empleado, Departamento, Activo, TipoActivo,
         Mantencion, EstadoMantencion
     )
 except Exception:
-    Empleado = Departamento = Equipo = TipoEquipo = Mantencion = EstadoMantencion = None
+    Empleado = Departamento = Activo = TipoActivo = Mantencion = EstadoMantencion = None
 
 
 @method_decorator(login_required(login_url="login"), name="dispatch")
@@ -85,14 +85,14 @@ class MetricsDashboardView(TemplateView):
                 "data":   [r["n"] for r in q],
             }
 
-        # Equipos por tipo
-        if Equipo and TipoEquipo and hasattr(Equipo, "id_tipo_equipo"):
-            q = (Equipo.objects
-                 .values("id_tipo_equipo__tipo_equipo")
-                 .annotate(n=Count("id_equipo"))
-                 .order_by("id_tipo_equipo__tipo_equipo"))
-            ctx["equipos_by_tipo"] = {
-                "labels": [r["id_tipo_equipo__tipo_equipo"] or "Sin tipo" for r in q],
+        # Activos por tipo
+        if Activo and TipoActivo and hasattr(Activo, "id_tipo_activo"):
+            q = (Activo.objects
+                 .values("id_tipo_activo__tipo_activo")
+                 .annotate(n=Count("id_activo"))
+                 .order_by("id_tipo_activo__tipo_activo"))
+            ctx["activos_by_tipo"] = {
+                "labels": [r["id_tipo_activo__tipo_activo"] or "Sin tipo" for r in q],
                 "data":   [r["n"] for r in q],
             }
 

@@ -23,8 +23,8 @@
   <div class="col-md-3">
     <div class="card h-100 shadow-sm">
       <div class="card-body text-center kpi-body">
-        <h6 class="text-muted">Equipos</h6>
-        <div class="display-6">{{ total_equipos|default:0 }}</div>
+        <h6 class="text-muted">Activos</h6>
+        <div class="display-6">{{ total_activos|default:0 }}</div>
         <small class="text-muted">registrados</small>
       </div>
     </div>
@@ -34,7 +34,7 @@
       <div class="card-body text-center kpi-body">
         <h6 class="text-muted">Disponibles</h6>
         <div class="display-6">{{ disponibles|default:0 }}</div>
-        <small class="text-muted">equipos</small>
+        <small class="text-muted">activos</small>
       </div>
     </div>
   </div>
@@ -43,7 +43,7 @@
       <div class="card-body text-center kpi-body">
         <h6 class="text-muted">En uso</h6>
         <div class="display-6">{{ en_uso|default:0 }}</div>
-        <small class="text-muted">equipos</small>
+        <small class="text-muted">activos</small>
       </div>
     </div>
   </div>
@@ -62,7 +62,7 @@
 <div class="row g-3 mb-4">
   <div class="col-lg-6">
     <div class="card shadow-sm">
-      <div class="card-header">Equipos por Tipo</div>
+      <div class="card-header">Activos por Tipo</div>
       <div class="card-body">
         <div class="chart-box"><canvas id="chartTipos"></canvas></div>
       </div>
@@ -102,7 +102,7 @@
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card shadow-sm">
-      <div class="card-header">Últimos equipos</div>
+      <div class="card-header">Últimos activos</div>
       <div class="card-body table-responsive">
         <table class="table table-sm align-middle">
           <thead>
@@ -111,13 +111,13 @@
             </tr>
           </thead>
           <tbody>
-            {% for e in ultimos_equipos %}
+            {% for e in ultimos_activos %}
             <tr>
-              <td>{{ e.id_equipo }}</td>
-              <td>{{ e.nombre_equipo }}</td>
+              <td>{{ e.id_activo }}</td>
+              <td>{{ e.nombre_activo }}</td>
               <td>{{ e.id_marca }}</td>
-              <td>{{ e.id_tipo_equipo }}</td>
-              <td>{{ e.id_estado_equipo|default:"—" }}</td>
+              <td>{{ e.id_tipo_activo }}</td>
+              <td>{{ e.id_estado_activo|default:"—" }}</td>
               <td>{% if e.id_empleado %}{{ e.id_empleado }}{% else %}—{% endif %}</td>
             </tr>
             {% empty %}
@@ -136,14 +136,14 @@
         <table class="table table-sm align-middle">
           <thead>
             <tr>
-              <th>#</th><th>Equipo</th><th>Estado</th><th>Fecha</th><th>Descripción</th>
+              <th>#</th><th>Activo</th><th>Estado</th><th>Fecha</th><th>Descripción</th>
             </tr>
           </thead>
           <tbody>
             {% for m in ultimas_mantenciones %}
             <tr>
               <td>{{ m.id_mantencion }}</td>
-              <td>{{ m.id_equipo }}</td>
+              <td>{{ m.id_activo }}</td>
               <td>{{ m.id_estado_mantencion }}</td>
               <td>{{ m.fecha|date:"Y-m-d" }}</td>
               <td class="text-truncate" style="max-width:260px;">{{ m.descripcion|default:"—" }}</td>
@@ -197,14 +197,14 @@
   if (document.getElementById('chartTipos')) {
     new Chart(document.getElementById('chartTipos'), {
       type: 'bar',
-      data: { labels: tiposLabels, datasets: [{ label: 'Equipos', data: tiposValues }] },
+      data: { labels: tiposLabels, datasets: [{ label: 'Activos', data: tiposValues }] },
       options: { responsive: true, maintainAspectRatio: false }
     });
   }
   if (document.getElementById('chartMarcas')) {
     new Chart(document.getElementById('chartMarcas'), {
       type: 'bar',
-      data: { labels: marcasLabels, datasets: [{ label: 'Equipos', data: marcasValues }] },
+      data: { labels: marcasLabels, datasets: [{ label: 'Activos', data: marcasValues }] },
       options: { responsive: true, maintainAspectRatio: false }
     });
   }

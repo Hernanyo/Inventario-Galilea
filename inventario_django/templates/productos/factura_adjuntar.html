@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Adjuntar Factura{% endblock %}
+
+{% block content %}
+  <h1 class="text-2xl font-semibold mb-4">Adjuntar Factura</h1>
+
+  <form method="POST" enctype="multipart/form-data" class="bg-white shadow rounded-3 p-4">
+    {% csrf_token %}
+    
+    <div class="form-group mb-3">
+      <label for="file" class="form-label">Selecciona el archivo de la factura</label>
+      <input type="file" name="file" id="file" class="form-control" required>
+    </div>
+
+    <div class="form-group mb-3">
+      <label for="descripcion" class="form-label">Descripción</label>
+      <textarea name="descripcion" id="descripcion" rows="3" class="form-control" placeholder="Descripción del archivo" required></textarea>
+    </div>
+
+    <div class="form-group mb-3">
+      <label for="proveedor" class="form-label">Proveedor</label>
+      <input type="text" name="proveedor" id="proveedor" class="form-control" placeholder="Nombre del proveedor" required>
+    </div>
+
+    <div class="form-group mb-3">
+      <label for="fecha_emision" class="form-label">Fecha de emisión</label>
+      <input type="date" name="fecha_emision" id="fecha_emision" class="form-control" required>
+    </div>
+
+    <div class="form-group text-end">
+      <button type="submit" class="btn btn-primary btn-xs">Subir Factura</button>
+      <a href="{% url 'productos:facturas_list' %}" class="btn btn-secondary btn-xs">Cancelar</a>
+    </div>
+  </form>
+
+{% endblock %}

@@ -19,7 +19,9 @@ SECURE_BROWSER_XSS_FILTER = True
 LOGGING["root"]["level"] = "DEBUG"
 
 AUTHENTICATION_BACKENDS = [
-    "productos.auth_backends.RutBackend",           # login con RUT
+    #"productos.auth_backends.RutBackend",           # login con RUT
     "django.contrib.auth.backends.ModelBackend",    # login normal (por si acaso)
+    "productos.auth_backends.CustomAuthenticationBackend",  # Combina RUT y correo
+    "django.contrib.auth.backends.ModelBackend",  # Backend por defecto de Django
 ]
 

@@ -1,7 +1,7 @@
 # productos/views_qr.py
 from django.shortcuts import get_object_or_404, render
 from django.contrib.auth.decorators import login_required
-from productos.models_inventario import Equipo
+from productos.models_inventario import Activo
 from .utils import generar_qr
 import qrcode
 import base64
@@ -10,11 +10,11 @@ from django.urls import reverse_lazy
 
 @login_required
 def qr_print_view(request, pk):
-    from .models_inventario import Equipo
-    obj = get_object_or_404(Equipo, pk=pk)
+    from .models_inventario import Activo
+    obj = get_object_or_404(Activo, pk=pk)
 
     # --- Depuración ---
-    print("Etiqueta del equipo:", obj.etiqueta)  # <--- aquí
+    print("Etiqueta del activo:", obj.etiqueta)  # <--- aquí
     # ------------------
 
     # Generar QR con solo el código de etiqueta
@@ -36,6 +36,6 @@ def qr_print_view(request, pk):
     context = {
         "object": obj,
         "qr_img": img_str,
-        "back_url": reverse_lazy("productos:equipos_list"),
+        "back_url": reverse_lazy("productos:activos_list"),
     }
-    return render(request, "equipos/qr_print.html", context)
+    return render(request, "activos/qr_print.html", context)

@@ -1,5 +1,6 @@
 # productos/crud.py
-#from .models_inventario import CategoriaEquipo
+#from .models_inventario import CategoriaActivo
+from .models import HistorialMantencionesLog
 from django.utils.dateparse import parse_date
 import json
 
@@ -10,7 +11,7 @@ from productos.utils import crear_usuario_y_enviar_correo
 from dataclasses import dataclass, field
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey, OneToOneField
-from .models_inventario import Marca, Proveedor, TipoEquipo, EstadoEquipo
+from .models_inventario import Marca, Proveedor, TipoActivo, EstadoActivo
 from typing import Sequence, List, Type
 import csv
 from django.apps import apps
@@ -24,7 +25,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin  # (si ModelPermsMixin
 from .mixins import ModelPermsMixin
 from django import forms
 from django.shortcuts import get_object_or_404, render
-from .models_inventario import Equipo, HistorialEquipos
+from .models_inventario import Activo, HistorialActivos
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.shortcuts import render, get_object_or_404
@@ -35,7 +36,7 @@ from django.utils import timezone
 from django.db import connection
 # crud.py
 from productos.forms import MantencionForm, EmpleadoForm
-from .models_inventario import AgregacionAtributosPorEquipo, AtributosEquipo
+from .models_inventario import AgregacionAtributosPorActivo, AtributosActivo
 from django.db import transaction
 # --- NUEVO: mixin para limitar por empresa (si el modelo tiene id_empresa) ---
 from django.core.exceptions import FieldDoesNotExist
@@ -93,8 +94,8 @@ def _model_has_empresa_fk(model) -> bool:
 @dataclass
 class CrudConfig:
     model: Type[Model]
-    slug: str                     # p.ej. "equipos"
-    verbose_plural: str           # p.ej. "Equipos"
+    slug: str                     # p.ej. "activos"
+    verbose_plural: str           # p.ej. "Activos"
     list_display: Sequence[str] = field(default_factory=list)   # columnas
     search_fields: Sequence[str] = field(default_factory=list)  # campos texto
     ordering: Sequence[str] = field(default_factory=lambda: ("id",))
@@ -107,7 +108,7 @@ class CrudConfig:
             if val:
                 return str(val)
         for name in (
-            "nombre", "nombre_empresa", "nombre_equipo",
+            "nombre", "nombre_empresa", "nombre_activo",
             "descripcion", "detalle", "codigo", "serie",
             "rut_empresa", "apellido"
         ):
@@ -148,7 +149,7 @@ def infer_list_display(m: Type[Model]) -> List[str]:
     prefer_order = (
         "rut", "nombre", "apellido_paterno", "apellido_materno",
         "correo", "telefono", "descripcion", "observaciones", "codigo", "serie",
-        "departamento", "empresa", "marca", "tipo_equipo"
+        "departamento", "empresa", "marca", "tipo_activo"
     )
 
     # 1) preferidos si existen
@@ -227,10 +228,10 @@ def _build_adv_fields_from_list_display(model, list_display):
     No rompe si una col no es un Field real (la salta).
     """
     label_overrides = {
-        "id_equipo": "Id Activo",
-        "nombre_equipo": "Nombre Activo",
-        "id_tipo_equipo": "Id Tipo Activo",
-        "id_estado_equipo": "Id Estado Activo",
+        "id_activo": "Id Activo",
+        "nombre_activo": "Nombre Activo",
+        "id_tipo_activo": "Id Tipo Activo",
+        "id_estado_activo": "Id Estado Activo",
         "id_marca": "Id Marca",
         "id_proveedor": "Id Proveedor",
         "id_empleado": "Responsable",
@@ -263,7 +264,7 @@ def _adv_choices_for_fk_fields(request, model, adv_fields):
         if hasattr(rel, "id_empresa_id") and emp_id:
             qs = qs.filter(id_empresa_id=emp_id)
         # orden legible si existe
-        for cand in ("nombre", "descripcion", "razon_social", "tipo_equipo", "marca", "modelo"):
+        for cand in ("nombre", "descripcion", "razon_social", "tipo_activo", "marca", "modelo"):
             try:
                 rel._meta.get_field(cand)
                 qs = qs.order_by(cand)
@@ -323,7 +324,7 @@ def _apply_advanced_filter(qs, model, field_name, raw_value):
             return qs.filter(**{field_name: int(fv)})
         # búsqueda “humana” en el relacionado si no vino id
         rel = f.remote_field.model
-        for cand in ("nombre", "descripcion", "razon_social", "tipo_equipo", "marca", "modelo"):
+        for cand in ("nombre", "descripcion", "razon_social", "tipo_activo", "marca", "modelo"):
             try:
                 rel._meta.get_field(cand)
                 return qs.filter(**{f"{field_name}__{cand}__icontains": fv})
@@ -338,12 +339,12 @@ def _apply_advanced_filter(qs, model, field_name, raw_value):
 # ---------- Vistas y helpers ----------
 
 def qr_print_view(request, pk):
-    obj = get_object_or_404(Equipo, pk=pk)
+    obj = get_object_or_404(Activo, pk=pk)
     context = {
         "object": obj,
-        "back_url": reverse_lazy("productos:equipos_list")
+        "back_url": reverse_lazy("productos:activos_list")
     }
-    return render(request, "equipos/qr_print.html", context)
+    return render(request, "activos/qr_print.html", context)
 
 
 class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
@@ -446,7 +447,7 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
                         qs = qs.filter(**{f: int(fv)})  # nombre del FK
                     else:
                         rel_model = field.remote_field.model
-                        for cand in ("nombre", "descripcion", "tipo_equipo",
+                        for cand in ("nombre", "descripcion", "tipo_activo",
                                     "razon_social", "empresa", "marca", "modelo"):
                             try:
                                 rel_model._meta.get_field(cand)
@@ -506,13 +507,13 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         
         #############################################################################################################
 
-        if self.model._meta.model_name == "atributosequipo":
-            from .models_inventario import TipoEquipo
+        if self.model._meta.model_name == "atributosactivo":
+            from .models_inventario import TipoActivo
             emp_id = self.request.session.get("empresa_id")
-            te_qs = TipoEquipo.objects.all()
+            te_qs = TipoActivo.objects.all()
             if emp_id:
                 te_qs = te_qs.filter(id_empresa_id=emp_id)
-            ctx["tipos_equipo"] = te_qs.order_by("tipo_equipo")
+            ctx["tipos_activo"] = te_qs.order_by("tipo_activo")
         return ctx
 
 
@@ -522,8 +523,8 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
     crud_config: CrudConfig
 
     def get_form_class(self):
-        if self.model.__name__ == "Equipo":
-            return EquipoForm
+        if self.model.__name__ == "Activo":
+            return ActivoForm
         if self.model.__name__ == "Mantencion":
             from productos.forms import MantencionForm
             return MantencionForm
@@ -575,22 +576,22 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
 
         emp_id = self.request.session.get("empresa_id")  # ⬅️ añade esto
 #1#############################################################################################24-09-2025
-                # Filtrar los tipos de equipo por la empresa activa
-        if self.model.__name__ == "Equipo":
-            from .models_inventario import TipoEquipo
-            qs = TipoEquipo.objects.all()
+                # Filtrar los tipos de activo por la empresa activa
+        if self.model.__name__ == "Activo":
+            from .models_inventario import TipoActivo
+            qs = TipoActivo.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)  # Aquí se filtra por empresa activa
-            ctx["tipos_equipo"] = qs.order_by("tipo_equipo")
+            ctx["tipos_activo"] = qs.order_by("tipo_activo")
 #2#############################################################################################24-09-2025
-        # EQUIPO: ya tenías sidebar propio
-        if self.model.__name__ == "Equipo":
-            qs = Equipo.objects.all()
+        # ACTIVO: ya tenías sidebar propio
+        if self.model.__name__ == "Activo":
+            qs = Activo.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)              # ⬅️ filtro
-            ultimos = qs.order_by("-id_equipo")[:15]
-            ultima  = qs.order_by("-id_equipo").first()
-            ctx["ultimos_equipos"] = ultimos
+            ultimos = qs.order_by("-id_activo")[:15]
+            ultima  = qs.order_by("-id_activo").first()
+            ctx["ultimos_activos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
         # MANTENCION: últimas mantenciones
@@ -598,13 +599,13 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
             from .models_inventario import Mantencion as Mant
             qs = Mant.objects.all()
             if emp_id:
-                # si el modelo no tiene id_empresa, filtramos por el equipo
+                # si el modelo no tiene id_empresa, filtramos por el activo
                 if "id_empresa" in {f.name for f in Mant._meta.get_fields()}:
                     qs = qs.filter(id_empresa_id=emp_id)
                 else:
-                    qs = qs.filter(id_equipo__id_empresa_id=emp_id)
+                    qs = qs.filter(id_activo__id_empresa_id=emp_id)
             ctx["side_title"] = "Últimas mantenciones"
-            ctx["side_items"] = qs.select_related("id_equipo").order_by("-id_mantencion")[:15]
+            ctx["side_items"] = qs.select_related("id_activo").order_by("-id_mantencion")[:15]
 
         # EMPRESA: últimas empresas
         elif self.model.__name__ == "Empresa":
@@ -662,13 +663,13 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
             ctx["side_title"] = "Últimas facturas"
             ctx["side_items"] = qs.order_by("-id_factura")[:5]  # Los últimos 5 registros
 
-        elif self.model.__name__ == "EstadoEquipo":
-            from .models_inventario import EstadoEquipo
-            qs = EstadoEquipo.objects.all()
+        elif self.model.__name__ == "EstadoActivo":
+            from .models_inventario import EstadoActivo
+            qs = EstadoActivo.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
-            ctx["side_title"] = "Últimos estados de equipo"
-            ctx["side_items"] = qs.order_by("-id_estado_equipo")[:15]
+            ctx["side_title"] = "Últimos estados de activo"
+            ctx["side_items"] = qs.order_by("-id_estado_activo")[:15]
 
         elif self.model.__name__ == "TipoMantencion":
             from .models_inventario import TipoMantencion
@@ -704,13 +705,17 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
             ctx["side_title"] = "Últimos tipos de mantención"
             ctx["side_items"] = qs.order_by("-id_tipo_mantencion")[:15]
 
-        elif self.model.__name__ == "TipoEquipo":
-            from .models_inventario import TipoEquipo
-            qs = TipoEquipo.objects.all()
+        elif self.model.__name__ == "TipoActivo":
+            from .models_inventario import TipoActivo
+            qs = TipoActivo.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
-            ctx["side_title"] = "Últimos tipos de equipo"
-            ctx["side_items"] = qs.order_by("-id_tipo_equipo")[:15]
+            ctx["side_title"] = "Últimos tipos de activo"
+            ctx["side_items"] = qs.order_by("-id_tipo_activo")[:15]
+
+        elif self.model.__name__ == "Factura":
+            ctx["side_title"] = "Últimas facturas"
+            ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
 
         elif self.model.__name__ == "DetalleFactura":
             from .models_inventario import DetalleFactura
@@ -728,23 +733,23 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
             sync_user_groups_for_empleado(form.instance)
 
 ###################################################################################2509
-        # >>> NUEVO: historial “a la segura” al CREAR equipo desde CRUD
-        if self.model.__name__ == "Equipo":
+        # >>> NUEVO: historial “a la segura” al CREAR activo desde CRUD
+        if self.model.__name__ == "Activo":
             try:
-                from .models_inventario import HistorialEquipos
+                from .models_inventario import HistorialActivos
                 e = self.object
                 usuario_empleado = getattr(self.request.user, "empleado", None)
-                HistorialEquipos.objects.create(
-                    equipo=e,
+                HistorialActivos.objects.create(
+                    activo=e,
                     etiqueta=e.etiqueta,
-                    nombre_equipo=e.nombre_equipo,
-                    modelo=None,  # si no usas modelo en Equipo
-                    tipo_equipo=getattr(e, "id_tipo_equipo", None),
+                    nombre_activo=e.nombre_activo,
+                    modelo=None,  # si no usas modelo en Activo
+                    tipo_activo=getattr(e, "id_tipo_activo", None),
                     accion="CREACION",
                     usuario=usuario_empleado,
                     id_empresa=getattr(e, "id_empresa", None),
                     departamento=getattr(e, "id_departamento", None),
-                    estado_nuevo=getattr(e, "id_estado_equipo", None),
+                    estado_nuevo=getattr(e, "id_estado_activo", None),
                     responsable_actual=getattr(e, "id_empleado", None),
                     comentario="Creado desde CRUD",
                 )
@@ -766,13 +771,13 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
     
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        if self.model.__name__ in ("Mantencion", "Equipo"):
+        if self.model.__name__ in ("Mantencion", "Activo"):
             kwargs["request"] = self.request
         return kwargs
 
     def get_form_class(self):
-        if self.model.__name__ == "Equipo":
-            return EquipoForm
+        if self.model.__name__ == "Activo":
+            return ActivoForm
         if self.model.__name__ == "Mantencion":     # ← y esto
             from productos.forms import MantencionForm
             return MantencionForm
@@ -817,13 +822,13 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
 
     def form_valid(self, form):
         ###########################################################################################2509
-        # >>> NUEVO: snapshot ANTES de guardar, solo para Equipo
+        # >>> NUEVO: snapshot ANTES de guardar, solo para Activo
         prev_emp_id = prev_estado_id = None
-        if self.model.__name__ == "Equipo":
+        if self.model.__name__ == "Activo":
             try:
                 prev_obj = self.get_object()
                 prev_emp_id = prev_obj.id_empleado_id
-                prev_estado_id = prev_obj.id_estado_equipo_id
+                prev_estado_id = prev_obj.id_estado_activo_id
             except Exception:
                 pass
         ###########################################################################################2509
@@ -836,7 +841,7 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
             except Exception:
                 old_empleado = None
 
-        if self.model.__name__ == "Equipo":
+        if self.model.__name__ == "Activo":
             form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
 
         resp = super().form_valid(form)
@@ -860,29 +865,29 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
             # Mantén tu sincronización de grupos
             sync_user_groups_for_empleado(obj)
 
-        # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Equipo) ===
-        if self.model.__name__ == "Equipo":
-            equipo = self.object
-            tipo_id = self.request.POST.get("id_tipo_equipo") or getattr(equipo, "id_tipo_equipo_id", None)
+        # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Activo) ===
+        if self.model.__name__ == "Activo":
+            activo = self.object
+            tipo_id = self.request.POST.get("id_tipo_activo") or getattr(activo, "id_tipo_activo_id", None)
             if tipo_id:
                 attrs = list(
-                    AtributosEquipo.objects
-                    .filter(id_tipo_equipo_id=tipo_id)
-                    .values_list("id_atributo_equipo", flat=True)
+                    AtributosActivo.objects
+                    .filter(id_tipo_activo_id=tipo_id)
+                    .values_list("id_atributo_activo", flat=True)
                 )
                 with transaction.atomic():
                     # estrategia simple: borrar y recrear
-                    AgregacionAtributosPorEquipo.objects.filter(equipo_id=equipo.id_equipo).delete()
+                    AgregacionAtributosPorActivo.objects.filter(activo_id=activo.id_activo).delete()
                     nuevos = []
                     for attr_id in attrs:
                         v = self.request.POST.get(f"attr_{attr_id}", "").strip()
-                        nuevos.append(AgregacionAtributosPorEquipo(
-                            equipo_id=equipo.id_equipo,
+                        nuevos.append(AgregacionAtributosPorActivo(
+                            activo_id=activo.id_activo,
                             atributo_id=attr_id,
                             valor=v or None
                         ))
                     if nuevos:
-                        AgregacionAtributosPorEquipo.objects.bulk_create(nuevos, ignore_conflicts=True)
+                        AgregacionAtributosPorActivo.objects.bulk_create(nuevos, ignore_conflicts=True)
 
         return resp
 
@@ -899,13 +904,13 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
         emp_id = self.request.session.get("empresa_id")
         
 
-        if self.model.__name__ == "Equipo":
-            qs = Equipo.objects.all()
+        if self.model.__name__ == "Activo":
+            qs = Activo.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
-            ultimos = qs.order_by("-id_equipo")[:15]
-            ultima  = qs.order_by("-id_equipo").first()
-            ctx["ultimos_equipos"] = ultimos
+            ultimos = qs.order_by("-id_activo")[:15]
+            ultima  = qs.order_by("-id_activo").first()
+            ctx["ultimos_activos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
 
         elif self.model.__name__ == "Mantencion":
@@ -915,9 +920,9 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
                 if "id_empresa" in {f.name for f in Mant._meta.get_fields()}:
                     qs = qs.filter(id_empresa_id=emp_id)
                 else:
-                    qs = qs.filter(id_equipo__id_empresa_id=emp_id)
+                    qs = qs.filter(id_activo__id_empresa_id=emp_id)
             ctx["side_title"] = "Últimas mantencionesSS"
-            ctx["side_items"] = qs.select_related("id_equipo").order_by("-id_mantencion")[:15]
+            ctx["side_items"] = qs.select_related("id_activo").order_by("-id_mantencion")[:15]
 
         elif self.model.__name__ == "Empresa":
             from .models_inventario import Empresa as Emp
@@ -960,12 +965,12 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
             ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
 
 #1#######################################################################################################################24-09-2025########
-        elif self.model.__name__ == "AtributosEquipo":  # Aquí se aplica el filtro solo para AtributosEquipo
-            from .models_inventario import TipoEquipo
-            qs = TipoEquipo.objects.all()
+        elif self.model.__name__ == "AtributosActivo":  # Aquí se aplica el filtro solo para AtributosActivo
+            from .models_inventario import TipoActivo
+            qs = TipoActivo.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)  # Filtro por empresa activa
-            ctx["tipos_equipo"] = qs.order_by("tipo_equipo")
+            ctx["tipos_activo"] = qs.order_by("tipo_activo")
         return ctx
 
 #2#######################################################################################################################24-09-2025########   
@@ -994,170 +999,135 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
 #            return super().form_valid(form)
 
     
-class EquipoForm(forms.ModelForm):
+class ActivoForm(forms.ModelForm):
     class Meta:
-        model = Equipo
-        # Importante: incluimos Empresa y Departamento en el formulario
+        model = Activo
         fields = [
-            "id_tipo_equipo",
-            "nombre_equipo",
+            "id_tipo_activo",
+            "nombre_activo",
             "id_marca",
-            "id_estado_equipo",
-            "id_empleado",       # responsable (opcional)
+            "id_estado_activo",
+            "id_empleado",  # responsable (opcional)
             "id_proveedor",
             "etiqueta",
             "observaciones",
-            "id_empresa",        # NUEVO: siempre visible en el form
-            "id_departamento",   # NUEVO: siempre visible en el form
-            "activo_critico",    # El nuevo campo para marcar si el activo es crítico
+            "id_empresa",  # NUEVO: siempre visible en el form
+            "id_departamento",  # NUEVO: siempre visible en el form
+            "activo_critico",  # El nuevo campo para marcar si el activo es crítico
+            "clasificacion",
             "confidencialidad",  # Nuevo campo solo visible si se marca "activo crítico"
-            "integridad",        # Nuevo campo solo visible si se marca "activo crítico"
-            "disponibilidad",    # Nuevo campo solo visible si se marca "activo crítico"
+            "integridad",  # Nuevo campo solo visible si se marca "activo crítico"
+            "disponibilidad",  # Nuevo campo solo visible si se marca "activo crítico"
         ]
         widgets = {
             "id_empresa": forms.Select(attrs={"class": "form-select"}),
-            "id_estado_equipo": forms.Select(attrs={"class": "form-select"}),
+            "id_estado_activo": forms.Select(attrs={"class": "form-select"}),
             "id_empleado": forms.Select(attrs={"class": "form-select"}),
             "id_proveedor": forms.Select(attrs={"class": "form-select"}),
             "id_departamento": forms.Select(attrs={"class": "form-select"}),
             "id_marca": forms.Select(attrs={"class": "form-select"}),
-            "id_tipo_equipo": forms.Select(attrs={"class": "form-select"}),
-            "nombre_equipo": forms.TextInput(attrs={"class": "form-control"}),
+            "id_tipo_activo": forms.Select(attrs={"class": "form-select"}),
+            "nombre_activo": forms.TextInput(attrs={"class": "form-control"}),
             "etiqueta": forms.TextInput(attrs={"class": "form-control"}),
             "observaciones": forms.Textarea(attrs={"class": "form-control", "rows": 3, "placeholder": "Escribe tus observaciones aquí..."}),
-            # Nuevo checkbox para "Activo Crítico"
             "activo_critico": forms.CheckboxInput(attrs={"class": "form-check-input"}),
-            # Los campos confidencialidad, integridad y disponibilidad
-            "confidencialidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Numerico"}),
-            "integridad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Numerico"}),
-            "disponibilidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Numerico"}),
-        
+            "clasificacion": forms.Select(choices=[  # Agregamos las opciones de clasificación aquí
+                ('confidencial', 'Confidencial'),
+                ('uso_interno', 'Uso Interno'),
+                ('publico', 'Público'),
+            ], attrs={"class": "form-select",}),  # Siempre visible
+            "confidencialidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Ingrese un número del 1 al 4", "min": 1, "max": 4, "step": 1, "inputmode": "numeric", "title": "Valor permitido: 1, 2, 3 o 4"}),
+            "integridad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Ingrese un número del 1 al 4", "min": 1, "max": 4, "step": 1, "inputmode": "numeric", "title": "Valor permitido: 1, 2, 3 o 4"}),
+            "disponibilidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Ingrese un número del 1 al 4", "min": 1, "max": 4, "step": 1, "inputmode": "numeric", "title": "Valor permitido: 1, 2, 3 o 4"}),
         }
 
-        labels = {
-            "nombre_equipo": "Nombre Activo",
-            "id_marca": "Marca",
-            "id_tipo_equipo": "Tipo Activo",
-            "id_estado_equipo": "Estado Activo",
-            "id_empleado": "Responsable",
-            "id_proveedor": "Proveedor",
-            "etiqueta": "Etiqueta",
-            "observaciones": "Observaciones",
-            "id_empresa": "Empresa",
-            "id_departamento": "Departamento",
-        }
-        # (opcional) puedes añadir widgets si quieres inputs más bonitos:
-        # widgets = {
-        #     "nombre_equipo": forms.TextInput(attrs={"class": "input input-bordered"}),
-        # }
     def __init__(self, *args, request=None, **kwargs):
-            super().__init__(*args, **kwargs)
-#1#########################################################################################################24-09-2025
-            # Lógica para ocultar los campos basados en el tipo de activo
-            tipo_activo = self.initial.get('id_tipo_equipo')
+        super().__init__(*args, **kwargs)
 
-            if tipo_activo == 'Información':  # Cuando el tipo de activo sea "Información"
-                self.fields['id_marca'].widget = forms.HiddenInput()
-                self.fields['id_estado_equipo'].widget = forms.HiddenInput()
-                self.fields['id_empleado'].widget = forms.HiddenInput()
-                self.fields['id_proveedor'].widget = forms.HiddenInput()
-                self.fields['confidencialidad'].widget.attrs['style'] = 'display: none'
-                self.fields['integridad'].widget.attrs['style'] = 'display: none'
-                self.fields['disponibilidad'].widget.attrs['style'] = 'display: none'
+        # Lógica para ocultar los campos basados en el tipo de activo
+        tipo_activo = self.initial.get('id_tipo_activo')
 
+        if tipo_activo == 'Información':  # Cuando el tipo de activo sea "Información"
+            self.fields['id_marca'].widget = forms.HiddenInput()
+            self.fields['id_estado_activo'].widget = forms.HiddenInput()
+            self.fields['id_empleado'].widget = forms.HiddenInput()
+            self.fields['id_proveedor'].widget = forms.HiddenInput()
+            self.fields['confidencialidad'].widget.attrs['style'] = 'display: none'
+            self.fields['integridad'].widget.attrs['style'] = 'display: none'
+            self.fields['disponibilidad'].widget.attrs['style'] = 'display: none'
 
-            self.request=request
-            emp_id = request.session.get("empresa_id") if request else None
+        self.request = request
+        emp_id = request.session.get("empresa_id") if request else None
 
+        if emp_id:
+            self.fields["id_empresa"].queryset = self.fields["id_empresa"].queryset.filter(id_empresa=emp_id)
+
+        # Lógica para mostrar/ocultar los campos de seguridad solo si el activo es crítico
+        if not self.instance.activo_critico:  # Si no es un activo crítico, ocultamos los campos
+            self.fields["confidencialidad"].widget.attrs['style'] = 'display: none'
+            self.fields["integridad"].widget.attrs['style'] = 'display: none'
+            self.fields["disponibilidad"].widget.attrs['style'] = 'display: none'
+        else:
+            self.fields['clasificacion'].widget.attrs['class'] = 'form-select'
+
+        # Empleados solo de la empresa
+        if "id_empleado" in self.fields:
+            qs = Empleado.objects.filter(estado_activo=True)
             if emp_id:
-                self.fields["id_empresa"].queryset = self.fields["id_empresa"].queryset.filter(id_empresa=emp_id)
-                #self.fields["id_tipo_equipo"].queryset = TipoEquipo.objects.filter(id_empresa_id=emp_id)
-#2#########################################################################################################24-09-2025
-#            emp_id = None
-#            if request is not None and hasattr(request, "session"):
-#                emp_id = request.session.get("empresa_id")
-#
-#            # Inicializa y (opcional) bloquea empresa en el form
-#            if emp_id and "id_empresa" in self.fields:
-#                self.fields["id_empresa"].initial = emp_id
-#                # self.fields["id_empresa"].disabled = True  # opcional
+                qs = qs.filter(id_empresa_id=emp_id)
+            self.fields["id_empleado"].queryset = qs.order_by("nombre", "apellido_paterno")
 
-#111111111111111####23-09-2025################################################################################################################################
-#            if "id_categoria_equipo" in self.fields:
-#                cqs = CategoriaEquipo.objects.all()
-#                if emp_id:
-#                    cqs = cqs.filter(id_empresa_id=emp_id)
-#                # Si ya viene un tipo elegido (POST o instance), filtra por ese tipo
-#                chosen_tipo = None
-#                if self.data.get("id_tipo_equipo"):
-#                    chosen_tipo = self.data.get("id_tipo_equipo")
-#                elif getattr(self.instance, "id_tipo_equipo_id", None):
-#                    chosen_tipo = self.instance.id_tipo_equipo_id
-#
-#                if chosen_tipo:
-#                    cqs = cqs.filter(id_tipo_equipo_id=chosen_tipo)
-#                self.fields["id_categoria_equipo"].queryset = cqs.order_by("nombre")
-#222222222222222####23-09-2025################################################################################################################################
+        # Departamentos solo de la empresa
+        if "id_departamento" in self.fields:
+            dqs = Departamento.objects.all()
+            if emp_id:
+                dqs = dqs.filter(id_empresa_id=emp_id)
+            self.fields["id_departamento"].queryset = dqs.order_by("nombre_departamento")
 
-            # Lógica para mostrar/ocultar los campos de seguridad solo si el activo es crítico
-            if not self.instance.activo_critico:  # Si no es un activo crítico, ocultamos los campos
-                self.fields["confidencialidad"].widget.attrs['style'] = 'display: none'
-                self.fields["integridad"].widget.attrs['style'] = 'display: none'
-                self.fields["disponibilidad"].widget.attrs['style'] = 'display: none'
+        # Marcas solo de la empresa
+        if "id_marca" in self.fields:
+            from .models_inventario import Marca
+            qs = Marca.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            self.fields["id_marca"].queryset = qs.order_by("nombre_marca")
 
-            # Empleados solo de la empresa
-            if "id_empleado" in self.fields:
-                qs = Empleado.objects.filter(activo=True)
-                if emp_id:
-                    qs = qs.filter(id_empresa_id=emp_id)
-                self.fields["id_empleado"].queryset = qs.order_by("nombre", "apellido_paterno")
+        # Proveedores solo de la empresa
+        if "id_proveedor" in self.fields:
+            from .models_inventario import Proveedor
+            qs = Proveedor.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            self.fields["id_proveedor"].queryset = qs.order_by("nombre_proveedor")
 
-            # Departamentos solo de la empresa
-            if "id_departamento" in self.fields:
-                dqs = Departamento.objects.all()
-                if emp_id:
-                    dqs = dqs.filter(id_empresa_id=emp_id)
-                self.fields["id_departamento"].queryset = dqs.order_by("nombre_departamento")
-            
-            # Marcas solo de la empresa
-            if "id_marca" in self.fields:
-                from .models_inventario import Marca
-                qs = Marca.objects.all()
-                if emp_id:
-                    qs = qs.filter(id_empresa_id=emp_id)
-                self.fields["id_marca"].queryset = qs.order_by("nombre_marca")
+        # Tipos de activo solo de la empresa
+        if "id_tipo_activo" in self.fields:
+            from .models_inventario import TipoActivo
+            qs = TipoActivo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            self.fields["id_tipo_activo"].queryset = qs.order_by("tipo_activo")
 
-            # Proveedores solo de la empresa
-            if "id_proveedor" in self.fields:
-                from .models_inventario import Proveedor
-                qs = Proveedor.objects.all()
-                if emp_id:
-                    qs = qs.filter(id_empresa_id=emp_id)
-                self.fields["id_proveedor"].queryset = qs.order_by("nombre_proveedor")
-
-            # Tipos de equipo solo de la empresa
-            if "id_tipo_equipo" in self.fields:
-                from .models_inventario import TipoEquipo
-                qs = TipoEquipo.objects.all()
-                if emp_id:
-                    qs = qs.filter(id_empresa_id=emp_id)
-                self.fields["id_tipo_equipo"].queryset = qs.order_by("tipo_equipo")
-
-            # Estados de equipo solo de la empresa
-            if "id_estado_equipo" in self.fields:
-                from .models_inventario import EstadoEquipo
-                qs = EstadoEquipo.objects.all()
-                if emp_id:
-                    qs = qs.filter(id_empresa_id=emp_id)
-                self.fields["id_estado_equipo"].queryset = qs.order_by("descripcion")
-
+        # Estados de activo solo de la empresa
+        if "id_estado_activo" in self.fields:
+            from .models_inventario import EstadoActivo
+            qs = EstadoActivo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            self.fields["id_estado_activo"].queryset = qs.order_by("descripcion")
 
     def clean(self):
         cleaned = super().clean()
 
         # Validaciones adicionales si el activo es crítico
+        if cleaned.get("activo_critico") and not cleaned.get("clasificacion"):
+            self.add_error("clasificacion", "Este campo es obligatorio cuando el activo es crítico.")
+            raise ValidationError("Si el activo es crítico, debes completar los campos de Confidencialidad, Integridad y Disponibilidad.")
+        
+        # Validación de los campos críticos
         if cleaned.get("activo_critico"):
             if not cleaned.get("confidencialidad") or not cleaned.get("integridad") or not cleaned.get("disponibilidad"):
+                self.add_error("clasificacion", "Si el activo es crítico, debes completar los campos de Confidencialidad, Integridad y Disponibilidad.")
                 raise ValidationError("Si el activo es crítico, debes completar los campos de Confidencialidad, Integridad y Disponibilidad.")
             
         empleado = cleaned.get("id_empleado")
@@ -1173,8 +1143,9 @@ class EquipoForm(forms.ModelForm):
                 raise ValidationError("El responsable seleccionado no pertenece a la empresa elegida.")
 
         return cleaned
+
     
-    # No generamos QR aquí: lo hace el modelo en Equipo.save()
+    # No generamos QR aquí: lo hace el modelo en Activo.save()
     # Si no necesitas lógica extra, puedes omitir completamente este save().
     #def save(self, commit=True):
     #    obj = super().save(commit=False)
@@ -1184,23 +1155,23 @@ class EquipoForm(forms.ModelForm):
     
     def save(self, commit=True):
         with transaction.atomic():
-            equipo = super().save(commit=commit)
+            activo = super().save(commit=commit)
             if commit and self.request:
-                #equipo.atributos_dinamicos.all().delete()
-                tipo_id = self.cleaned_data.get("id_tipo_equipo")
+                #activo.atributos_dinamicos.all().delete()
+                tipo_id = self.cleaned_data.get("id_tipo_activo")
                 if tipo_id:
-                    atributos = AtributosEquipo.objects.filter(id_tipo_equipo=tipo_id)
+                    atributos = AtributosActivo.objects.filter(id_tipo_activo=tipo_id)
                     if self.request.session.get("empresa_id"):
-                        atributos = atributos.filter(id_tipo_equipo__id_empresa_id=self.request.session.get("empresa_id"))
+                        atributos = atributos.filter(id_tipo_activo__id_empresa_id=self.request.session.get("empresa_id"))
                     for attr in atributos:
-                        valor = self.request.POST.get(f"atributo_{attr.id_atributo_equipo}")
+                        valor = self.request.POST.get(f"atributo_{attr.id_atributo_activo}")
                         if valor:
-                            AgregacionAtributosPorEquipo.objects.create(
-                                id_equipo=equipo,
-                                id_atributo_equipo=attr,
+                            AgregacionAtributosPorActivo.objects.create(
+                                id_activo=activo,
+                                id_atributo_activo=attr,
                                 valor=valor
                             )
-        return equipo
+        return activo
 
 class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     template_name = "crud/delete.html"
@@ -1232,68 +1203,39 @@ from django.db import connection
 
 def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
     """
-    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log.
-    Usa INSERT...SELECT para que el DEFAULT now() de fecha_evento se aplique.
+    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log usando Django ORM.
     """
-
     # nombre visible: Full Name > nombre del Empleado vinculado > username
     if getattr(user, "is_authenticated", False):
         display_name = (user.get_full_name() or "").strip() or (str(getattr(user, "empleado", "")) or user.get_username())
     else:
         display_name = None
+    
+    # Obtener los datos de la mantención (activo, tipo, prioridad, etc.)
+    activo = mantencion_obj.id_activo
+    tipo_mantencion = mantencion_obj.id_tipo_mantencion.nombre if mantencion_obj.id_tipo_mantencion else None
+    prioridad = mantencion_obj.id_prioridad.nombre if mantencion_obj.id_prioridad else None
+    estado_actual = mantencion_obj.id_estado_mantencion.tipo if mantencion_obj.id_estado_mantencion else None
 
-    with connection.cursor() as c:
-        c.execute("""
-            INSERT INTO inventario.historial_mantenciones_log
-            (
-                id_mantencion,
-                accion,
-                detalle,
-                usuario_app_username,
-                id_equipo,
-                etiqueta,
-                equipo_nombre,
-                tipo_mantencion,
-                prioridad,
-                estado_actual,
-                responsable_nombre,
-                solicitante_nombre,
-                descripcion
-            )
-            SELECT
-                m.id_mantencion,
-                %s,                         -- accion
-                %s,                         -- detalle
-                %s,                         -- usuario que gatilla el evento
-                e.id_equipo,
-                e.etiqueta,
-                e.nombre_equipo,
-                tm.nombre,                  -- tipo de mantención (texto)
-                pr.nombre,                  -- prioridad (texto)
-                est.tipo,                   -- estado (texto)
-                TRIM(CONCAT_WS(' ', resp.nombre, resp.apellido_paterno, resp.apellido_materno)) AS responsable_nombre,
-                COALESCE(
-                    NULLIF(TRIM(CONCAT_WS(' ', sol.nombre, sol.apellido_paterno, sol.apellido_materno)), ''),
-                    u.username
-                ) AS solicitante_nombre,
-                m.descripcion
-            FROM inventario.mantencion m
-            LEFT JOIN inventario.equipo               e   ON e.id_equipo = m.id_equipo
-            LEFT JOIN inventario.tipo_mantencion      tm  ON tm.id_tipo_mantencion = m.id_tipo_mantencion
-            LEFT JOIN inventario.prioridad_mantencion pr  ON pr.id_prioridad        = m.id_prioridad
-            LEFT JOIN inventario.estado_mantencion    est ON est.id_estado_mantencion = m.id_estado_mantencion
-            LEFT JOIN inventario.empleado             resp ON resp.id_empleado = m.responsable_id
-            -- 👇 AQUI va tu línea: toma el Empleado vinculado al auth_user solicitante
-            LEFT JOIN inventario.empleado             sol  ON sol.user_id = m.solicitante_user_id
-            -- 👇 y mantenemos también auth_user para fallback a username
-            LEFT JOIN auth_user                        u   ON u.id = m.solicitante_user_id
-            WHERE m.id_mantencion = %s
-        """, [
-            (accion or "").upper(),
-            (detalle or ""),
-            display_name, 
-            mantencion_obj.id_mantencion,
-        ])
+    # Crear un nuevo registro en HistorialMantencionesLog usando Django ORM
+    historial_log = HistorialMantencionesLog.objects.create(
+        id_mantencion=mantencion_obj.id_mantencion,
+        fecha_evento=timezone.now(),  # Utiliza la hora actual
+        accion=accion,
+        detalle=detalle,
+        usuario_app_username=display_name,
+        id_activo=activo.id_activo if activo else None,
+        etiqueta=activo.etiqueta if activo else None,
+        activo_nombre=activo.nombre_activo if activo else None,
+        tipo_mantencion=tipo_mantencion,
+        prioridad=prioridad,
+        estado_actual=estado_actual,
+        responsable_nombre=mantencion_obj.responsable_nombre,  # Esto puede requerir más lógica
+        solicitante_nombre=mantencion_obj.solicitante_nombre,  # Lo mismo aquí
+        descripcion=mantencion_obj.descripcion,
+    )
+    
+    return historial_log
 # ---------- Export CSV ----------
 
 def export_csv_view(model: Type[Model], cfg: CrudConfig):
@@ -1368,7 +1310,7 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
         csv_view  = export_csv_view(m, cfg)
 
         # --- 👇 SOLO LOGIN REQUERIDO PARA LOS HISTORIALES ---
-        if m._meta.model_name == "historialequipos":
+        if m._meta.model_name == "historialactivos":
             ListCls.action_perm = None
         if cfg.slug == "historial_mantenciones":
             ListCls.action_perm = None
@@ -1412,13 +1354,13 @@ def _collect_unique_crud_configs():
 
 # Config opcional para el menú (si quisieras mostrar Historial en HomeView)
 historial_cfg = CrudConfig(
-    model=HistorialEquipos,
-    slug="historial-equipos",
-    verbose_plural="Historial de Equipos",
+    model=HistorialActivos,
+    slug="historial-activos",
+    verbose_plural="Historial de Activos",
     list_display=[
-        "equipo", "accion", "usuario", "fecha", "estado_anterior", "estado_nuevo"
+        "activo", "accion", "usuario", "fecha", "estado_anterior", "estado_nuevo"
     ],
-    search_fields=["equipo__nombre_equipo", "usuario__nombre", "accion"],
+    search_fields=["activo__nombre_activo", "usuario__nombre", "accion"],
     ordering=["-fecha"]
 )
 
@@ -1429,7 +1371,7 @@ def _dictfetchall(cursor):
 def historial_mantencion(request, id_mantencion: int):
     """
     Muestra el historial de una mantención específica (botón de detalle).
-    Restringe por empresa actual usando el equipo de la mantención.
+    Restringe por empresa actual usando el activo de la mantención.
     """
     emp_id = request.session.get("empresa_id")
     if not emp_id:
@@ -1438,9 +1380,9 @@ def historial_mantencion(request, id_mantencion: int):
     # 1) Validar que la mantención exista y pertenezca a la empresa actual
     with connection.cursor() as c:
         c.execute("""
-            SELECT m.id_mantencion, m.id_equipo, m.descripcion, m.fecha
+            SELECT m.id_mantencion, m.id_activo, m.descripcion, m.fecha
             FROM inventario.mantencion m
-            JOIN inventario.equipo e ON e.id_equipo = m.id_equipo
+            JOIN inventario.activo e ON e.id_activo = m.id_activo
             WHERE m.id_mantencion = %s
               AND e.id_empresa = %s
         """, [id_mantencion, emp_id])
@@ -1479,7 +1421,7 @@ def historial_mantencion(request, id_mantencion: int):
 def ultimos_cambios_mantenciones(request):
     """
     Tablero global: últimos cambios en mantenciones (por defecto últimos 7 días, top 100),
-    restringido a la empresa en sesión (via equipo).
+    restringido a la empresa en sesión (via activo).
     """
     emp_id = request.session.get("empresa_id")
     if not emp_id:
@@ -1495,13 +1437,13 @@ def ultimos_cambios_mantenciones(request):
               h.accion,
               COALESCE(h.detalle, '')     AS detalle,
               h.id_mantencion,
-              m.id_equipo,
+              m.id_activo,
               est.tipo                    AS estado_actual,
               h.old_values,
               h.new_values
             FROM inventario.historial_mantenciones h
             JOIN inventario.mantencion m ON m.id_mantencion = h.id_mantencion
-            JOIN inventario.equipo     e ON e.id_equipo     = m.id_equipo
+            JOIN inventario.activo     e ON e.id_activo     = m.id_activo
             LEFT JOIN inventario.estado_mantencion est
                    ON est.id_estado_mantencion = m.id_estado_mantencion
             WHERE h.fecha_evento >= NOW() - (%s || ' days')::interval
@@ -1519,9 +1461,9 @@ def ultimos_cambios_mantenciones(request):
     return render(request, "mantenciones/ultimos_cambios_mantenciones.html", ctx)
 
 SLUG_ALIASES = {
-    "equipo": "activos",
-    "tipoequipo": "tipos_activo",
-    "atributosequipo": "atributos_activo",
+    "activo": "activos",
+    "tipoactivo": "tipos_activo",
+    "atributosactivo": "atributos_activo",
 }
 
 def make_slug(m: Type[Model]) -> str:
@@ -1532,10 +1474,10 @@ def make_slug(m: Type[Model]) -> str:
 
 CRUD_CONFIGS = _collect_unique_crud_configs()
 
-# Ordenar Equipos por ID descendente por defecto (lo nuevo arriba)
+# Ordenar Activos por ID descendente por defecto (lo nuevo arriba)
 for _cfg in CRUD_CONFIGS:
-    if _cfg.model._meta.model_name == "equipo":
-        _cfg.ordering = ("-id_equipo",)
+    if _cfg.model._meta.model_name == "activo":
+        _cfg.ordering = ("-id_activo",)
     if _cfg.model._meta.model_name == "mantencion":
         _cfg.ordering = ("-id_mantencion",)
     if _cfg.model._meta.model_name == "factura":

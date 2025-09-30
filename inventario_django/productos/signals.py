@@ -19,7 +19,7 @@ from .utils import ensure_auth_user_for_empleado, sync_user_groups_for_empleado,
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 from django.utils import timezone
-from .models_inventario import Equipo, HistorialEquipos
+from .models_inventario import Activo, HistorialActivos
 
 
 def _empleado_empresa_dep(empleado):
@@ -27,7 +27,7 @@ def _empleado_empresa_dep(empleado):
         return None, None
     return getattr(empleado, "id_empresa", None), getattr(empleado, "id_departamento", None)
 
-def _equipo_empresa_dep(instance, prev=None):
+def _activo_empresa_dep(instance, prev=None):
     emp = getattr(instance, "id_empresa", None)
     dep = getattr(instance, "id_departamento", None)
     if emp or dep:
@@ -40,13 +40,13 @@ def _equipo_empresa_dep(instance, prev=None):
     return None, None
 
 
-@receiver(pre_save, sender=Equipo)
-def equipo_pre_save(sender, instance: Equipo, **kwargs):
+@receiver(pre_save, sender=Activo)
+def activo_pre_save(sender, instance: Activo, **kwargs):
     """Guarda snapshot previo para comparar en post_save."""
     if instance.pk:
         try:
             instance._prev = sender.objects.select_related(
-                "id_empleado", "id_estado_equipo"
+                "id_empleado", "id_estado_activo"
             ).get(pk=instance.pk)
         except sender.DoesNotExist:
             instance._prev = None
@@ -54,22 +54,22 @@ def equipo_pre_save(sender, instance: Equipo, **kwargs):
         instance._prev = None
 
 
-@receiver(post_save, sender=Equipo)
-def equipo_post_save(sender, instance: Equipo, created: bool, **kwargs):
+@receiver(post_save, sender=Activo)
+def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
     """
     Historial por alta/cambio de estado/responsable.
     (Observaciones se maneja en receivers aparte más abajo.)
     """
-    prev: Equipo | None = getattr(instance, "_prev", None)
+    prev: Activo | None = getattr(instance, "_prev", None)
     usuario_actual = getattr(instance, "_usuario_actual", None)
 
-    empresa_actual, dep_actual = _equipo_empresa_dep(instance, prev)
+    empresa_actual, dep_actual = _activo_empresa_dep(instance, prev)
 
     base = dict(
-        equipo=instance,
+        activo=instance,
         etiqueta=getattr(instance, "etiqueta", "") or "",
-        nombre_equipo=getattr(instance, "nombre_equipo", "") or "",
-        tipo_equipo=getattr(instance, "id_tipo_equipo", None) if hasattr(instance, "id_tipo_equipo") else None,
+        nombre_activo=getattr(instance, "nombre_activo", "") or "",
+        tipo_activo=getattr(instance, "id_tipo_activo", None) if hasattr(instance, "id_tipo_activo") else None,
         usuario=usuario_actual,
         empresa=empresa_actual,          # 👈 usa 'empresa', no 'id_empresa'
         departamento=dep_actual,         # 👈 idem
@@ -78,9 +78,9 @@ def equipo_post_save(sender, instance: Equipo, created: bool, **kwargs):
     )
 
     if created:
-        HistorialEquipos.objects.create(
+        HistorialActivos.objects.create(
             estado_anterior=None,
-            estado_nuevo=getattr(instance, "id_estado_equipo", None),
+            estado_nuevo=getattr(instance, "id_estado_activo", None),
             **base,
         )
         return
@@ -88,8 +88,8 @@ def equipo_post_save(sender, instance: Equipo, created: bool, **kwargs):
     if not prev:
         return
 
-    prev_estado_id = getattr(prev, "id_estado_equipo_id", None)
-    new_estado_id  = getattr(instance, "id_estado_equipo_id", None)
+    prev_estado_id = getattr(prev, "id_estado_activo_id", None)
+    new_estado_id  = getattr(instance, "id_estado_activo_id", None)
     prev_resp_id   = getattr(prev, "id_empleado_id", None)
     new_resp_id    = getattr(instance, "id_empleado_id", None)
 
@@ -99,9 +99,9 @@ def equipo_post_save(sender, instance: Equipo, created: bool, **kwargs):
     if not (estado_cambia or resp_cambia):
         return
 
-    HistorialEquipos.objects.create(
-        estado_anterior=getattr(prev, "id_estado_equipo", None),
-        estado_nuevo=getattr(instance, "id_estado_equipo", None),
+    HistorialActivos.objects.create(
+        estado_anterior=getattr(prev, "id_estado_activo", None),
+        estado_nuevo=getattr(instance, "id_estado_activo", None),
         responsable_anterior_fk_id=getattr(prev, "id_empleado_id", None),
         **base,
     )
@@ -109,36 +109,36 @@ def equipo_post_save(sender, instance: Equipo, created: bool, **kwargs):
 
 # ---------- Observaciones ----------
 
-def _historial_snapshot_observaciones(equipo: Equipo, comentario: str, usuario=None):
+def _historial_snapshot_observaciones(activo: Activo, comentario: str, usuario=None):
     """
     Inserta un registro de OBSERVACIONES (estado anterior = nuevo).
     """
     try:
-        HistorialEquipos.objects.create(
-            equipo=equipo,
-            etiqueta=getattr(equipo, "etiqueta", None),
-            nombre_equipo=getattr(equipo, "nombre_equipo", None),
+        HistorialActivos.objects.create(
+            activo=activo,
+            etiqueta=getattr(activo, "etiqueta", None),
+            nombre_activo=getattr(activo, "nombre_activo", None),
             fecha=timezone.now(),
-            responsable_anterior_fk=getattr(equipo, "id_empleado", None),
-            estado_anterior=getattr(equipo, "id_estado_equipo", None),
-            estado_nuevo=getattr(equipo, "id_estado_equipo", None),
-            responsable_actual=getattr(equipo, "id_empleado", None),
-            empresa=getattr(equipo, "id_empresa", None),       # 👈 consistencia con 'base'
-            departamento=getattr(equipo, "id_departamento", None),
+            responsable_anterior_fk=getattr(activo, "id_empleado", None),
+            estado_anterior=getattr(activo, "id_estado_activo", None),
+            estado_nuevo=getattr(activo, "id_estado_activo", None),
+            responsable_actual=getattr(activo, "id_empleado", None),
+            empresa=getattr(activo, "id_empresa", None),       # 👈 consistencia con 'base'
+            departamento=getattr(activo, "id_departamento", None),
             usuario=usuario,                                    # 👈 guarda quién hizo el cambio
             accion="OBSERVACIONES",
-            tipo_equipo=getattr(equipo, "id_tipo_equipo", None),
+            tipo_activo=getattr(activo, "id_tipo_activo", None),
             comentario = (comentario or "")[:2000],
         )
 
     except Exception as e:
         # Para depurar si algo vuelve a fallar
-        print("[HistorialEquipos][OBSERVACIONES] error:", e)
+        print("[HistorialActivos][OBSERVACIONES] error:", e)
 
 
 
-@receiver(pre_save, sender=Equipo)
-def _equipo_detectar_cambio_observaciones(sender, instance: Equipo, **kwargs):
+@receiver(pre_save, sender=Activo)
+def _activo_detectar_cambio_observaciones(sender, instance: Activo, **kwargs):
     """
     Prepara el mensaje cuando cambian las observaciones.
     """
@@ -161,8 +161,8 @@ def _equipo_detectar_cambio_observaciones(sender, instance: Equipo, **kwargs):
         instance._obs_log_msg = None
 
 
-@receiver(post_save, sender=Equipo)
-def _equipo_log_cambio_observaciones(sender, instance: Equipo, created: bool, **kwargs):
+@receiver(post_save, sender=Activo)
+def _activo_log_cambio_observaciones(sender, instance: Activo, created: bool, **kwargs):
     if created:
         init = (instance.observaciones or "").strip()
         if init:

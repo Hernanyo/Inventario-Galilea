@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Eliminar Equipo{% endblock %}
+{% block title %}Eliminar Activo{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-semibold mb-4">Eliminar Equipo #{{ object.id }}</h1>
+<h1 class="text-2xl font-semibold mb-4">Eliminar Activo #{{ object.id }}</h1>
 <p>¿Seguro que deseas eliminar <strong>{{ object }}</strong>?</p>
 <form method="post" class="mt-4">
   {% csrf_token %}
   <button class="btn btn-error">Sí, eliminar</button>
-  <a class="btn" href="{% url 'productos:equipos_list' %}">No, volver</a>
+  <a class="btn" href="{% url 'productos:activos_list' %}">No, volver</a>
 </form>
 {% endblock %}

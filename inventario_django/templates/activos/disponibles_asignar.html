@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Equipos disponibles{% endblock %}
+{% block title %}Activos disponibles{% endblock %}
 
 {% block content %}
 <h1 class="h3 mb-3">Activos disponibles</h1>
@@ -44,21 +44,21 @@
           </tr>
         </thead>
         <tbody>
-          {% for eq in equipos %}
+          {% for eq in activos %}
             <tr>
               <td>
-                <input type="checkbox" name="equipos" value="{{ eq.id_equipo }}" class="row-check">
+                <input type="checkbox" name="activos" value="{{ eq.id_activo }}" class="row-check">
               </td>
-              <td class="text-muted">{{ eq.id_equipo }}</td>
+              <td class="text-muted">{{ eq.id_activo }}</td>
               <td>{{ eq.etiqueta|default:"—" }}</td>
-              <td>{{ eq.nombre_equipo }}</td>
+              <td>{{ eq.nombre_activo }}</td>
               <td>{{ eq.id_marca }}</td>
-              <td>{{ eq.id_tipo_equipo }}</td>
-              <td>{{ eq.id_estado_equipo }}</td>
+              <td>{{ eq.id_tipo_activo }}</td>
+              <td>{{ eq.id_estado_activo }}</td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="7" class="text-center text-muted py-4">No hay equipos disponibles.</td>
+              <td colspan="7" class="text-center text-muted py-4">No hay activos disponibles.</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -77,14 +77,14 @@
     });
   }
 
-  // Validación simple: requiere al menos 1 equipo y un empleado seleccionado
+  // Validación simple: requiere al menos 1 activo y un empleado seleccionado
   const btn = document.getElementById('btn-asignar');
   btn.addEventListener('click', (ev) => {
     const anyChecked = Array.from(checks).some(c => c.checked);
     const empleado = document.getElementById('empleado_id').value;
     if (!anyChecked) {
       ev.preventDefault();
-      alert('Selecciona al menos un equipo.');
+      alert('Selecciona al menos un activo.');
       return;
     }
     if (!empleado) {

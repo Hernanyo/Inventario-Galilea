@@ -1,12 +1,12 @@
 # inventario_djanfo/productos/urls.py
-#from productos.models_inventario import CategoriaEquipo
+#from productos.models_inventario import CategoriaActivo
 from productos.crud import GenericList, view_class
 from django.urls import path, include
 from .views_atributos import atributos_nuevo_wizard
 from django.views.generic import RedirectView
 from .views import (
     HomeView, CompanySelectView, company_clear,
-    EquiposDisponiblesView, EquiposDesasignarView,
+    ActivosDisponiblesView, ActivosDesasignarView,
     mantencion_nueva, mantencion_editar, api_atributos_por_tipo,
 )
 
@@ -24,7 +24,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path
 from django.shortcuts import get_object_or_404
-from .views import EquiposDesasignarView
+from .views import ActivosDesasignarView
 from .views_auth import seleccionar_empresa
 from productos.views_company import company_select, company_change   # <--- AÑADIR AQUÍ
 from .views_auth import seleccionar_empresa, cambiar_empresa  # <----- AÑADIR
@@ -33,16 +33,16 @@ from . import views
 from .views_atributos import (editar_atributos_por_tipo, ver_atributos_por_tipo,   # ← agrega esta
                               )
 # arriba, con los otros imports
-from productos.views import EquiposDisponiblesView
-from productos.models_inventario import Equipo
+from productos.views import ActivosDisponiblesView
+from productos.models_inventario import Activo
 from productos.crud import GenericList, build_config, view_class
 from productos.views import api_atributos_por_tipo
 from .views_atributos import editar_atributos_por_tipo  # y cualquier otra vista de ese archivo
 from productos.forms import MantencionForm
 from productos.models_inventario import (
     DetalleFactura,
-    HistorialEquipos,
-    Equipo,
+    HistorialActivos,
+    Activo,
     Mantencion,
     HistorialMantencionesLog,
 )
@@ -95,35 +95,35 @@ urlpatterns = [
     # Detalle facturas
     path("detallefacturas/", DetalleFacturaList.as_view(), name="detallefacturas_list"),
 
-    # QR de equipos
-    path("equipos/<int:pk>/qr/", qr_print_view, name="equipos_qr"),
+    # QR de activos
+    path("activos/<int:pk>/qr/", qr_print_view, name="activos_qr"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 urlpatterns = auth_selector_patterns + urlpatterns
 
-# --- Historial de Equipos (config dedicada) ---
+# --- Historial de Activos (config dedicada) ---
 historial_cfg = CrudConfig(
-    model=HistorialEquipos,
-    slug="historial_equipos",
+    model=HistorialActivos,
+    slug="historial_activos",
     verbose_plural="Historial de Activos",
     list_display=[
-        "id", "etiqueta", "equipo", "fecha", "responsable_anterior",
+        "id", "etiqueta", "activo", "fecha", "responsable_anterior",
         "estado_anterior", "estado_nuevo", "responsable_actual", "empresa",
         "departamento", "usuario", "comentario",
     ],
     search_fields=[
-        "equipo__nombre_equipo", "usuario__nombre", "etiqueta",
-        "nombre_equipo", "comentario",
+        "activo__nombre_activo", "usuario__nombre", "etiqueta",
+        "nombre_activo", "comentario",
     ],
     ordering=["-fecha"],
 )
 
-class HistorialList(view_class(HistorialEquipos, historial_cfg, GenericList)):
+class HistorialList(view_class(HistorialActivos, historial_cfg, GenericList)):
     action_perm = None
     def get_queryset(self):
         qs = super().get_queryset().select_related(
-            "equipo", "usuario", "estado_anterior", "estado_nuevo",
-            "responsable_actual", "id_empresa", "departamento", "tipo_equipo",
+            "activo", "usuario", "estado_anterior", "estado_nuevo",
+            "responsable_actual", "id_empresa", "departamento", "tipo_activo",
         )
         return qs
 
@@ -134,37 +134,37 @@ class HistorialList(view_class(HistorialEquipos, historial_cfg, GenericList)):
         return ctx
 
 urlpatterns += [
-    path("historial_equipos/", HistorialList.as_view(), name="historial_equipos_list"),
+    path("historial_activos/", HistorialList.as_view(), name="historial_activos_list"),
     path(
-        "historial_equipos/exportar/csv/",
-        export_csv_view(HistorialEquipos, historial_cfg),
-        name="historial_equipos_csv",
+        "historial_activos/exportar/csv/",
+        export_csv_view(HistorialActivos, historial_cfg),
+        name="historial_activos_csv",
     ),
 ]
 
-# --- Historial filtrado por equipo ---
-class HistorialPorEquipo(HistorialList):
+# --- Historial filtrado por activo ---
+class HistorialPorActivo(HistorialList):
     action_perm = None
     def dispatch(self, request, *args, **kwargs):
-        self.equipo = get_object_or_404(Equipo, pk=kwargs["pk"])
+        self.activo = get_object_or_404(Activo, pk=kwargs["pk"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        return super().get_queryset().filter(equipo_id=self.kwargs["pk"])
+        return super().get_queryset().filter(activo_id=self.kwargs["pk"])
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["equipo"] = self.equipo
+        ctx["activo"] = self.activo
         self.crud_config.can_create = False
         ctx["can_create"] = False
         return ctx
 
 urlpatterns += [
-    path("equipos/<int:pk>/historial/", HistorialPorEquipo.as_view(), name="equipo_historial_list"),
+    path("activos/<int:pk>/historial/", HistorialPorActivo.as_view(), name="activo_historial_list"),
 ]
 
 urlpatterns += [
-    path("atributosequipos/nuevo/", atributos_nuevo_wizard, name="atributosequipos_create"),
+    path("atributosactivos/nuevo/", atributos_nuevo_wizard, name="atributosactivos_create"),
 ]
 
 # --- Rutas CRUD autogeneradas (todas las demás tablas) ---
@@ -176,9 +176,9 @@ hist_mant_cfg = CrudConfig(
     slug="historial_mantenciones",
     verbose_plural="Historial de Mantenciones",
     list_display=[
-        "id_equipo",
+        "id_activo",
         "etiqueta",
-        "equipo_nombre",
+        "activo_nombre",
         "fecha_evento",
         # "accion",  # si lo quieres visible en CSV, descomentar
         "tipo_mantencion",
@@ -193,7 +193,7 @@ hist_mant_cfg = CrudConfig(
     ],
     search_fields=[
         "etiqueta",
-        "equipo_nombre",
+        "activo_nombre",
         "descripcion",
         "tipo_mantencion",
         "prioridad",
@@ -211,10 +211,10 @@ mant_cfg = CrudConfig(
     slug="mantencions",
     verbose_plural="Mantenciones",
     list_display=[
-        "id_mantencion", "id_equipo", "fecha",
+        "id_mantencion", "id_activo", "fecha",
         "id_estado_mantencion", "id_tipo_mantencion", "id_prioridad",
     ],
-    search_fields=["descripcion", "id_equipo__etiqueta", "id_equipo__nombre_equipo"],
+    search_fields=["descripcion", "id_activo__etiqueta", "id_activo__nombre_activo"],
     ordering=["-id_mantencion"], 
 )
 
@@ -299,43 +299,43 @@ urlpatterns += [
     path("mantencions/create/", MantencionCreate.as_view(), name="mantencions_create"),
     path("mantencions/<int:pk>/update/", MantencionUpdate.as_view(), name="mantencions_update"),
 
-    path("equipos/disponibles/", EquiposDisponiblesView.as_view(), name="equipos_disponibles"),
+    path("activos/disponibles/", ActivosDisponiblesView.as_view(), name="activos_disponibles"),
 
 ]
 
 # Disponibles = estado 'bodega' y sin responsable
-class EquiposDisponiblesList(view_class(Equipo, build_config(Equipo), GenericList)):
+class ActivosDisponiblesList(view_class(Activo, build_config(Activo), GenericList)):
     def get_queryset(self):
-        qs = super().get_queryset().select_related("id_marca", "id_tipo_equipo", "id_estado_equipo", "id_empleado")
+        qs = super().get_queryset().select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado")
         return qs.filter(
-            id_estado_equipo__descripcion__iexact="bodega",
+            id_estado_activo__descripcion__iexact="bodega",
             id_empleado__isnull=True,
-        ).order_by("-id_equipo")
+        ).order_by("-id_activo")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["subtitle"] = "Solo equipos disponibles (Bodega • sin responsable)"
+        ctx["subtitle"] = "Solo activos disponibles (Bodega • sin responsable)"
         return ctx
 
 
 # En uso = asignados (responsable NO nulo)
-class EquiposEnUsoList(view_class(Equipo, build_config(Equipo), GenericList)):
+class ActivosEnUsoList(view_class(Activo, build_config(Activo), GenericList)):
     def get_queryset(self):
-        qs = super().get_queryset().select_related("id_marca", "id_tipo_equipo", "id_estado_equipo", "id_empleado")
+        qs = super().get_queryset().select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado")
         return qs.filter(
             id_empleado__isnull=False
-        ).order_by("-id_equipo")
+        ).order_by("-id_activo")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["subtitle"] = "Solo equipos en uso (asignados a alguien)"
+        ctx["subtitle"] = "Solo activos en uso (asignados a alguien)"
         return ctx
 
 # Rutas filtradas clásicas (si quieres mantenerlas, usa otros paths para no pisar el anterior)
 urlpatterns += [
-#     path("equipos/disponibles/lista/", EquiposDisponiblesList.as_view(), name="equipos_disponibles_lista"),
-     path("equipos/en-uso/",           EquiposEnUsoList.as_view(),      name="equipos_en_uso"),
-     path("equipos/desasignar/", EquiposDesasignarView.as_view(), name="equipos_desasignar"),
+#     path("activos/disponibles/lista/", ActivosDisponiblesList.as_view(), name="activos_disponibles_lista"),
+     path("activos/en-uso/",           ActivosEnUsoList.as_view(),      name="activos_en_uso"),
+     path("activos/desasignar/", ActivosDesasignarView.as_view(), name="activos_desasignar"),
 ]
 
 urlpatterns += [
@@ -344,7 +344,7 @@ urlpatterns += [
 
 urlpatterns += [
     path(
-        "tipoequipos/<int:tipo_id>/atributos/",
+        "tipoactivos/<int:tipo_id>/atributos/",
         editar_atributos_por_tipo,
         name="editar_atributos_por_tipo",
     ),
@@ -358,7 +358,7 @@ urlpatterns += [
 #)
 urlpatterns += [
 path(
-    "atributosequipos/por-tipo/<int:tipo_id>/",
+    "atributosactivos/por-tipo/<int:tipo_id>/",
     editar_atributos_por_tipo,
     name="atributos_por_tipo",
 ),
@@ -366,7 +366,7 @@ path(
 
 # productos/urls.py (agrega esta línea donde tienes las otras de atributos)
 urlpatterns += [
-    path("tipoequipos/<int:tipo_id>/atributos/ver/", ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
+    path("tipoactivos/<int:tipo_id>/atributos/ver/", ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
 ]
 
 urlpatterns += [
@@ -375,8 +375,8 @@ urlpatterns += [
 
 
 urlpatterns += [
-    # Historial SOLO de las mantenciones del equipo
-    path("equipos/<int:equipo_id>/historial/", views.historial_mantenciones_equipo, name="equipos_historial"),
+    # Historial SOLO de las mantenciones del activo
+    path("activos/<int:activo_id>/historial/", views.historial_mantenciones_activo, name="activos_historial"),
     # (Opcional) Historial detallado de una mantención específica si no estaba:
     path("mantenciones/<int:id_mantencion>/historial/", historial_mantencion, name="mantencion_historial"),
     path("mantenciones/<int:pk>/historial/", views.HistorialMantencionIndividual.as_view(), name="historial_mantencion"),
@@ -393,10 +393,15 @@ urlpatterns += [
 from django.urls import path
 from . import views_atributos
 urlpatterns += [
-    path("atributosequipos/", views_atributos.atributosequipos_list, name="atributosequipos_list"),
-    path("tipoequipos/<int:tipo_id>/atributos/", views_atributos.editar_atributos_por_tipo, name="editar_atributos_por_tipo"),
-    path("tipoequipos/<int:tipo_id>/atributos/ver/", views_atributos.ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
-    path("atributosequipos/nuevo/", views_atributos.atributos_nuevo_wizard, name="atributosequipos_create"),
+    path("atributosactivos/", views_atributos.atributosactivos_list, name="atributosactivos_list"),
+    path("tipoactivos/<int:tipo_id>/atributos/", views_atributos.editar_atributos_por_tipo, name="editar_atributos_por_tipo"),
+    path("tipoactivos/<int:tipo_id>/atributos/ver/", views_atributos.ver_atributos_por_tipo, name="ver_atributos_por_tipo"),
+    path("atributosactivos/nuevo/", views_atributos.atributos_nuevo_wizard, name="atributosactivos_create"),
     path("api/atributos-por-tipo/", views.api_atributos_por_tipo, name="api_atributos_por_tipo"),
 ]
 #2#########################################################324-05-2025
+
+urlpatterns += [
+    path('factura/<int:factura_id>/adjuntar/', views.factura_attach_file, name='factura_attach_file'),
+    # otras rutas
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

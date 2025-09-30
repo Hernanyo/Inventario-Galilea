@@ -1,8 +1,8 @@
 # productos/forms.py
 from django import forms
-from .models import Equipo  # o desde models_inventario
+from .models import Activo  # o desde models_inventario
 
-class EquipoForm(forms.ModelForm):
+class ActivoForm(forms.ModelForm):
     class Meta:
-        model = Equipo
+        model = Activo
         fields = "__all__"  # rápido como el admin; si quieres, lista campos específicos

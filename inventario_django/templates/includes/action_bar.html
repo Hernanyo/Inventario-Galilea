@@ -28,15 +28,15 @@
     </a>
   {% endif %}
 
-  {% if view.crud_config.model_name == 'equipo' %}
-    <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoequipos_list' %}">
-      Tipos de Equipos
+  {% if view.crud_config.model_name == 'activo' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoactivos_list' %}">
+      Tipos de Activos
     </a>
-    <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosequipos_list' %}">
-      Atributos de Equipos
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">
+      Atributos de Activos
     </a>
-    <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoequipos_list' %}">
-      Estados de Equipos
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">
+      Estados de Activos
     </a>
   {% endif %}
 

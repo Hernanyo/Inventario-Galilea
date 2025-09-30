@@ -5,15 +5,6 @@ import os
 from django.urls import reverse_lazy
 
 
-# === Paths ===
-# Este archivo está en: inventario/settings/base.py
-# Subimos 2 niveles para llegar a la raíz del proyecto (donde está manage.py)
-
-# Redirecciones de autenticación
-#LOGIN_URL = "/login/"
-#LOGIN_REDIRECT_URL = "/"        # o "/dashboard/"
-#LOGOUT_REDIRECT_URL = "/login/"
-
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 # === Env ===
@@ -103,7 +94,7 @@ else:
         }
     }
 
-    
+#DATABASES['default']['OPTIONS'] = {'options': '-c search_path=inventario,public'}
 _pg_search_path = env("DB_PG_SEARCH_PATH", default="")
 if _pg_search_path:
     DATABASES["default"]["OPTIONS"] = {"options": f"-c search_path={_pg_search_path}"}
@@ -117,7 +108,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 AUTHENTICATION_BACKENDS = [
-    "productos.auth_backends.RutBackend",
+    "productos.auth_backends.CustomAuthenticationBackend",  # Usa el backend combinado
     "django.contrib.auth.backends.ModelBackend",
 ]
 
@@ -141,8 +132,13 @@ for p in [
         STATICFILES_DIRS.append(p)
 
         
+#MEDIA_URL = '/media/'
+#MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = BASE_DIR / 'media'
+
+
 
 
 # === Email (robusto ante valores vacíos) ===
@@ -186,7 +182,9 @@ LOGIN_URL = "productos:company_select"          # <----- AÑADIR AQUÍ
 LOGIN_REDIRECT_URL = "productos:home"           # <----- Opcional (después de login)
 LOGOUT_REDIRECT_URL = "productos:company_select"  # <----- Opcional
 
-DATABASES['default']['OPTIONS'] = {'options': '-c search_path=public,inventario'}
+
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = "Inventario <no-reply@inventario.local>"

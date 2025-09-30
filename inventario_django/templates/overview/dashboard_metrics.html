@@ -48,9 +48,9 @@
   </div>
   <div class="col-lg-6">
     <div class="card h-100">
-      <div class="card-header">Equipos por Tipo</div>
+      <div class="card-header">Activos por Tipo</div>
       <div class="card-body">
-        {% if equipos_by_tipo %}
+        {% if activos_by_tipo %}
           <canvas id="chartEquipTipo" height="120"></canvas>
         {% else %}
           <div class="text-body-secondary">No hay datos suficientes.</div>
@@ -97,12 +97,12 @@
   });
   {% endif %}
 
-  {% if equipos_by_tipo %}
+  {% if activos_by_tipo %}
   new Chart(document.getElementById('chartEquipTipo'), {
     type: 'pie',
     data: {
-      labels: [{% for l in equipos_by_tipo.labels %}"{{ l }}"{% if not forloop.last %},{% endif %}{% endfor %}],
-      datasets: [{ data: [{% for n in equipos_by_tipo.data %}{{ n }}{% if not forloop.last %},{% endif %}{% endfor %}] }]
+      labels: [{% for l in activos_by_tipo.labels %}"{{ l }}"{% if not forloop.last %},{% endif %}{% endfor %}],
+      datasets: [{ data: [{% for n in activos_by_tipo.data %}{{ n }}{% if not forloop.last %},{% endif %}{% endfor %}] }]
     },
     options: { responsive: true }
   });

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Atributos de {{ tipo.tipo_equipo|default:tipo }}{% endblock %}
+{% block title %}Atributos de {{ tipo.tipo_activo|default:tipo }}{% endblock %}
 
 {% block content %}
 <div class="container mt-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h4 mb-0">Atributos de {{ tipo.tipo_equipo|default:tipo }}</h1>
+    <h1 class="h4 mb-0">Atributos de {{ tipo.tipo_activo|default:tipo }}</h1>
     <a href="javascript:history.back()" class="btn btn-outline-secondary btn-sm">Atrás</a>
   </div>
 

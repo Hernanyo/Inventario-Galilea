@@ -45,8 +45,8 @@ def generar_qr(obj):
 def log_mantencion_event(user, m, accion: str, detalle: str = ""):
     username = getattr(user, "username", None) or None
     # valores “congelados”
-    etiqueta = getattr(getattr(m, "id_equipo", None), "etiqueta", None)
-    equipo_nombre = getattr(getattr(m, "id_equipo", None), "nombre_equipo", None)
+    etiqueta = getattr(getattr(m, "id_activo", None), "etiqueta", None)
+    activo_nombre = getattr(getattr(m, "id_activo", None), "nombre_activo", None)
 
     # intenta leer strings de tipo/prioridad/estado si tus FKs existen;
     # si tus modelos tienen otros nombres de campo, ajusta aquí.
@@ -68,7 +68,7 @@ def log_mantencion_event(user, m, accion: str, detalle: str = ""):
         c.execute("""
             INSERT INTO inventario.historial_mantenciones_log
             (id_mantencion, accion, detalle, usuario_app_username,
-             id_equipo, etiqueta, equipo_nombre,
+             id_activo, etiqueta, activo_nombre,
              tipo_mantencion, prioridad, estado_actual,
              responsable_nombre, solicitante_nombre, descripcion)
             VALUES (%s, %s, %s, %s,
@@ -77,8 +77,8 @@ def log_mantencion_event(user, m, accion: str, detalle: str = ""):
                     %s, %s, %s)
         """, [
             m.id_mantencion, accion, detalle, username,
-            getattr(getattr(m, "id_equipo", None), "id_equipo", None),
-            etiqueta, equipo_nombre,
+            getattr(getattr(m, "id_activo", None), "id_activo", None),
+            etiqueta, activo_nombre,
             tipo_txt, prioridad_txt, estado_txt,
             responsable_txt, solicitante_txt,
             getattr(m, "descripcion", None),
@@ -237,7 +237,7 @@ def send_password_set_link(user):
 def ensure_history_view_perms():
     app_label = "productos"
     model_codenames = [
-        "historialequipos",            # -> view_historialequipos
+        "historialactivos",            # -> view_historialactivos
         "historialmantencioneslog",    # -> view_historialmantencioneslog
     ]
     # crea/obtiene los Permission por si el modelo es unmanaged
@@ -253,7 +253,7 @@ def ensure_history_view_perms():
     groups = ["rol_usuario", "rol_admin"]   # añade aquí cualquier otro grupo que uses
     perms = list(Permission.objects.filter(
         content_type__app_label=app_label,
-        codename__in=["view_historialequipos", "view_historialmantencioneslog"]
+        codename__in=["view_historialactivos", "view_historialmantencioneslog"]
     ))
     for gname in groups:
         g, _ = Group.objects.get_or_create(name=gname)

@@ -31,14 +31,14 @@ def column_label(col_name: str) -> str:
     """
     mapping = {
         # Activos
-        "id_equipo": "Id Activo",
-        "nombre_equipo": "Nombre Activo",
-        "equipo": "Detalle Activo",
+        "id_activo": "Id Activo",
+        "nombre_activo": "Nombre Activo",
+        "activo": "Detalle Activo",
         # Tipos/estados de activo
-        "id_tipo_equipo": "Tipo Activo",
-        "tipo_equipo": "Tipo Activo",
-        "id_estado_equipo": "Estado Activo",
-        # Otros que se vean con 'equipo' en el nombre:
+        "id_tipo_activo": "Tipo Activo",
+        "tipo_activo": "Tipo Activo",
+        "id_estado_activo": "Estado Activo",
+        # Otros que se vean con 'activo' en el nombre:
         "id_empleado": "Empleado",
         "id_marca": "Marca",
         "id_proveedor": "Proveedor",

@@ -1,19 +1,21 @@
 from datetime import date
 from django import forms
+from .models import Factura
 from .models_inventario import Mantencion, Empleado   # asegúrate de tener Empleado importado
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-from .models_inventario import Mantencion, Empleado, Equipo  # 👈 añade Equipo
+from .models_inventario import Mantencion, Empleado, Activo  # 👈 añade Activo
 from .models_inventario import (
-    Mantencion, Equipo, Empleado,
+    Mantencion, Activo, Empleado,
     EstadoMantencion, TipoMantencion, PrioridadMantencion
 )
+
 
 class MantencionForm(forms.ModelForm):
     class Meta:
         model = Mantencion
         fields = [
-            "id_equipo",
+            "id_activo",
             "id_estado_mantencion",
             "id_tipo_mantencion",
             "id_prioridad",
@@ -26,7 +28,7 @@ class MantencionForm(forms.ModelForm):
             "descripcion": forms.Textarea(attrs={"rows": 4, "class": "textarea textarea-bordered"}),
         }
         labels = {
-            "id_equipo": "Equipo",
+            "id_activo": "Activo",
             "id_estado_mantencion": "Estado",
             "id_tipo_mantencion": "Tipo de mantención",
             "id_prioridad": "Prioridad",
@@ -51,10 +53,10 @@ class MantencionForm(forms.ModelForm):
 
         # Filtrar todos los combos por empresa activa
         if emp_id:
-            if "id_equipo" in self.fields:
-                self.fields["id_equipo"].queryset = (
-                    Equipo.objects.filter(id_empresa_id=emp_id)
-                    .order_by("nombre_equipo")
+            if "id_activo" in self.fields:
+                self.fields["id_activo"].queryset = (
+                    Activo.objects.filter(id_empresa_id=emp_id)
+                    .order_by("nombre_activo")
                 )
             if "id_estado_mantencion" in self.fields:
                 self.fields["id_estado_mantencion"].queryset = (
@@ -73,14 +75,14 @@ class MantencionForm(forms.ModelForm):
                 )
             if "responsable" in self.fields:
                 self.fields["responsable"].queryset = (
-                    Empleado.objects.filter(id_empresa_id=emp_id, activo=True)
+                    Empleado.objects.filter(id_empresa_id=emp_id, estado_activo=True)
                     .order_by("nombre", "apellido_paterno", "apellido_materno")
                 )
         else:
             # fallback si no hay empresa en sesión
             if "responsable" in self.fields:
                 self.fields["responsable"].queryset = (
-                    Empleado.objects.filter(activo=True).order_by("nombre")
+                    Empleado.objects.filter(estado_activo=True).order_by("nombre")
                 )
 
         # fecha mínima (= hoy) sólo en creación
@@ -98,11 +100,11 @@ class MantencionForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        equipo = cleaned.get("id_equipo")
-        if equipo is None:
+        activo = cleaned.get("id_activo")
+        if activo is None:
             return cleaned
 
-        emp_id = getattr(equipo, "id_empresa_id", None)
+        emp_id = getattr(activo, "id_empresa_id", None)
 
         # Autocompletar empresa de la mantención si viene vacía
         if getattr(self.instance, "id_empresa_id", None) in (None, ""):
@@ -133,7 +135,7 @@ class EmpleadoForm(forms.ModelForm):
             "nombre": forms.TextInput(attrs={"class": "form-control"}),
             "apellido_paterno": forms.TextInput(attrs={"class": "form-control"}),
             "apellido_materno": forms.TextInput(attrs={"class": "form-control"}),
-            "activo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "estado_activo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "cargo": forms.TextInput(attrs={"class": "form-control"}),
             "telefono": forms.TextInput(attrs={"class": "form-control"}),
             "id_empresa": forms.Select(attrs={"class": "form-select"}),
@@ -141,3 +143,8 @@ class EmpleadoForm(forms.ModelForm):
             "rol": forms.TextInput(attrs={"class": "form-control"}),
             "correo": forms.EmailInput(attrs={"class": "form-control"}),
         }
+
+class FacturaAdjuntoForm(forms.ModelForm):
+    class Meta:
+        model = Factura
+        fields = ['archivo_adjunto']

@@ -165,9 +165,9 @@
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     // Obtener los campos del formulario
-    const tipoActivoSelect = document.querySelector('#id_id_tipo_equipo'); // Campo Tipo de Activo
+    const tipoActivoSelect = document.querySelector('#id_id_tipo_activo'); // Campo Tipo de Activo
     const marcaField = document.querySelector('#id_marca'); // Campo Marca
-    const estadoActivoField = document.querySelector('#id_estado_equipo'); // Campo Estado Activo
+    const estadoActivoField = document.querySelector('#id_estado_activo'); // Campo Estado Activo
     const responsableField = document.querySelector('#id_empleado'); // Campo Responsable
     const proveedorField = document.querySelector('#id_proveedor'); // Campo Proveedor
     const confidencialidadField = document.querySelector('#id_confidencialidad');
@@ -206,6 +206,8 @@
     tipoActivoSelect.addEventListener('change', toggleTipoActivoFields);
   });
 </script>
+
+
 
 </body>
 </html>

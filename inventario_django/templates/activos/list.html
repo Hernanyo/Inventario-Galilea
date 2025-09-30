@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Equipos{% endblock %}
+{% block title %}Activos{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-4">
-  <h1 class="text-2xl font-semibold">Equipos</h1>
+  <h1 class="text-2xl font-semibold">Activos</h1>
   <div class="flex gap-2">
-    <a class="btn btn-primary btn-sm" href="{% url 'productos:equipos_create' %}">Nuevo</a>
-    <a class="btn btn-outline btn-sm" href="{% url 'productos:equipos_csv' %}?q={{ q }}">Exportar CSV</a>
+    <a class="btn btn-primary btn-sm" href="{% url 'productos:activos_create' %}">Nuevo</a>
+    <a class="btn btn-outline btn-sm" href="{% url 'productos:activos_csv' %}?q={{ q }}">Exportar CSV</a>
   </div>
 </div>
 
@@ -37,8 +37,8 @@
       <td>{{ i.estado }}</td>
       <td>{{ i.ubicacion }}</td>
       <td class="text-right">
-        <a class="btn btn-xs" href="{% url 'productos:equipos_update' i.pk %}">Editar</a>
-        <a class="btn btn-xs btn-error" href="{% url 'productos:equipos_delete' i.pk %}">Eliminar</a>
+        <a class="btn btn-xs" href="{% url 'productos:activos_update' i.pk %}">Editar</a>
+        <a class="btn btn-xs btn-error" href="{% url 'productos:activos_delete' i.pk %}">Eliminar</a>
       </td>
     </tr>
     {% empty %}

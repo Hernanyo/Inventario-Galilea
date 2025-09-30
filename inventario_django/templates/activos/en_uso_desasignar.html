@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Equipos en uso{% endblock %}
+{% block title %}Activos en uso{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-3">Equipos en uso</h1>
+<h1 class="h3 mb-3">Activos en uso</h1>
 
 <p class="text-muted">Total: <strong>{{ total|default:0 }}</strong></p>
 
@@ -34,18 +34,18 @@
           </tr>
         </thead>
         <tbody>
-          {% for eq in equipos %}
+          {% for eq in activos %}
             <tr>
               <td>
-                <input type="checkbox" name="equipos" value="{{ eq.id_equipo }}" class="row-check">
+                <input type="checkbox" name="activos" value="{{ eq.id_activo }}" class="row-check">
               </td>
-              <td class="text-muted">{{ eq.id_equipo }}</td>
+              <td class="text-muted">{{ eq.id_activo }}</td>
               <td>{{ eq.etiqueta|default:"—" }}</td>
-              <td>{{ eq.nombre_equipo }}</td>
+              <td>{{ eq.nombre_activo }}</td>
               <td>{{ eq.id_marca }}</td>
-              <td>{{ eq.id_tipo_equipo }}</td>
+              <td>{{ eq.id_tipo_activo }}</td>
               <td>{{ eq.id_empleado|default:"—" }}</td>
-              <td>{{ eq.id_estado_equipo }}</td>
+              <td>{{ eq.id_estado_activo }}</td>
             </tr>
           {% empty %}
             <tr>
@@ -68,7 +68,7 @@
     });
   }
 
-  // Validación simple: requiere al menos 1 equipo
+  // Validación simple: requiere al menos 1 activo
   const btn = document.getElementById('btn-desasignar');
   btn.addEventListener('click', (ev) => {
     const anyChecked = Array.from(checks).some(c => c.checked);

@@ -11,11 +11,11 @@
   <form method="post" class="card p-3">
     {% csrf_token %}
     <div class="mb-3">
-      <label class="form-label">Categoría de equipo</label>
+      <label class="form-label">Categoría de activo</label>
       <select name="categoria_id" class="form-select" required>
         <option value="">— Selecciona —</option>
         {% for c in categorias %}
-          <option value="{{ c.id_categoria_equipo }}">{{ c.nombre }}</option>
+          <option value="{{ c.id_categoria_activo }}">{{ c.nombre }}</option>
         {% endfor %}
       </select>
     </div>
@@ -26,7 +26,7 @@
 
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-primary">Continuar</button>
-      <a href="{% url 'productos:atributosequipos_list' %}" class="btn btn-light">Cancelar</a>
+      <a href="{% url 'productos:atributosactivos_list' %}" class="btn btn-light">Cancelar</a>
     </div>
   </form>
 </div>

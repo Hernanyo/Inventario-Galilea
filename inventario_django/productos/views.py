@@ -1,7 +1,10 @@
 # productos/views.py
-#from productos.models_inventario import CategoriaEquipo
+#from productos.models_inventario import CategoriaActivo
 #from django.views.generic.edit import CreateView
-from .crud import EquipoForm
+from .crud import ActivoForm
+from django.shortcuts import render, get_object_or_404, redirect
+from .models import Factura
+from .forms import FacturaAdjuntoForm  # Formulario para adjuntar el archivo
 
 
 
@@ -16,17 +19,17 @@ from django.shortcuts import render, redirect
 from django.db import transaction
 from django.utils import timezone
 from .mixins import CompanyRequiredMixin, ModelPermsMixin   # ← IMPORTA AMBOS
-from .models_inventario import Equipo, EstadoEquipo, Empleado, HistorialEquipos
+from .models_inventario import Activo, EstadoActivo, Empleado, HistorialActivos
 
 from .models_inventario import (
-    Equipo, EstadoEquipo, Empleado, HistorialEquipos
+    Activo, EstadoActivo, Empleado, HistorialActivos
 )
 from django.views import View
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 from django.db import transaction
-from productos.models_inventario import EstadoEquipo
+from productos.models_inventario import EstadoActivo
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.db.models import Count
@@ -35,36 +38,36 @@ from django.urls import reverse_lazy
 from django.shortcuts import get_object_or_404, render, redirect
 from django.forms import inlineformset_factory
 from django.contrib import messages
-from .models_inventario import TipoEquipo, AtributosEquipo
+from .models_inventario import TipoActivo, AtributosActivo
 from django.views.generic import ListView
-from .models_inventario import Equipo
+from .models_inventario import Activo
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import redirect
-from .models_inventario import Equipo, Empleado, EstadoEquipo, HistorialEquipos
+from .models_inventario import Activo, Empleado, EstadoActivo, HistorialActivos
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from .forms import MantencionForm
 from .models_inventario import Mantencion, HistorialMantencionesLog
 from django.http import JsonResponse
-from .models_inventario import AtributosEquipo
+from .models_inventario import AtributosActivo
 from .mixins import CompanyRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import Http404
-from .models_inventario import Equipo, Mantencion
+from .models_inventario import Activo, Mantencion
 from django.db import connection
 from .crud import GenericList, view_class
 
 # modelos opcionales (según tu app)
 try:
     from .models_inventario import (
-        Equipo, TipoEquipo, Mantencion
+        Activo, TipoActivo, Mantencion
     )
 except Exception:
-    Equipo = TipoEquipo = Mantencion = None
+    Activo = TipoActivo = Mantencion = None
 
 class CompanySelectView(TemplateView):
     template_name = "empresa/select_company.html"
@@ -119,8 +122,8 @@ class HomeView(CompanyRequiredMixin, TemplateView):
                         count = cfg.model.objects.filter(id_empresa=emp_id).count()
                     elif "empresa" in names:
                         count = cfg.model.objects.filter(empresa_id=emp_id).count()
-                    elif "id_equipo" in names:
-                        count = cfg.model.objects.filter(id_equipo__id_empresa=emp_id).count()
+                    elif "id_activo" in names:
+                        count = cfg.model.objects.filter(id_activo__id_empresa=emp_id).count()
                     else:
                         count = cfg.model.objects.count()
                 else:
@@ -137,14 +140,14 @@ class HomeView(CompanyRequiredMixin, TemplateView):
         ctx["menu"] = menu
 
         # ===== KPIs, listas y gráficos (todo filtrado por empresa) =====
-        # Equipos
-        qs_equipos = Equipo.objects.all()
+        # Activos
+        qs_activos = Activo.objects.all()
         if emp_id:
-            qs_equipos = qs_equipos.filter(id_empresa_id=emp_id)
+            qs_activos = qs_activos.filter(id_empresa_id=emp_id)
 
-        total_equipos = qs_equipos.count()
-        disponibles   = qs_equipos.filter(id_empleado__isnull=True).count()
-        en_uso        = qs_equipos.filter(id_empleado__isnull=False).count()
+        total_activos = qs_activos.count()
+        disponibles   = qs_activos.filter(id_empleado__isnull=True).count()
+        en_uso        = qs_activos.filter(id_empleado__isnull=False).count()
 
         # Mantenciones (con fallback si el modelo no tiene id_empresa)
         Mant = Mantencion  # ya importado arriba
@@ -153,8 +156,8 @@ class HomeView(CompanyRequiredMixin, TemplateView):
             mant_fields = {f.name for f in Mant._meta.get_fields()}
             if "id_empresa" in mant_fields:
                 qs_mant = qs_mant.filter(id_empresa=emp_id)
-            elif "id_equipo" in mant_fields:
-                qs_mant = qs_mant.filter(id_equipo__id_empresa=emp_id)
+            elif "id_activo" in mant_fields:
+                qs_mant = qs_mant.filter(id_activo__id_empresa=emp_id)
 
         mant_pend = 0
         ult_mant = []
@@ -165,7 +168,7 @@ class HomeView(CompanyRequiredMixin, TemplateView):
                 id_estado_mantencion__tipo__in=["Cerrada", "Completada", "Cancelada"]
             ).count()
             ult_mant = (
-                qs_mant.select_related("id_equipo", "id_estado_mantencion")
+                qs_mant.select_related("id_activo", "id_estado_mantencion")
                       .order_by("-id_mantencion")[:6]
             )
             datos_mant = (
@@ -178,21 +181,21 @@ class HomeView(CompanyRequiredMixin, TemplateView):
 
         # Contexto final
         ctx.update({
-            "total_equipos": total_equipos,
+            "total_activos": total_activos,
             "disponibles": disponibles,
             "en_uso": en_uso,
             "mantenciones_pendientes": mant_pend,
-            "ultimos_equipos": qs_equipos.order_by("-id_equipo")[:15],
+            "ultimos_activos": qs_activos.order_by("-id_activo")[:15],
             "ultimas_mantenciones": ult_mant,
         })
 
-        # Gráfico de equipos por tipo (ya con qs_equipos filtrado)
+        # Gráfico de activos por tipo (ya con qs_activos filtrado)
         datos_tipos = (
-            qs_equipos.values("id_tipo_equipo__tipo_equipo")
-                      .annotate(n=Count("id_equipo"))
-                      .order_by("id_tipo_equipo__tipo_equipo")
+            qs_activos.values("id_tipo_activo__tipo_activo")
+                      .annotate(n=Count("id_activo"))
+                      .order_by("id_tipo_activo__tipo_activo")
         )
-        ctx["chart_tipos_labels"] = [d["id_tipo_equipo__tipo_equipo"] or "Sin tipo" for d in datos_tipos]
+        ctx["chart_tipos_labels"] = [d["id_tipo_activo__tipo_activo"] or "Sin tipo" for d in datos_tipos]
         ctx["chart_tipos_values"] = [d["n"] for d in datos_tipos]
 
         # Gráfico de mantenciones por estado (si corresponde)
@@ -213,9 +216,9 @@ def _log_mantencion_snapshot(mant: Mantencion, accion: str, user, detalle: str =
         detalle=detalle or "",
         usuario_app_username=visible_name,   # <<--- aquí
 
-        id_equipo=mant.id_equipo_id,
-        etiqueta=getattr(mant.id_equipo, 'etiqueta', None),
-        equipo_nombre=str(mant.id_equipo)[:150] if mant.id_equipo else None,
+        id_activo=mant.id_activo_id,
+        etiqueta=getattr(mant.id_activo, 'etiqueta', None),
+        activo_nombre=str(mant.id_activo)[:150] if mant.id_activo else None,
 
         tipo_mantencion=str(mant.id_tipo_mantencion) if mant.id_tipo_mantencion else None,
         prioridad=str(mant.id_prioridad) if mant.id_prioridad else None,
@@ -248,7 +251,7 @@ def mantencion_editar(request, pk):
     mant = get_object_or_404(Mantencion, pk=pk)
 
     emp_id = request.session.get("empresa_id")
-    if not emp_id or (mant.id_equipo and mant.id_equipo.id_empresa_id != emp_id):
+    if not emp_id or (mant.id_activo and mant.id_activo.id_empresa_id != emp_id):
         raise Http404("Mantención no pertenece a la empresa actual.")
 
     estado_ant = mant.id_estado_mantencion_id
@@ -269,34 +272,34 @@ def mantencion_editar(request, pk):
 
     return render(request, 'mantenciones/editar.html', {'form': form, 'mantencion': mant})
 
-class EquiposDisponiblesView(CompanyRequiredMixin, TemplateView):
-    template_name = "equipos/disponibles_asignar.html"
+class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
+    template_name = "activos/disponibles_asignar.html"
 
     def get_queryset_disponibles(self):
         emp_id = self.request.session.get("empresa_id")
         qs = (
-            Equipo.objects
-            .select_related("id_marca", "id_tipo_equipo", "id_estado_equipo")
+            Activo.objects
+            .select_related("id_marca", "id_tipo_activo", "id_estado_activo")
             .filter(
                 id_empleado__isnull=True,
-                id_estado_equipo__descripcion__iexact="bodega",  # case-insensitive
+                id_estado_activo__descripcion__iexact="bodega",  # case-insensitive
             )
-            .order_by("-id_equipo")
+            .order_by("-id_activo")
         )
         if emp_id:
-            # si quisieras incluir equipos antiguos sin empresa, usa Q(...) | Q(id_empresa__isnull=True)
+            # si quisieras incluir activos antiguos sin empresa, usa Q(...) | Q(id_empresa__isnull=True)
             qs = qs.filter(id_empresa_id=emp_id)
         return qs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         qs = self.get_queryset_disponibles()
-        ctx["equipos"] = qs
+        ctx["activos"] = qs
         ctx["total"] = qs.count()
 
         # ⬇️ Empleados SOLO de la empresa actual
         emp_id = self.request.session.get("empresa_id")
-        empleados_qs = Empleado.objects.filter(activo=True)
+        empleados_qs = Empleado.objects.filter(estado_activo=True)
         if emp_id:
             empleados_qs = empleados_qs.filter(id_empresa_id=emp_id)
         ctx["empleados"] = empleados_qs.order_by("nombre", "apellido_paterno", "apellido_materno")
@@ -305,12 +308,12 @@ class EquiposDisponiblesView(CompanyRequiredMixin, TemplateView):
     
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        ids = request.POST.getlist("equipos")
+        ids = request.POST.getlist("activos")
         ids = list(dict.fromkeys(map(int, ids)))
         empleado_id = request.POST.get("empleado_id")
 
         if not ids:
-            messages.warning(request, "Selecciona al menos un equipo.")
+            messages.warning(request, "Selecciona al menos un activo.")
             return redirect(request.path)
         if not empleado_id:
             messages.warning(request, "Selecciona un empleado destino.")
@@ -321,7 +324,7 @@ class EquiposDisponiblesView(CompanyRequiredMixin, TemplateView):
         # El empleado debe pertenecer a la empresa en sesión
         try:
             empleado = Empleado.objects.get(
-                pk=empleado_id, activo=True, id_empresa_id=emp_id
+                pk=empleado_id, estado_activo=True, id_empresa_id=emp_id
             )
         except Empleado.DoesNotExist:
             messages.error(request, "El empleado no existe, está inactivo o no pertenece a la empresa actual.")
@@ -329,23 +332,23 @@ class EquiposDisponiblesView(CompanyRequiredMixin, TemplateView):
 
         # Resolución segura de estados por empresa
         estado_bodega = (
-            EstadoEquipo.objects
+            EstadoActivo.objects
             .filter(descripcion__iexact="bodega", id_empresa_id=emp_id)
-            .order_by("id_estado_equipo")
+            .order_by("id_estado_activo")
             .first()
-            or EstadoEquipo.objects
+            or EstadoActivo.objects
             .filter(descripcion__iexact="bodega", id_empresa__isnull=True)
-            .order_by("id_estado_equipo")
+            .order_by("id_estado_activo")
             .first()
         )
         estado_asignado = (
-            EstadoEquipo.objects
+            EstadoActivo.objects
             .filter(descripcion__iexact="asignado", id_empresa_id=emp_id)
-            .order_by("id_estado_equipo")
+            .order_by("id_estado_activo")
             .first()
-            or EstadoEquipo.objects
+            or EstadoActivo.objects
             .filter(descripcion__iexact="asignado", id_empresa__isnull=True)
-            .order_by("id_estado_equipo")
+            .order_by("id_estado_activo")
             .first()
         )
 
@@ -358,40 +361,40 @@ class EquiposDisponiblesView(CompanyRequiredMixin, TemplateView):
 
         with transaction.atomic():
             qs = (
-                Equipo.objects
+                Activo.objects
                 .select_for_update()
                 .filter(
-                    id_equipo__in=ids,
+                    id_activo__in=ids,
                     id_empleado__isnull=True,
-                    id_estado_equipo=estado_bodega,   # 👈 usamos el objeto, no la descripción
+                    id_estado_activo=estado_bodega,   # 👈 usamos el objeto, no la descripción
                 )
             )
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
 
-            faltantes = set(ids) - set(qs.values_list("id_equipo", flat=True))
+            faltantes = set(ids) - set(qs.values_list("id_activo", flat=True))
             if faltantes:
                 messages.error(
                     request,
-                    f"Algunos equipos ya no están disponibles (IDs: {', '.join(map(str, faltantes))})."
+                    f"Algunos activos ya no están disponibles (IDs: {', '.join(map(str, faltantes))})."
                 )
                 return redirect(request.path)
 
-            historiales, equipos_a_actualizar = [], []
+            historiales, activos_a_actualizar = [], []
             for e in qs:
                 prev_emp_id    = e.id_empleado_id
-                prev_estado_id = e.id_estado_equipo_id
+                prev_estado_id = e.id_estado_activo_id
                 changed = (
                     prev_emp_id != empleado.id_empleado
-                    or prev_estado_id != estado_asignado.id_estado_equipo
+                    or prev_estado_id != estado_asignado.id_estado_activo
                 )
                 if not changed:
                     continue
 
-                historiales.append(HistorialEquipos(
-                    equipo=e,
+                historiales.append(HistorialActivos(
+                    activo=e,
                     etiqueta=e.etiqueta,
-                    nombre_equipo=e.nombre_equipo,
+                    nombre_activo=e.nombre_activo,
                     fecha=ahora,
                     responsable_anterior_fk_id=prev_emp_id,
                     estado_anterior_id=prev_estado_id,
@@ -401,49 +404,49 @@ class EquiposDisponiblesView(CompanyRequiredMixin, TemplateView):
                     departamento=empleado.id_departamento, # snapshot
                     usuario=usuario_empleado,
                     accion="ASIGNACION MASIVA",
-                    tipo_equipo=getattr(e, "id_tipo_equipo", None),
+                    tipo_activo=getattr(e, "id_tipo_activo", None),
                 ))
 
                 e.id_empleado = empleado
-                e.id_estado_equipo = estado_asignado
-                equipos_a_actualizar.append(e)
+                e.id_estado_activo = estado_asignado
+                activos_a_actualizar.append(e)
 
-            if equipos_a_actualizar:
-                Equipo.objects.bulk_update(
-                    equipos_a_actualizar, ["id_empleado", "id_estado_equipo"]
+            if activos_a_actualizar:
+                Activo.objects.bulk_update(
+                    activos_a_actualizar, ["id_empleado", "id_estado_activo"]
                 )
             if historiales:
-                HistorialEquipos.objects.bulk_create(historiales, ignore_conflicts=True)
+                HistorialActivos.objects.bulk_create(historiales, ignore_conflicts=True)
 
-        messages.success(request, f"Se asignaron {len(equipos_a_actualizar)} equipo(s) a {empleado}.")
+        messages.success(request, f"Se asignaron {len(activos_a_actualizar)} activo(s) a {empleado}.")
         return redirect(request.path)
     
 
 @login_required
-def historial_mantenciones_equipo(request, equipo_id: int):
+def historial_mantenciones_activo(request, activo_id: int):
     emp_id = request.session.get("empresa_id")
-    equipo = get_object_or_404(Equipo, pk=equipo_id)
+    activo = get_object_or_404(Activo, pk=activo_id)
 
-    # Seguridad multiempresa: ese equipo debe pertenecer a la empresa activa
-    if emp_id and getattr(equipo, "id_empresa_id", None) != emp_id:
-        raise Http404("Equipo fuera de la empresa actual.")
+    # Seguridad multiempresa: ese activo debe pertenecer a la empresa activa
+    if emp_id and getattr(activo, "id_empresa_id", None) != emp_id:
+        raise Http404("Activo fuera de la empresa actual.")
 
-    # Solo las mantenciones de ESTE equipo
+    # Solo las mantenciones de ESTE activo
     mantenciones = (
         Mantencion.objects
         .select_related("id_estado_mantencion", "id_tipo_mantencion", "id_prioridad")
-        .filter(id_equipo_id=equipo_id)
+        .filter(id_activo_id=activo_id)
         .order_by("-id_mantencion")
     )
 
     ctx = {
-        "equipo": equipo,
+        "activo": activo,
         "mantenciones": mantenciones,
     }
-    return render(request, "mantenciones/historial_por_equipo.html", ctx)
+    return render(request, "mantenciones/historial_por_activo.html", ctx)
 
 
-# --- Desasignación masiva (espejo de EquiposDisponiblesView) ---
+# --- Desasignación masiva (espejo de ActivosDisponiblesView) ---
 from django.views.generic import TemplateView
 from django.shortcuts import redirect
 from django.contrib import messages
@@ -452,7 +455,7 @@ from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 
-from .models_inventario import Equipo, Empleado, EstadoEquipo, HistorialEquipos
+from .models_inventario import Activo, Empleado, EstadoActivo, HistorialActivos
 from .mixins import CompanyRequiredMixin
 from django.http import HttpResponseForbidden
 from django.db.models import Q
@@ -465,21 +468,21 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
-from .models_inventario import Equipo, EstadoEquipo, HistorialEquipos
+from .models_inventario import Activo, EstadoActivo, HistorialActivos
 from .mixins import CompanyRequiredMixin
 from django.http import HttpResponseForbidden
 
-class EquiposDesasignarView(CompanyRequiredMixin, TemplateView):
-    template_name = "equipos/en_uso_desasignar.html"
+class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
+    template_name = "activos/en_uso_desasignar.html"
 
     def get_queryset_asignados(self):
-        # Consulta los equipos actualmente asignados
+        # Consulta los activos actualmente asignados
         emp_id = self.request.session.get("empresa_id")
         qs = (
-            Equipo.objects
-            .select_related("id_marca", "id_tipo_equipo", "id_estado_equipo", "id_empleado")
-            .filter(id_empleado__isnull=False)  # Solo equipos con empleado asignado
-            .order_by("-id_equipo")
+            Activo.objects
+            .select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado")
+            .filter(id_empleado__isnull=False)  # Solo activos con empleado asignado
+            .order_by("-id_activo")
         )
         if emp_id:
             qs = qs.filter(id_empresa_id=emp_id)
@@ -489,12 +492,12 @@ class EquiposDesasignarView(CompanyRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         qs = self.get_queryset_asignados()
-        ctx["equipos"] = qs
+        ctx["activos"] = qs
         ctx["total"] = qs.count()
 
         # Empleados SOLO de la empresa actual (para mostrar en la vista)
         emp_id = self.request.session.get("empresa_id")
-        empleados_qs = Empleado.objects.filter(activo=True)
+        empleados_qs = Empleado.objects.filter(estado_activo=True)
         if emp_id:
             empleados_qs = empleados_qs.filter(id_empresa_id=emp_id)
         ctx["empleados"] = empleados_qs.order_by("nombre", "apellido_paterno", "apellido_materno")
@@ -503,23 +506,23 @@ class EquiposDesasignarView(CompanyRequiredMixin, TemplateView):
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        ids = request.POST.getlist("equipos")
+        ids = request.POST.getlist("activos")
         ids = list(dict.fromkeys(map(int, ids)))  # Eliminar duplicados
         if not ids:
-            messages.warning(request, "Selecciona al menos un equipo.")
+            messages.warning(request, "Selecciona al menos un activo.")
             return redirect(request.path)
 
         emp_id = request.session.get("empresa_id")
 
-        # Resolver el estado 'bodega' para desasignar los equipos
+        # Resolver el estado 'bodega' para desasignar los activos
         estado_bodega = (
-            EstadoEquipo.objects
+            EstadoActivo.objects
             .filter(descripcion__iexact="bodega", id_empresa_id=emp_id)
-            .order_by("id_estado_equipo")
+            .order_by("id_estado_activo")
             .first()
-            or EstadoEquipo.objects
+            or EstadoActivo.objects
             .filter(descripcion__iexact="bodega", id_empresa__isnull=True)
-            .order_by("id_estado_equipo")
+            .order_by("id_estado_activo")
             .first()
         )
 
@@ -530,60 +533,60 @@ class EquiposDesasignarView(CompanyRequiredMixin, TemplateView):
         ahora = timezone.now()
         usuario_empleado = getattr(request.user, "empleado", None)
 
-        # Desasignar equipos seleccionados
+        # Desasignar activos seleccionados
         with transaction.atomic():
             qs = (
-                Equipo.objects
+                Activo.objects
                 .select_for_update()
-                .filter(id_equipo__in=ids, id_empleado__isnull=False)
+                .filter(id_activo__in=ids, id_empleado__isnull=False)
             )
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
 
-            faltantes = set(ids) - set(qs.values_list("id_equipo", flat=True))
+            faltantes = set(ids) - set(qs.values_list("id_activo", flat=True))
             if faltantes:
                 messages.error(
                     request,
-                    f"Algunos equipos no están asignados o ya han sido desasignados "
+                    f"Algunos activos no están asignados o ya han sido desasignados "
                     f"(IDs: {', '.join(map(str, faltantes))})."
                 )
                 return redirect(request.path)
 
-            historiales, equipos_a_actualizar = [], []
+            historiales, activos_a_actualizar = [], []
             for e in qs:
                 prev_emp_id = e.id_empleado_id
-                prev_estado_id = e.id_estado_equipo_id
+                prev_estado_id = e.id_estado_activo_id
 
                 # Crear historial de desasignación
-                historiales.append(HistorialEquipos(
-                    equipo=e,
+                historiales.append(HistorialActivos(
+                    activo=e,
                     etiqueta=e.etiqueta,
-                    nombre_equipo=e.nombre_equipo,
+                    nombre_activo=e.nombre_activo,
                     fecha=ahora,
                     responsable_anterior_fk_id=prev_emp_id,
                     estado_anterior_id=prev_estado_id,
                     estado_nuevo=estado_bodega,
                     responsable_actual=None,
-                    id_empresa=e.id_empresa,  # snapshot desde el equipo
+                    id_empresa=e.id_empresa,  # snapshot desde el activo
                     departamento=None,
                     usuario=usuario_empleado,
                     accion="DESASIGNACION MASIVA",
-                    tipo_equipo=getattr(e, "id_tipo_equipo", None),
+                    tipo_activo=getattr(e, "id_tipo_activo", None),
                 ))
 
-                # Actualizar el estado y empleado del equipo
+                # Actualizar el estado y empleado del activo
                 e.id_empleado = None
-                e.id_estado_equipo = estado_bodega
-                equipos_a_actualizar.append(e)
+                e.id_estado_activo = estado_bodega
+                activos_a_actualizar.append(e)
 
-            if equipos_a_actualizar:
-                Equipo.objects.bulk_update(
-                    equipos_a_actualizar, ["id_empleado", "id_estado_equipo"]
+            if activos_a_actualizar:
+                Activo.objects.bulk_update(
+                    activos_a_actualizar, ["id_empleado", "id_estado_activo"]
                 )
             if historiales:
-                HistorialEquipos.objects.bulk_create(historiales, ignore_conflicts=True)
+                HistorialActivos.objects.bulk_create(historiales, ignore_conflicts=True)
 
-        messages.success(request, f"Se desasignaron {len(equipos_a_actualizar)} equipo(s).")
+        messages.success(request, f"Se desasignaron {len(activos_a_actualizar)} activo(s).")
         return redirect(request.path)
 
     
@@ -594,11 +597,11 @@ def api_atributos_por_tipo(request):
     print("Empresa ID en api_atributos_por_tipo:", emp_id)  # Depuración
     if not tipo_id:
         return JsonResponse({"items": []})
-    attrs = AtributosEquipo.objects.filter(id_tipo_equipo_id=tipo_id)
+    attrs = AtributosActivo.objects.filter(id_tipo_activo_id=tipo_id)
     if emp_id:
         attrs = attrs.filter(id_empresa_id=emp_id)
 
-    items = list(attrs.values("id_atributo_equipo", "atributo", "valor"))
+    items = list(attrs.values("id_atributo_activo", "atributo", "valor"))
     return JsonResponse({"items": items})
 
 
@@ -609,7 +612,7 @@ hist_mant_cfg = type("Cfg", (), {
     "verbose_name": "Historial de mantenciones",
     "verbose_name_plural": "Historial de mantenciones",
     "list_display": [
-        "id_equipo", "etiqueta", "equipo_nombre",
+        "id_activo", "etiqueta", "activo_nombre",
         "fecha_evento", "tipo_mantencion", "prioridad",
         "estado_actual", "asignado_a", "descripcion", "detalle",
         "usuario_app_username",
@@ -632,8 +635,8 @@ class HistorialMantencionIndividual(view_class(HistorialMantencionesLog, hist_ma
         ctx = super().get_context_data(**kwargs)
         # título/subtítulo bonito
         try:
-            mant = Mantencion.objects.select_related("id_equipo").get(pk=self.kwargs["pk"])
-            ctx["subtitle"] = f"Mantención {mant.id_mantencion} · {mant.id_equipo}"
+            mant = Mantencion.objects.select_related("id_activo").get(pk=self.kwargs["pk"])
+            ctx["subtitle"] = f"Mantención {mant.id_mantencion} · {mant.id_activo}"
         except Mantencion.DoesNotExist:
             ctx["subtitle"] = f"Mantención {self.kwargs['pk']}"
         # sin botón “Nuevo”
@@ -651,16 +654,28 @@ def nuevos_estados_mantencion(request):
         'side_items': estados  # Aquí pasamos los estados a side_items
     })
 
-#class EquipoCreateView(CreateView):
-#    model = Equipo
-#    form_class = EquipoForm
-#    template_name = 'equipo_form.html'
+#class ActivoCreateView(CreateView):
+#    model = Activo
+#    form_class = ActivoForm
+#    template_name = 'activo_form.html'
 #
 #    def form_valid(self, form):
-#        # Verifica si el equipo es crítico
+#        # Verifica si el activo es crítico
 #        if form.cleaned_data['activo_critico']:
 #            # Aquí puedes guardar o hacer algo adicional si el activo es crítico
 #            # Por ejemplo, guardar los datos de confidencialidad, integridad, disponibilidad.
 #            pass
 #
 #        return super().form_valid(form)
+
+
+def factura_attach_file(request, factura_id):
+    factura = get_object_or_404(Factura, id_factura=factura_id)
+
+    if request.method == 'POST' and request.FILES.get('archivo_adjunto'):
+        archivo = request.FILES['archivo_adjunto']
+        factura.archivo_adjunto = archivo
+        factura.save()
+        return redirect('productos:factura_list')  # Redirige a la lista de facturas después de guardar
+
+    return render(request, 'productos/factura_adjuntar.html', {'factura': factura})
