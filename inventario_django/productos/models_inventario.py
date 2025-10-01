@@ -350,17 +350,37 @@ class Factura(models.Model):
         db_column='id_empresa', blank=True, null=True,
         related_name='facturas'
     )
+    # NUEVOS CAMPOS
+    folio = models.CharField(max_length=50, blank=True, null=True, db_column="folio")
+    observacion = models.TextField(blank=True, null=True, db_column="observacion")
+
     archivo_adjunto = models.FileField(upload_to='facturas/', null=True, blank=True)  # Aquí se agrega el campo de archivo
+
 
     class Meta:
         managed = True
         db_table = 'factura'
 
+
+
     def __str__(self):
         prov = self.id_proveedor or "Proveedor s/i"
         f = self.fecha_emision.isoformat() if self.fecha_emision else "s/f"
         return f"Factura {self.id_factura} · {prov} · {f}"
+    
+    def proveedor_rut(self):
+        """Muestra 'Proveedor (RUT)' en la lista."""
+        p = getattr(self, "id_proveedor", None)
+        if not p:
+            return "—"
+        # intenta varios nombres posibles de campo RUT
+        for attr in ("rut", "rut_proveedor", "rut_empresa"):
+            rut = getattr(p, attr, None)
+            if rut:
+                return rut
+        return "—"
 
+    proveedor_rut.short_description = "Proveedor"  # etiqueta de columna
 
 class DetalleFactura(models.Model):
     #id_detalle_factura = models.AutoField(primary_key=True)

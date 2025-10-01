@@ -52,6 +52,9 @@ from .utils import crear_usuario_y_enviar_correo
 
 from productos.models_inventario import HistorialMantencionesLog  # evitar ciclos
 from productos.forms import MantencionForm
+# arriba de _build_default_form (o dentro), suma estos imports de tipos de campo
+from django.db.models import FileField, ImageField
+from django.forms import ClearableFileInput
 
 def _build_default_form(model):
     from django.db.models import DateField, DateTimeField, ForeignKey, TextField, BooleanField, IntegerField, FloatField
@@ -71,6 +74,9 @@ def _build_default_form(model):
             widgets[f.name] = forms.CheckboxInput(attrs={"class": "form-check-input"})
         elif isinstance(f, (IntegerField, FloatField)):
             widgets[f.name] = forms.NumberInput(attrs={"class": "form-control"})
+        # 👇 **NUEVO: soporta archivos**
+        elif isinstance(f, (FileField, ImageField)):
+            widgets[f.name] = ClearableFileInput(attrs={"class": "form-control"})
         else:
             widgets[f.name] = forms.TextInput(attrs={"class": "form-control"})
     return modelform_factory(model, fields="__all__", widgets=widgets)
@@ -567,6 +573,14 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
     def get_success_url(self):
         # productos: <slug>_list  -> p.ej. productos:departamentos_list
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        # MUY IMPORTANTE: pasar archivos en métodos de escritura
+        if self.request.method in ("POST", "PUT", "PATCH"):
+            kwargs["data"] = self.request.POST
+            kwargs["files"] = self.request.FILES
+        return kwargs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -757,6 +771,8 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
                 # nunca romper el guardado por el historial
                 pass
 ###################################################################################2509
+
+    
         return resp
 
 
@@ -773,6 +789,10 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
         kwargs = super().get_form_kwargs()
         if self.model.__name__ in ("Mantencion", "Activo"):
             kwargs["request"] = self.request
+        # MUY IMPORTANTE: pasar archivos
+        if self.request.method in ("POST", "PUT", "PATCH"):
+            kwargs["data"] = self.request.POST
+            kwargs["files"] = self.request.FILES
         return kwargs
 
     def get_form_class(self):
@@ -1476,12 +1496,43 @@ CRUD_CONFIGS = _collect_unique_crud_configs()
 
 # Ordenar Activos por ID descendente por defecto (lo nuevo arriba)
 for _cfg in CRUD_CONFIGS:
+    if _cfg.model._meta.model_name == "factura":
+        cols = list(_cfg.list_display)
+        # insertamos la nueva columna después de id_proveedor (si existe)
+        try:
+            i = cols.index("id_proveedor")
+            # evita duplicados si ya lo agregaste antes
+            if "proveedor_rut" not in cols:
+                cols.insert(i + 1, "proveedor_rut")
+        except ValueError:
+            # si por alguna razón no está id_proveedor, la agregamos hacia el inicio
+            if "proveedor_rut" not in cols:
+                cols.insert(1, "proveedor_rut")
+        _cfg.list_display = cols
+
+        # (opcional) permitir buscar por RUT en la caja “Buscar…”
+        extra_search = ["id_proveedor__rut"]
+        _cfg.search_fields = list(dict.fromkeys(list(_cfg.search_fields) + extra_search))
+
     if _cfg.model._meta.model_name == "activo":
         _cfg.ordering = ("-id_activo",)
     if _cfg.model._meta.model_name == "mantencion":
         _cfg.ordering = ("-id_mantencion",)
     if _cfg.model._meta.model_name == "factura":
         _cfg.ordering = ("-id_factura",)
+
+
+        # 👇 AQUI define los campos buscables CORRECTOS
+        _cfg.search_fields = [
+            "folio",
+            "observacion",
+            "id_empresa__nombre_empresa",
+            "id_proveedor__nombre_proveedor",
+            "id_proveedor__rut_proveedor",   # <— este es el bueno
+        ]
+
+
+
     if _cfg.model._meta.model_name == "detallefactura":
         _cfg.ordering = ("-id_detalle_factura",)
     if _cfg.model._meta.model_name == "proveedor":
@@ -1490,6 +1541,7 @@ for _cfg in CRUD_CONFIGS:
         _cfg.ordering = ("-id_marca",)
     if _cfg.model._meta.model_name == "empleado":
         _cfg.ordering = ("-id_empleado",)
+
 
 
 def get_crud_configs():

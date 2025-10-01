@@ -405,3 +405,10 @@ urlpatterns += [
     path('factura/<int:factura_id>/adjuntar/', views.factura_attach_file, name='factura_attach_file'),
     # otras rutas
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+
+urlpatterns += [
+    path("facturas/", views.FacturaListView.as_view(), name="facturas_list"),
+    path("facturas/<int:id_factura>/", views.FacturaDetailView.as_view(), name="facturas_detail"),
+    path("factura/<int:factura_id>/adjuntar/", views.factura_attach_file, name="factura_attach_file"),
+]

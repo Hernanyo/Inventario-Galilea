@@ -1,13 +1,12 @@
 # productos/views.py
 #from productos.models_inventario import CategoriaActivo
 #from django.views.generic.edit import CreateView
+from django.views.generic import ListView, DetailView
+from django.views.generic import ListView, DetailView
 from .crud import ActivoForm
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Factura
 from .forms import FacturaAdjuntoForm  # Formulario para adjuntar el archivo
-
-
-
 from django.shortcuts import render
 from .models_inventario import Departamento, EstadoMantencion, TipoMantencion, PrioridadMantencion
 from django.contrib.auth.decorators import login_required
@@ -669,13 +668,50 @@ def nuevos_estados_mantencion(request):
 #        return super().form_valid(form)
 
 
+
+
+
+
+from .models_inventario import Factura
+
+class FacturaListView(LoginRequiredMixin, ListView):
+    model = Factura
+    template_name = "productos/facturas_list.html"
+    context_object_name = "facturas"
+    paginate_by = 20
+
+    def get_queryset(self):
+        emp_id = self.request.session.get("empresa_id")
+        qs = super().get_queryset().select_related("id_proveedor", "id_empresa").order_by("-fecha_emision", "-id_factura")
+        if emp_id:
+            qs = qs.filter(id_empresa_id=emp_id)
+        q = self.request.GET.get("q")
+        if q:
+            qs = qs.filter(id_proveedor__nombre_proveedor__icontains=q) | qs.filter(id_factura__icontains=q)
+        return qs
+
+class FacturaDetailView(LoginRequiredMixin, DetailView):
+    model = Factura
+    template_name = "productos/factura_detail.html"
+    context_object_name = "factura"
+    pk_url_kwarg = "id_factura"
+
+
+
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect, render
+from .models_inventario import Factura
+
 def factura_attach_file(request, factura_id):
     factura = get_object_or_404(Factura, id_factura=factura_id)
 
-    if request.method == 'POST' and request.FILES.get('archivo_adjunto'):
-        archivo = request.FILES['archivo_adjunto']
-        factura.archivo_adjunto = archivo
-        factura.save()
-        return redirect('productos:factura_list')  # Redirige a la lista de facturas después de guardar
+    if request.method == "POST" and request.FILES.get("archivo_adjunto"):
+        factura.archivo_adjunto = request.FILES["archivo_adjunto"]
+        factura.save(update_fields=["archivo_adjunto"])
+        messages.success(request, "Factura guardada exitosamente.")
+        return redirect("productos:facturas_list")
 
-    return render(request, 'productos/factura_adjuntar.html', {'factura': factura})
+    return render(request, "productos/factura_adjuntar.html", {"factura": factura})
+
+
+

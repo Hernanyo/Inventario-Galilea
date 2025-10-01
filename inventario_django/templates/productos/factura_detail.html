@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Factura #{{ factura.id_factura }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Factura #{{ factura.id_factura }}</h1>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row mb-2">
+      <div class="col-md-4"><strong>Proveedor:</strong></div>
+      <div class="col-md-8">{{ factura.id_proveedor|default:"—" }}</div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-md-4"><strong>Fecha de emisión:</strong></div>
+      <div class="col-md-8">{{ factura.fecha_emision|date:"d-m-Y"|default:"—" }}</div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-md-4"><strong>Empresa:</strong></div>
+      <div class="col-md-8">{{ factura.id_empresa|default:"—" }}</div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-md-4"><strong>Archivo:</strong></div>
+      <div class="col-md-8">
+        {% if factura.archivo_adjunto %}
+          <a href="{{ factura.archivo_adjunto.url }}" target="_blank">Abrir archivo</a>
+        {% else %}
+          —
+        {% endif %}
+      </div>
+    </div>
+    <div class="text-end">
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'productos:factura_attach_file' factura.id_factura %}">Adjuntar/Reemplazar archivo</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:facturas_list' %}">Volver</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

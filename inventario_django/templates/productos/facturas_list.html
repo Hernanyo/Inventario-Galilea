@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Facturas{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Facturas</h1>
+
+<form method="get" class="row g-2 mb-3">
+  <div class="col-sm-6">
+    <input type="text" name="q" class="form-control" value="{{ request.GET.q }}" placeholder="Buscar por proveedor o ID">
+  </div>
+  <div class="col-sm-2">
+    <button class="btn btn-secondary w-100">Buscar</button>
+  </div>
+</form>
+
+<table class="table table-sm table-hover align-middle">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Proveedor</th>
+      <th>Fecha emisión</th>
+      <th>Archivo</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in facturas %}
+      <tr>
+        <td>#{{ f.id_factura }}</td>
+        <td>{{ f.id_proveedor|default:"—" }}</td>
+        <td>{{ f.fecha_emision|date:"d-m-Y"|default:"—" }}</td>
+        <td>
+          {% if f.archivo_adjunto %}
+            <a href="{{ f.archivo_adjunto.url }}" target="_blank">Ver archivo</a>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <a class="btn btn-outline-primary btn-sm" href="{% url 'productos:facturas_detail' f.id_factura %}">
+            Detalle
+          </a>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'productos:factura_attach_file' f.id_factura %}">
+            Adjuntar/Reemplazar
+          </a>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5" class="text-muted">Sin facturas.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

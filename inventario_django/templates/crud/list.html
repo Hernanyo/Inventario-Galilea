@@ -430,6 +430,17 @@
                 Adjuntar Factura
               </a>
 
+            {% if item.archivo_adjunto %}
+              <a class="btn btn-xs btn-outline-dark"
+                href="{{ item.archivo_adjunto.url }}" target="_blank" rel="noopener">
+                Ver factura
+              </a>
+            {% else %}
+              <button type="button" class="btn btn-xs btn-outline-secondary" disabled title="Aún no hay archivo">
+                Ver factura
+              </button>
+            {% endif %}
+
             {% if can_change %}
               <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.id_factura %}">
                 <i class="bi bi-pencil-square me-1"></i>Editar

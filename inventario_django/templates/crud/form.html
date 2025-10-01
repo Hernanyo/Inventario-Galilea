@@ -23,9 +23,61 @@
     <div class="col-12 col-lg-8">
       <div class="card shadow-sm">
         <div class="card-body">
-          <form method="post">
+          <form method="post"
+                {% if view.crud_config.model_name == "factura" or form.is_multipart %}
+                  enctype="multipart/form-data"
+                {% endif %}>
+
             {% csrf_token %}
+            {% if view.crud_config.model_name == "factura" %}
+            {# Pintamos todos los campos MENOS archivo_adjunto #}
+            {% for field in form %}
+              {% if field.name != "archivo_adjunto" %}
+                <div class="mb-3">
+                  {{ field.label_tag }} 
+                  {{ field }}
+                  {{ field.errors }}
+                  {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text }}</div>
+                  {% endif %}
+                </div>
+              {% endif %}
+            {% endfor %}
+
+            {# Y acá forzamos un input file real #}
+            <div class="mb-3">
+              <label class="form-label" for="id_archivo_adjunto">Archivo adjunto</label>
+              <input type="file"
+                    name="archivo_adjunto"
+                    id="id_archivo_adjunto"
+                    class="form-control"
+                    accept=".pdf,.jpg,.jpeg,.png">
+              {% if form.archivo_adjunto.errors %}
+                <div class="text-danger small">{{ form.archivo_adjunto.errors }}</div>
+              {% endif %}
+              {% if object and object.archivo_adjunto %}
+                <div class="form-text">
+                  Actual: <a href="{{ object.archivo_adjunto.url }}" target="_blank" rel="noopener">
+                    {{ object.archivo_adjunto.name }}
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+          {% else %}
             {{ form.as_p }}
+          {% endif %}
+
+
+              {# Solo para Factura: muestra botón "Ver factura" cuando estás editando y ya hay archivo #}
+              {% if view.crud_config.model_name == "factura" and object and object.archivo_adjunto %}
+                <div class="mt-2 text-end">
+                  <a class="btn btn-outline-secondary btn-sm"
+                    href="{{ object.archivo_adjunto.url }}" target="_blank" rel="noopener">
+                    Ver factura
+                  </a>
+                </div>
+              {% endif %}
+
 
             {% if view.crud_config.model_name == "activo" %}
               <hr class="my-4">
