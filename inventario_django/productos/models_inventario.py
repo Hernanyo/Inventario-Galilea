@@ -9,6 +9,11 @@
 # ✅ CORRECTO:
 from django.db import models
 from django.utils import timezone
+from django.db import models
+from django.contrib.auth.models import User
+import json
+from django.core.validators import MinValueValidator, MaxValueValidator
+
 
 
 
@@ -20,6 +25,7 @@ class Empresa(models.Model):
     nombre_empresa = models.CharField(max_length=200)
     direccion_empresa = models.CharField(max_length=250, blank=True, null=True)
     giro = models.CharField(max_length=100, blank=True, null=True)
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True ############################################################2609
@@ -34,6 +40,7 @@ class Departamento(models.Model):
     id_departamento = models.AutoField(primary_key=True, db_column="id_departamento")
     nombre_departamento = models.CharField(max_length=150)
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa')
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -60,14 +67,9 @@ class Empleado(models.Model):
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='id_departamento')
     # Campo nuevo para roles
     rol = models.CharField(max_length=20, default='usuario')  # admin, usuario, invitado
-    user = models.OneToOneField(
-        "auth.User",
-        models.DO_NOTHING,
-        db_column="user_id",
-        blank=True, null=True,
-        related_name="empleado",
-    )
+    user = models.OneToOneField("auth.User",models.DO_NOTHING, db_column="user_id", blank=True, null=True, related_name="empleado",)
     correo = models.CharField(max_length=255, unique=True, blank=True, null=True)  # <-- NUEVO
+    eliminado = models.BooleanField(default=False)
 
 
     class Meta:
@@ -83,12 +85,8 @@ class Marca(models.Model):
     #id_marca = models.AutoField(primary_key=True)
     id_marca = models.AutoField(primary_key=True, db_column="id_marca")
     nombre_marca = models.CharField(max_length=100)
-    id_empresa = models.ForeignKey(
-        'Empresa',
-        models.DO_NOTHING,
-        db_column='id_empresa',
-        null=True, blank=True
-    )
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -103,8 +101,9 @@ class EstadoActivo(models.Model):
     #id_estado_activo = models.AutoField(primary_key=True)
     id_estado_activo = models.AutoField(primary_key=True, db_column="id_estado_activo")
     descripcion = models.CharField(max_length=100)
-    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING,
-                                   db_column='id_empresa', null=True, blank=True)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+
     class Meta:
         managed = True
         db_table = 'estado_activo'
@@ -121,8 +120,8 @@ class Proveedor(models.Model):
     id_proveedor = models.AutoField(primary_key=True, db_column="id_proveedor")
     nombre_proveedor = models.CharField(max_length=200)
     rut_proveedor = models.CharField(max_length=20, blank=True, null=True)
-    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
-                                   db_column='id_empresa', null=True, blank=True)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -139,8 +138,9 @@ class TipoActivo(models.Model):
     #id_tipo_activo = models.AutoField(primary_key=True)
     id_tipo_activo = models.AutoField(primary_key=True, db_column="id_tipo_activo")
     tipo_activo = models.CharField(max_length=100)
-    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
-                                   db_column='id_empresa', null=True, blank=True)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+
     class Meta:
         managed = True
         db_table = 'tipo_activo'
@@ -168,10 +168,11 @@ class Activo(models.Model):
     observaciones = models.TextField(blank=True, null=True)
     # Nuevos campos
     activo_critico = models.BooleanField(default=False)
-    confidencialidad = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    integridad = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    disponibilidad = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    confidencialidad = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(4)])
+    integridad = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(4)])
+    disponibilidad = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(4)])
     clasificacion = models.CharField(max_length=20, choices=[('confidencial', 'Confidencial'),('uso_interno', 'Uso Interno'), ('publico', 'Público'),],blank=True, null=True,)
+    eliminado = models.BooleanField(default=False)
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
     @property
@@ -217,8 +218,8 @@ class AtributosActivo(models.Model):
     id_tipo_activo = models.ForeignKey(TipoActivo, models.DO_NOTHING, db_column='id_tipo_activo')
     atributo = models.CharField(max_length=100)
     valor = models.CharField(max_length=250, blank=True, null=True)
-    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING,
-                                   db_column='id_empresa', null=True, blank=True)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -259,8 +260,9 @@ class EstadoMantencion(models.Model):
     #id_estado_mantencion = models.AutoField(primary_key=True)
     id_estado_mantencion = models.AutoField(primary_key=True, db_column="id_estado_mantencion")
     tipo = models.CharField(max_length=50)
-    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING,
-                                   db_column='id_empresa', null=True, blank=True)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+
     class Meta:
         managed = True
         db_table = 'estado_mantencion'
@@ -273,8 +275,8 @@ class TipoMantencion(models.Model):
     #id_tipo_mantencion = models.AutoField(primary_key=True)
     id_tipo_mantencion = models.AutoField(primary_key=True, db_column="id_tipo_mantencion")
     nombre = models.CharField(max_length=50)
-    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING,
-                                   db_column='id_empresa', null=True, blank=True)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -293,6 +295,7 @@ class PrioridadMantencion(models.Model):
     id_prioridad = models.AutoField(primary_key=True, db_column="id_prioridad")
     nombre = models.CharField(max_length=50)
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
+    eliminado = models.BooleanField(default=False)
     
 
     class Meta:
@@ -322,10 +325,9 @@ class Mantencion(models.Model):
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
 
     # NUEVOS (coinciden con SQL)
-    responsable = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_id',
-                                    null=True, blank=True, related_name='mantenciones_responsable')
-    solicitante_user = models.ForeignKey("auth.User", models.DO_NOTHING, db_column='solicitante_user_id',
-                                         null=True, blank=True, related_name='mantenciones_solicitadas')
+    responsable = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_id', null=True, blank=True, related_name='mantenciones_responsable')
+    solicitante_user = models.ForeignKey("auth.User", models.DO_NOTHING, db_column='solicitante_user_id', null=True, blank=True, related_name='mantenciones_solicitadas')
+    eliminado = models.BooleanField(default=False)
     
 
     class Meta:
@@ -338,6 +340,35 @@ class Mantencion(models.Model):
         f = self.fecha.isoformat() if self.fecha else "s/f"
         return f"Mantención {self.id_mantencion} · {self.id_activo} · {self.id_estado_mantencion} · {f}"
 
+    @property
+    def responsable_nombre(self):
+        return str(self.responsable) if self.responsable_id else ""
+
+    @property
+    def asignado_a(self):
+        return self.responsable
+
+    @property
+    def asignado_a_id(self):
+        return getattr(self.responsable, "pk", None)
+    
+    
+@property
+def solicitante(self):
+    # compat: por si algún código espera 'solicitante' en vez de 'solicitante_user'
+    return self.solicitante_user
+
+@property
+def solicitante_id(self):
+    return getattr(self.solicitante_user, "pk", None)
+
+@property
+def solicitante_nombre(self):
+    u = getattr(self, "solicitante_user", None)
+    if not u:
+        return ""
+    full = (u.get_full_name() or "").strip()
+    return full or u.get_username() or str(u)
 
 class Factura(models.Model):
     #id_factura = models.AutoField(primary_key=True)
@@ -345,16 +376,13 @@ class Factura(models.Model):
     id_proveedor = models.ForeignKey(Proveedor, models.DO_NOTHING, db_column='id_proveedor', blank=True, null=True)
     fecha_emision = models.DateField(blank=True, null=True)
     # EXISTENTE EN BD: solo lo reflejamos en el modelo
-    id_empresa = models.ForeignKey(
-        Empresa, models.DO_NOTHING,
-        db_column='id_empresa', blank=True, null=True,
-        related_name='facturas'
-    )
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True, related_name='facturas')
     # NUEVOS CAMPOS
     folio = models.CharField(max_length=50, blank=True, null=True, db_column="folio")
     observacion = models.TextField(blank=True, null=True, db_column="observacion")
 
     archivo_adjunto = models.FileField(upload_to='facturas/', null=True, blank=True)  # Aquí se agrega el campo de archivo
+    eliminado = models.BooleanField(default=False)
 
 
     class Meta:
@@ -394,6 +422,7 @@ class DetalleFactura(models.Model):
     iva = models.IntegerField(blank=True, null=True)
     valor_total = models.IntegerField(blank=True, null=True)
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
+    eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -422,6 +451,7 @@ class HistorialActivos(models.Model):
     estado_nuevo = models.ForeignKey(EstadoActivo, models.DO_NOTHING, db_column='estado_nuevo_id', blank=True, null=True, related_name='estado_nuevo')
     responsable_actual = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='responsable_actual_id', blank=True, null=True, related_name='responsable_actual')
     comentario = models.TextField(blank=True, null=True)
+ 
 
     # --- Alias de compatibilidad: mantener .empresa para lecturas/escrituras viejas ---
     @property
@@ -554,6 +584,7 @@ class HistorialMantencionesLog(models.Model):
     descripcion = models.TextField(null=True, blank=True)
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
 
+
     class Meta:
         managed = True  # la tabla ya existe en la BD
         db_table = 'historial_mantenciones_log'
@@ -566,3 +597,97 @@ class HistorialMantencionesLog(models.Model):
     @property
     def asignado_a(self) -> str:
         return (self.responsable_nombre or self.solicitante_nombre or "").strip()
+    
+##############################################################################################################
+##############################################################################################################0110
+# --- AUDITORÍA / REGISTRO MAESTRO ---
+from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.utils import timezone
+import json
+from django.db.models.functions import Lower  # <-- importa esto arriba
+
+
+# Tipo de registro: indica qué tipo de acción se realizó
+class TipoRegistro(models.Model):
+    id_tipo_registro = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=100, unique=True)  # único GLOBAL
+    descripcion = models.TextField(blank=True, null=True)
+    eliminado = models.BooleanField(default=False)
+        # Relación con la empresa
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
+
+    class Meta:
+        db_table = "tipo_registro"
+        verbose_name = "Tipo de registro"
+        verbose_name_plural = "Tipos de registro"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+# Registro maestro de acciones, para almacenar todas las acciones que suceden en la aplicación
+class Registro(models.Model):
+    id_registro = models.AutoField(primary_key=True)
+    usuario = models.ForeignKey(Empleado, on_delete=models.SET_NULL, null=True, blank=True, db_column='usuario_id')
+    tipo_registro = models.ForeignKey(TipoRegistro, on_delete=models.PROTECT)
+    fecha = models.DateTimeField(auto_now_add=True)
+    content_type = models.ForeignKey(ContentType, on_delete=models.PROTECT)
+    object_id = models.PositiveIntegerField()
+    objeto = GenericForeignKey("content_type", "object_id")
+    descripcion = models.TextField()
+    datos_anteriores = models.JSONField(null=True, blank=True)  
+    datos_nuevos = models.JSONField(null=True, blank=True) 
+    comentario = models.TextField(null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.tipo_registro.nombre} - {self.objeto} - {self.fecha}"
+    
+
+    def save(self, *args, **kwargs):
+        # Asegúrate de convertir `fecha` a formato string ISO 8601 antes de guardar
+        if isinstance(self.fecha, timezone.datetime):
+            self.fecha = self.fecha.isoformat()
+
+        # Convertir cualquier campo datetime dentro de los JSONField (datos_anteriores y datos_nuevos)
+        if self.datos_anteriores:
+            self.datos_anteriores = self.convert_datetime_in_dict(self.datos_anteriores)
+        if self.datos_nuevos:
+            self.datos_nuevos = self.convert_datetime_in_dict(self.datos_nuevos)
+
+        super().save(*args, **kwargs)
+
+    def convert_datetime_in_dict(self, data):
+        """
+        Convierte cualquier campo datetime dentro de un diccionario a formato string ISO 8601.
+        """
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, timezone.datetime):
+                    data[key] = value.isoformat()
+                elif isinstance(value, dict):
+                    # Recursivamente convertir los valores en subdiccionarios
+                    data[key] = self.convert_datetime_in_dict(value)
+        return data
+
+
+    class Meta:
+        verbose_name = "Registro de acción"
+        verbose_name_plural = "Registros de acciones"
+        ordering = ["-fecha", "-id_registro"]  # Asegura que los registros más recientes estén primero
+
+
+
+#    class Meta:
+#        db_table = "registro"
+#        verbose_name = "Registro"
+#        verbose_name_plural = "Registros"
+#        ordering = ["-fecha", "-id_registro"]
+#
+#    def __str__(self):
+#        modelo = self.content_type.model if self.content_type_id else "obj"
+#        return f"[{self.fecha:%Y-%m-%d %H:%M}] {self.tipo} · {modelo}#{self.object_id}"

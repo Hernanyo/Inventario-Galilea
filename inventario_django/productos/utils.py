@@ -134,33 +134,6 @@ def _ensure_role_groups():
     )
     g_guest.permissions.set(perms.filter(codename__startswith="view_"))
 
-def sync_user_groups_for_empleado(empleado):
-    """
-    Saca al usuario de los grupos de rol y lo mete en el que corresponda
-    según empleado.rol = admin|usuario|invitado.
-    """
-    if not empleado.user:
-        return
-    _ensure_role_groups()
-    name_by_rol = {
-        "admin": "rol_admin",
-        "usuario": "rol_usuario",
-        "invitado": "rol_invitado",
-    }
-    target = name_by_rol.get((empleado.rol or "usuario").lower(), "rol_usuario")
-
-    # limpia pertenencia previa
-    for gname in name_by_rol.values():
-        try:
-            g = Group.objects.get(name=gname)
-            empleado.user.groups.remove(g)
-        except Group.DoesNotExist:
-            pass
-
-    empleado.user.groups.add(Group.objects.get(name=target))
-    # opcional: marca staff si es admin (sólo por comodidad en admin)
-    empleado.user.is_staff = (target == "rol_admin")
-    empleado.user.save(update_fields=["is_staff"])
 
 def ensure_auth_user_for_empleado(empleado):
     """
@@ -212,14 +185,16 @@ def sync_user_groups_for_empleado(empleado):
     g_guest,_  = Group.objects.get_or_create(name="rol_invitado")
 
     empleado.user.groups.clear()
+
+    # Usamos solo el nombre del grupo, no el objeto completo
     if target == "rol_admin":
-        empleado.user.groups.add(g_admin)
-        empleado.user.is_staff = True     # puede entrar al admin si quieres
+        empleado.user.groups.add(g_admin.id)  # Usando ID
+        empleado.user.is_staff = True
     elif target == "rol_invitado":
-        empleado.user.groups.add(g_guest)
+        empleado.user.groups.add(g_guest.id)  # Usando ID
         empleado.user.is_staff = False
     else:
-        empleado.user.groups.add(g_user)
+        empleado.user.groups.add(g_user.id)  # Usando ID
         empleado.user.is_staff = False
 
     empleado.user.save(update_fields=["is_staff"])

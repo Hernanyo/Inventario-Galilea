@@ -17,6 +17,7 @@ def seleccionar_empresa(request):
 
     if request.method == "POST":
         empresa_id = request.POST.get("empresa_id")
+        print(f"empresa_id recibido: {empresa_id}")  # Depuración: Verifica el valor de empresa_id
         emp = Empresa.objects.filter(pk=empresa_id).first()
         if emp:
             request.session["empresa_id"] = emp.id_empresa

@@ -14,18 +14,13 @@ class ProductosConfig(AppConfig):
     name = 'productos'
     verbose_name = "Productos / Inventario"
 
+    def ready(self):
+        from . import signals  # registra receivers una sola vez
     
-    def ready(self):
-        try:
-            from .utils import ensure_history_view_perms
-            ensure_history_view_perms()   # idempotente
-        except (OperationalError, ProgrammingError):
-            # DB aún no lista; ignorar en arranques tempranos
-            pass
-
-class ProductosConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "productos"
-
-    def ready(self):
-        import productos.signals  # ← IMPORTANTE
+#    def ready(self):
+#        try:
+#            from .utils import ensure_history_view_perms
+#            ensure_history_view_perms()   # idempotente
+#        except (OperationalError, ProgrammingError):
+#            # DB aún no lista; ignorar en arranques tempranos
+#            pass

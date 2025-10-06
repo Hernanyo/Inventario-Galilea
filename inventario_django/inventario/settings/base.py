@@ -45,6 +45,12 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "productos.middleware.SetAppUsernameMiddleware",  # 👈
     "productos.middleware.RequireCompanyMiddleware",
+##################################################################################################
+##################################################################################################
+    "productos.middleware.CurrentUserMiddleware",    # <— NUEVO
+##################################################################################################
+##################################################################################################
+
 
 ]
 

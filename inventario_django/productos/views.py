@@ -10,6 +10,13 @@ from .forms import FacturaAdjuntoForm  # Formulario para adjuntar el archivo
 from django.shortcuts import render
 from .models_inventario import Departamento, EstadoMantencion, TipoMantencion, PrioridadMantencion
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, redirect
+from django.http import Http404
+from django.contrib import messages
+
+from .models_inventario import Factura
 
 # imports necesarios (verifica que estén)
 from django.views import View
@@ -713,5 +720,75 @@ def factura_attach_file(request, factura_id):
 
     return render(request, "productos/factura_adjuntar.html", {"factura": factura})
 
+#########################################################################################################
+#########################################################################################################0110
+@login_required
+@require_POST
+def factura_quitar_adjunto(request, factura_id: int):
+    factura = get_object_or_404(Factura, id_factura=factura_id)
+
+    # seguridad multiempresa
+    emp_id = request.session.get("empresa_id")
+    if emp_id and factura.id_empresa_id != emp_id:
+        raise Http404("Factura fuera de la empresa actual.")
+
+    if factura.archivo_adjunto:
+        # (opcional) borra el archivo del disco; quítalo si prefieres conservarlo
+        try:
+            factura.archivo_adjunto.delete(save=False)
+        except Exception:
+            pass
+
+        # fuerza el cambio del campo para que el signal lo registre
+        factura.archivo_adjunto = None
+        factura.save(update_fields=["archivo_adjunto"])
+
+        messages.success(request, "Se quitó el archivo adjunto.")
+    else:
+        messages.info(request, "La factura no tenía archivo adjunto.")
+
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER")
+    return redirect(next_url or "productos:facturas_list")
+from django.views.generic import ListView
+from .models import Registro
+
+class RegistroListView(ListView):
+    model = Registro
+    template_name = "productos/registros_list.html"
+    context_object_name = "registros"
+    paginate_by = 25  # Puedes ajustar la paginación si es necesario
+
+    def get_queryset(self):
+        emp_id = self.request.session.get("empresa_id")
+        qs = (Registro.objects
+              .select_related("tipo_registro", "usuario", "id_empresa")
+              .order_by("-fecha", "-id_registro"))
+        return qs.filter(id_empresa_id=emp_id) if emp_id else qs
 
 
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
+from .models_inventario import Factura
+
+@login_required
+def factura_quitar_adjunto(request, factura_id):
+    factura = get_object_or_404(Factura, id_factura=factura_id)
+
+    # (opcional) seguridad multi-empresa
+    emp_id = request.session.get("empresa_id")
+    if emp_id and factura.id_empresa_id != emp_id:
+        from django.http import Http404
+        raise Http404("Factura fuera de la empresa actual.")
+
+    if request.method == "POST" and factura.archivo_adjunto:
+        # elimina el archivo físico pero no el registro
+        factura.archivo_adjunto.delete(save=False)
+        factura.archivo_adjunto = None
+        # esto dispara tu signal y registrará QUITAR_ADJUNTO
+        factura.save(update_fields=["archivo_adjunto"])
+        messages.success(request, "Se quitó el archivo adjunto.")
+
+    next_url = request.POST.get("next") or reverse("productos:facturas_list")
+    return redirect(next_url)

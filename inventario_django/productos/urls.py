@@ -412,3 +412,20 @@ urlpatterns += [
     path("facturas/<int:id_factura>/", views.FacturaDetailView.as_view(), name="facturas_detail"),
     path("factura/<int:factura_id>/adjuntar/", views.factura_attach_file, name="factura_attach_file"),
 ]
+
+###############################################################################################################
+###############################################################################################################0110
+
+# productos/urls.py
+from django.urls import path
+from .views import RegistroListView
+
+urlpatterns += [
+    path("registros/", RegistroListView.as_view(), name="registros_list"),
+]
+
+urlpatterns += [
+    path("facturas/<int:factura_id>/quitar-adjunto/",
+         views.factura_quitar_adjunto,
+         name="factura_quitar_adjunto"),
+]

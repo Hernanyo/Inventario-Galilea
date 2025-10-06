@@ -281,7 +281,7 @@
     {% else %}
       <thead>
         <tr>
-          {% for col in view.crud_config.list_display %}
+          {% for col in list_display %}
             {% if view.crud_config.model_name == 'activo' and col == 'observaciones' %}
               <th class="obs-col">
                 <a href="?q={{ q }}&o={{ col }}">Obs.</a>
@@ -303,7 +303,7 @@
       <tbody>
   {% for item in items %}
     <tr>
-      {% for col in view.crud_config.list_display %}
+      {% for col in list_display %}
         {% if view.crud_config.model_name == 'activo' and col == 'observaciones' %}
           <td class="obs-col">
             <button type="button"
@@ -312,6 +312,27 @@
               Ver
             </button>
           </td>
+        {% elif view.crud_config.model_name == 'empleado' and col == 'estado_activo' %}
+          <td>
+            <span class="badge {% if item.estado_activo %}bg-success{% else %}bg-secondary{% endif %}">
+              {% if item.estado_activo %}En actividad{% else %}Inactivo{% endif %}
+            </span>
+          </td>
+        {# 👉 Caso especial para Registro: columna comentario #}
+        {% elif view.crud_config.model_name == 'registro' and col == 'comentario' %}
+          <td class="coment-col">
+            {% if item.comentario %}
+              <button type="button"
+                      class="btn btn-xs btn-outline-primary ver-comentario"
+                      data-comentario="{{ item.comentario|escapejs }}">
+                Ver
+              </button>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+
         {% else %}
           <td>
             {% if q %}
@@ -470,6 +491,14 @@
                 Eliminar
               </a>
             {% endif %}
+          {% elif view.crud_config.model_name == 'registro' %}
+            <button
+                type="button"
+                class="btn btn-xs btn-primary btn-comentar-reg"
+                data-id="{{ item.pk }}"
+                data-comentario="{{ item.comentario|default_if_none:''|escapejs }}">
+              Comentario
+            </button>
           {% else %}
               {% if can_change %}
                 <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
@@ -488,7 +517,7 @@
     </tr>
   {% empty %}
     <tr>
-      <td colspan="{{ view.crud_config.list_display|length|add:1 }}" class="text-center">No hay registros.</td>
+      <td colspan="{{ list_display|length|add:1 }}" class="text-center">No hay registros.</td>
     </tr>
   {% endfor %}
 </tbody>
@@ -496,6 +525,46 @@
 
   </table>
 
+</div>
+
+{# Modal comentar registro #}
+<div class="modal fade" id="comentarRegModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="comentarRegForm" class="modal-content">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title">Agregar comentario</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <textarea name="comentario" id="comentarRegTextarea" class="form-control" rows="4"
+                  placeholder="Escribe un comentario…"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Comentario -->
+<div class="modal fade" id="comentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Comentario del registro</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="comentText" class="mb-0" style="white-space: pre-wrap;"></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal Observaciones -->
@@ -515,6 +584,32 @@
     </div>
   </div>
 </div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modalEl = document.getElementById('comentarRegModal');
+  const modal   = new bootstrap.Modal(modalEl);
+  const form    = document.getElementById('comentarRegForm');
+  const ta      = document.getElementById('comentarRegTextarea');
+
+  // Construimos la URL base y luego reemplazamos el ID
+  const comentarUrlPattern = "{% url 'productos:registros_comentar' 123456 %}"; // marcador
+  function urlFor(id) { return comentarUrlPattern.replace('123456', id); }
+
+  document.body.addEventListener('click', function (e) {
+    const btn = e.target.closest('.btn-comentar-reg');
+    if (!btn) return;
+
+    const id  = btn.dataset.id;
+    const txt = btn.dataset.comentario || '';
+    ta.value  = txt;
+    form.action = urlFor(id);
+    modal.show();
+  });
+});
+</script>
+
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -676,5 +771,26 @@ updateDateTime();
   }
 
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var cModalEl = document.getElementById('comentModal');
+  var cText    = document.getElementById('comentText');
+  var cModal   = null;
+
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.ver-comentario');
+    if (!btn) return;
+
+    cText.textContent = btn.getAttribute('data-comentario') || '—';
+    if (!cModal) cModal = new bootstrap.Modal(cModalEl);
+    cModal.show();
+  });
+});
+</script>
+<style>
+  td.coment-col { white-space: nowrap; width: 90px; }
+</style>
+
 
 {% endblock %}

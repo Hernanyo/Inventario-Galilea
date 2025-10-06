@@ -9,16 +9,48 @@
   · Fecha: {{ factura.fecha_emision|date:"d-m-Y"|default:"—" }}
 </div>
 
+{# Si ya hay archivo, muestro link y botón para quitarlo #}
+{% if factura.archivo_adjunto %}
+  <div class="p-2 border rounded bg-light d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <strong>Archivo actual:</strong>
+      <a href="{{ factura.archivo_adjunto.url }}" target="_blank">
+        {{ factura.archivo_adjunto.name|cut:"facturas/" }}
+      </a>
+    </div>
+    <form method="post"
+          action="{% url 'productos:factura_quitar_adjunto' factura.id_factura %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn btn-sm btn-outline-danger"
+              onclick="return confirm('¿Quitar el archivo adjunto de esta factura?');">
+        Quitar factura
+      </button>
+    </form>
+  </div>
+{% endif %}
+
 <form method="POST" enctype="multipart/form-data" class="bg-white shadow rounded-3 p-4">
   {% csrf_token %}
 
   <div class="form-group mb-3">
     <label for="archivo_adjunto" class="form-label">Selecciona el archivo de la factura</label>
-    <input type="file" name="archivo_adjunto" id="archivo_adjunto" class="form-control" required>
+    <input type="file"
+           name="archivo_adjunto"
+           id="archivo_adjunto"
+           class="form-control"
+           {% if not factura.archivo_adjunto %}required{% endif %}>
+    <small class="text-muted">
+      {% if factura.archivo_adjunto %}
+        Subir un archivo nuevo reemplazará el existente.
+      {% else %}
+        Selecciona un archivo para adjuntar.
+      {% endif %}
+    </small>
   </div>
 
   <div class="form-group text-end">
-    <button type="submit" class="btn btn-primary btn-xs">Subir Factura</button>
+    <button type="submit" class="btn btn-primary btn-xs">Guardar</button>
     <a href="{% url 'productos:facturas_list' %}" class="btn btn-secondary btn-xs">Cancelar</a>
   </div>
 </form>

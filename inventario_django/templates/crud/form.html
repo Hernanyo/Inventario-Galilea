@@ -32,6 +32,12 @@
             {% if view.crud_config.model_name == "factura" %}
             {# Pintamos todos los campos MENOS archivo_adjunto #}
             {% for field in form %}
+              {% if field.name == 'eliminado' %}
+                {# Oculto en UI, pero sigue existiendo en el modelo #}
+                <input type="hidden" name="eliminado" value="{{ field.value|default_if_none:'False' }}">
+              {% else %}
+              {% endif %}
+
               {% if field.name != "archivo_adjunto" %}
                 <div class="mb-3">
                   {{ field.label_tag }} 

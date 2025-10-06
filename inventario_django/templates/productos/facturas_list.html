@@ -36,13 +36,33 @@
           {% endif %}
         </td>
         <td class="text-end">
-          <a class="btn btn-outline-primary btn-sm" href="{% url 'productos:facturas_detail' f.id_factura %}">
+          {# usa el nombre real de tu ruta de detalle: 'factura_detail' o 'facturas_detail' #}
+          <a class="btn btn-outline-primary btn-sm"
+            href="{% url 'productos:factura_detail' id_factura=f.id_factura %}">
             Detalle
           </a>
-          <a class="btn btn-outline-secondary btn-sm" href="{% url 'productos:factura_attach_file' f.id_factura %}">
+
+          <a class="btn btn-outline-secondary btn-sm"
+            href="{% url 'productos:factura_attach_file' f.id_factura %}">
             Adjuntar/Reemplazar
           </a>
+
+          {# Mostrar botón para quitar solo si hay archivo #}
+          {% if f.archivo_adjunto %}
+            <form method="post"
+                  action="{% url 'productos:factura_quitar_adjunto' f.id_factura %}"
+                  style="display:inline">
+              {% csrf_token %}
+              {# para volver a la misma página después de quitar #}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button class="btn btn-outline-danger btn-sm"
+                      onclick="return confirm('¿Quitar el archivo adjunto de esta factura?');">
+                Quitar factura
+              </button>
+            </form>
+          {% endif %}
         </td>
+
       </tr>
     {% empty %}
       <tr><td colspan="5" class="text-muted">Sin facturas.</td></tr>

@@ -3,6 +3,9 @@
 from .models import HistorialMantencionesLog
 from django.utils.dateparse import parse_date
 import json
+from django.contrib import messages
+from django.http import HttpResponseRedirect   # 👈 Faltaba este import
+from django.urls import reverse_lazy
 
 from django.contrib.auth.decorators import login_required
 from .utils import crear_usuario_y_enviar_correo, sync_user_groups_for_empleado
@@ -79,7 +82,12 @@ def _build_default_form(model):
             widgets[f.name] = ClearableFileInput(attrs={"class": "form-control"})
         else:
             widgets[f.name] = forms.TextInput(attrs={"class": "form-control"})
-    return modelform_factory(model, fields="__all__", widgets=widgets)
+
+    
+    # ⬇️ EXCLUIR “eliminado” en todos los forms genéricos
+    exclude = ("eliminado",) if _has_field(model, "eliminado") else ()
+    return modelform_factory(model, fields="__all__", exclude=exclude, widgets=widgets)
+
 
 def _empresa_field_info(model) -> tuple[bool, bool]:
     """
@@ -136,7 +144,14 @@ class CrudConfig:
     def model_name(self):
         # útil en templates para decidir botones especiales
         return self.model._meta.model_name
-
+    
+#################################################################################################################
+#################################################################################################################    
+    def get_list_display(self):
+        # Excluye 'eliminado' de la lista de columnas a mostrar
+        return [field for field in self.list_display if field != "eliminado"]
+#################################################################################################################
+#################################################################################################################
 
 def infer_text_fields(m: Type[Model]) -> List[str]:
     names = [
@@ -351,8 +366,73 @@ def qr_print_view(request, pk):
         "back_url": reverse_lazy("productos:activos_list")
     }
     return render(request, "activos/qr_print.html", context)
+######################################################################################################################################
+######################################################################################################################################
+from django.core.exceptions import FieldDoesNotExist
+
+def _has_field(model, name: str) -> bool:
+    try:
+        model._meta.get_field(name)
+        return True
+    except FieldDoesNotExist:
+        return False
+    
+from django import forms
+from django.views.generic.edit import CreateView, UpdateView
+
+class HideEliminadoFormMixin:
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if 'eliminado' in form.fields:
+            form.fields['eliminado'].widget = forms.HiddenInput()
+        return form
+    
+from django.forms import modelform_factory
+
+class ExcludeEliminadoFormMixin:
+    def get_form_class(self):
+        fields = getattr(self.crud_config, "fields", "__all__")
+        exclude = list(getattr(self.crud_config, "exclude", []))
+        if _has_field(self.model, "eliminado"):
+            exclude.append("eliminado")
+        return modelform_factory(self.model, fields=fields, exclude=tuple(exclude))
 
 
+from django.core.exceptions import FieldDoesNotExist
+from django.db.models import ForeignKey
+
+def _scope_by_empresa(qs, model, emp_id):
+    """Aplica filtro por empresa según el tipo de campo disponible en el modelo."""
+    if not emp_id:
+        return qs
+
+    # 1) Campo 'id_empresa'
+    try:
+        f = model._meta.get_field("id_empresa")
+        if isinstance(f, ForeignKey):
+            return qs.filter(id_empresa_id=emp_id)
+        else:
+            # p.ej. Empresa.id_empresa es PK entero
+            return qs.filter(id_empresa=emp_id)
+    except FieldDoesNotExist:
+        pass
+
+    # 2) Campo 'empresa' (FK)
+    try:
+        f = model._meta.get_field("empresa")
+        if isinstance(f, ForeignKey):
+            return qs.filter(empresa_id=emp_id)
+    except FieldDoesNotExist:
+        pass
+
+    # 3) Modelos que cuelgan de Activo
+    if any(g.name == "id_activo" for g in model._meta.get_fields()):
+        return qs.filter(id_activo__id_empresa_id=emp_id)
+
+    return qs
+
+######################################################################################################################################
+######################################################################################################################################
 class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
     template_name = "crud/list.html"
     context_object_name = "items"
@@ -365,6 +445,16 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         q = (self.request.GET.get("q") or "").strip()
         order = (self.request.GET.get("o") or "").strip()
         qs = self.model.objects.all()
+        #qs = qs.filter(eliminado=False)  # Solo muestra objetos no eliminados
+
+        
+        # --- Scope por empresa (si existe) ---
+        emp_id = self.request.session.get("empresa_id")
+        qs = _scope_by_empresa(qs, self.model, emp_id)
+
+        # --- Borrado lógico (solo si el modelo tiene el campo) ---
+        if _has_field(self.model, "eliminado"):
+            qs = qs.filter(eliminado=False)
 
         # === BÚSQUEDA RÁPIDA: textos + (si q es número) IDs/numéricos/FKs ===
         if q:
@@ -473,7 +563,8 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
             qs = qs.order_by(*self.crud_config.ordering)
 
         # Alcance por empresa (u otros)
-        return self.scope_queryset(qs)
+        #return self.scope_queryset(qs)
+        return qs
 ##2222222222222222222222222222222#########################################################################################################
 
     def get_context_data(self, **kwargs):
@@ -481,6 +572,19 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
         ctx["cfg"] = self.crud_config
+
+        # ✅ columnas filtradas (sin 'eliminado')
+        cols = self.crud_config.get_list_display()
+        ctx["list_display"] = cols   # <-- pásalo al template
+
+        # === NUEVO: datos del filtro avanzado usando cols ===
+        adv_fields = _build_adv_fields_from_list_display(self.model, cols)
+        ctx["adv_fields"] = adv_fields
+        ctx["f"] = (self.request.GET.get("f") or "").strip()
+        ctx["fv"] = (self.request.GET.get("fv") or "").strip()
+        adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields)
+        ctx["adv_choices_json"] = json.dumps(adv_choices, ensure_ascii=False)
+        ctx["adv_fields_json"] = json.dumps(adv_fields, ensure_ascii=False)
 
         # permisos para botones (Nuevo/Editar/Eliminar)
         user = self.request.user
@@ -490,6 +594,10 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         can_create = user.has_perm(f"{app}.add_{model}")
         can_change = user.has_perm(f"{app}.change_{model}")
         can_delete = user.has_perm(f"{app}.delete_{model}")
+
+        # ⬇️ No permitir crear manualmente registros de auditoría
+        if self.model._meta.model_name == "registro":
+            can_create = False
 
         # disponibles tanto en cfg como en el contexto
         self.crud_config.can_create = can_create
@@ -523,7 +631,7 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         return ctx
 
 
-class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView):
+class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView):
     template_name = "crud/form.html"
     action_perm = "add"
     crud_config: CrudConfig
@@ -537,6 +645,9 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         if self.model.__name__ == "Empleado":
             from productos.forms import EmpleadoForm
             return EmpleadoForm
+        if self.model.__name__ == "Marca":                    # 👈 NUEVO
+            from productos.forms import MarcaForm
+            return MarcaForm
         # fallback genérico para cualquier otro modelo (Departamento, Marca, etc.)
         return _build_default_form(self.model)
 
@@ -744,7 +855,7 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         resp = super().form_valid(form)
         if self.model.__name__ == "Empleado" and form.instance.correo:
             crear_usuario_y_enviar_correo(form.instance)
-            sync_user_groups_for_empleado(form.instance)
+            #sync_user_groups_for_empleado(form.instance) GENERA ERRORES INHABILITADO POR AHORA
 
 ###################################################################################2509
         # >>> NUEVO: historial “a la segura” al CREAR activo desde CRUD
@@ -776,7 +887,7 @@ class GenericCreate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Create
         return resp
 
 
-class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
+class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
     template_name = "crud/form.html"
     action_perm = "change"
     crud_config: CrudConfig
@@ -805,6 +916,9 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
         if self.model.__name__ == "Empleado":
             from productos.forms import EmpleadoForm        # ← usar el de forms.py
             return EmpleadoForm
+        if self.model.__name__ == "Marca":                    # 👈 NUEVO
+            from productos.forms import MarcaForm
+            return MarcaForm
         return _build_default_form(self.model)
     
     def get_form(self, form_class=None):
@@ -868,7 +982,12 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
 
         if self.model.__name__ == "Empleado":
             obj = self.object
-            old = old_empleado
+            old = None
+
+            try:
+                old = self.model.objects.get(pk=self.get_object().pk)
+            except Exception:
+                old = None
 
             # Si NO tenía user y ahora hay correo → crear user y mandar link
             if old and not getattr(old, "user_id", None) and obj.correo:
@@ -883,7 +1002,7 @@ class GenericUpdate(SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, Update
                     u.save(update_fields=["email"])
 
             # Mantén tu sincronización de grupos
-            sync_user_groups_for_empleado(obj)
+            #sync_user_groups_for_empleado(obj) GENERA ERRORES INHABILITADO POR AHORA
 
         # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Activo) ===
         if self.model.__name__ == "Activo":
@@ -1197,65 +1316,183 @@ class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     template_name = "crud/delete.html"
     action_perm = "delete"
     crud_config: CrudConfig
-    
 
     def get_queryset(self):
-        qs = self.model.objects.all()
-        return self.scope_queryset(qs)
+        # Respeta el scope por empresa
+        return self.scope_queryset(self.model.objects.all())
 
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
+
+    # ⬇️ Clave: NO llamar a super().delete() si hay borrado lógico
+    def delete(self, request, *args, **kwargs):
+        self.object = self.get_object()
+
+        if hasattr(self.object, "eliminado"):
+            if not getattr(self.object, "eliminado", False):
+                # esto hará que el signal registre ELIMINAR
+                setattr(self.object, "_audit_force_tipo", "ELIMINAR")
+                self.object.eliminado = True
+                self.object.save(update_fields=["eliminado"])
+                messages.success(request, "Registro eliminado.")
+            else:
+                messages.info(request, "El registro ya estaba eliminado.")
+            return HttpResponseRedirect(self.get_success_url())
+
+        # Si el modelo no tiene 'eliminado' → hard delete normal
+        return super().delete(request, *args, **kwargs)
+
+    # Si tu botón confirma via POST al form → reutiliza delete()
+    def form_valid(self, form):
+        return self.delete(self.request, *self.args, **self.kwargs)
+
+    def dispatch(self, request, *args, **kwargs):
+        # seguridad básica; evita AttributeError si no hay empleado
+        emp = getattr(request.user, "empleado", None)
+        if not emp or getattr(emp, "rol", "") != "admin":
+            return HttpResponseForbidden("No tienes permisos para eliminar.")
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         obj = ctx.get("object") or getattr(self, "object", None)
         ctx["object_label"] = self.crud_config.obj_label(obj) if obj else ""
         ctx["cfg"] = self.crud_config
+        ctx["eliminado"] = True
         return ctx
     
-    # Otros métodos
-    def dispatch(self, request, *args, **kwargs):
-        if request.user.empleado.rol != 'admin':
-            return HttpResponseForbidden("No tienes permisos para eliminar.")
-        return super().dispatch(request, *args, **kwargs)
-
 from django.db import connection
 
-def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
-    """
-    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log usando Django ORM.
-    """
-    # nombre visible: Full Name > nombre del Empleado vinculado > username
-    if getattr(user, "is_authenticated", False):
-        display_name = (user.get_full_name() or "").strip() or (str(getattr(user, "empleado", "")) or user.get_username())
-    else:
-        display_name = None
-    
-    # Obtener los datos de la mantención (activo, tipo, prioridad, etc.)
-    activo = mantencion_obj.id_activo
-    tipo_mantencion = mantencion_obj.id_tipo_mantencion.nombre if mantencion_obj.id_tipo_mantencion else None
-    prioridad = mantencion_obj.id_prioridad.nombre if mantencion_obj.id_prioridad else None
-    estado_actual = mantencion_obj.id_estado_mantencion.tipo if mantencion_obj.id_estado_mantencion else None
+#def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
+#    """
+#    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log usando Django ORM.
+#    """
+#    # nombre visible: Full Name > nombre del Empleado vinculado > username
+#    if getattr(user, "is_authenticated", False):
+#        display_name = (user.get_full_name() or "").strip() or (str(getattr(user, "empleado", "")) or user.get_username())
+#    else:
+#        display_name = None
+#    
+#    # Obtener los datos de la mantención (activo, tipo, prioridad, etc.)
+#    activo = mantencion_obj.id_activo
+#    tipo_mantencion = mantencion_obj.id_tipo_mantencion.nombre if mantencion_obj.id_tipo_mantencion else None
+#    prioridad = mantencion_obj.id_prioridad.nombre if mantencion_obj.id_prioridad else None
+#    estado_actual = mantencion_obj.id_estado_mantencion.tipo if mantencion_obj.id_estado_mantencion else None#
 
     # Crear un nuevo registro en HistorialMantencionesLog usando Django ORM
-    historial_log = HistorialMantencionesLog.objects.create(
+#    historial_log = HistorialMantencionesLog.objects.create(
+#        id_mantencion=mantencion_obj.id_mantencion,
+#        fecha_evento=timezone.now(),  # Utiliza la hora actual
+#        accion=accion,
+#        detalle=detalle,
+#        usuario_app_username=display_name,
+#        id_activo=activo.id_activo if activo else None,
+#        etiqueta=activo.etiqueta if activo else None,
+#        activo_nombre=activo.nombre_activo if activo else None,
+#        tipo_mantencion=tipo_mantencion,
+#        prioridad=prioridad,
+#        estado_actual=estado_actual,
+#        responsable_nombre=mantencion_obj.responsable_nombre,  # Esto puede requerir más lógica
+#        solicitante_nombre=mantencion_obj.solicitante_nombre,  # Lo mismo aquí
+#        descripcion=mantencion_obj.descripcion,
+#    )
+    
+#    return historial_log           03/10/2025
+from django.utils import timezone
+
+def log_mantencion_event(request_user, mantencion_obj, accion: str, detalle: str = ""):
+    """
+    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log
+    sin depender de propiedades opcionales del modelo (usa fallbacks).
+    """
+    from .models_inventario import HistorialMantencionesLog  # import local para evitar ciclos
+
+    def visible_user_name(u):
+        if not u:
+            return ""
+        try:
+            full = (u.get_full_name() or "").strip()
+        except Exception:
+            full = ""
+        if full:
+            return full
+        emp = getattr(u, "empleado", None)
+        return str(emp) if emp else getattr(u, "username", "") or str(u)
+
+    # --- Base ---
+    activo = getattr(mantencion_obj, "id_activo", None)
+    etiqueta = getattr(activo, "etiqueta", None)
+    activo_nombre = getattr(activo, "nombre_activo", None) or (str(activo)[:150] if activo else None)
+
+    # Strings "bonitos" de FKs (si existen)
+    tipo_mantencion = str(getattr(mantencion_obj, "id_tipo_mantencion", "")) \
+        if getattr(mantencion_obj, "id_tipo_mantencion_id", None) else None
+    prioridad = str(getattr(mantencion_obj, "id_prioridad", "")) \
+        if getattr(mantencion_obj, "id_prioridad_id", None) else None
+    estado_actual = str(getattr(mantencion_obj, "id_estado_mantencion", "")) \
+        if getattr(mantencion_obj, "id_estado_mantencion_id", None) else None
+
+    # Responsable (puede no tener propiedad *_nombre)
+    responsable = getattr(mantencion_obj, "responsable", None)
+    responsable_nombre = (
+        getattr(mantencion_obj, "responsable_nombre", None) or (str(responsable) if responsable else "")
+    )
+
+    # Solicitante (FK a auth.User). Si no hay propiedad *_nombre, lo calculamos.
+    solicitante_user = getattr(mantencion_obj, "solicitante_user", None)
+    solicitante_nombre = (
+        getattr(mantencion_obj, "solicitante_nombre", None) or visible_user_name(solicitante_user)
+    )
+
+    obj = HistorialMantencionesLog.objects.create(
         id_mantencion=mantencion_obj.id_mantencion,
-        fecha_evento=timezone.now(),  # Utiliza la hora actual
+        fecha_evento=timezone.now(),
         accion=accion,
-        detalle=detalle,
-        usuario_app_username=display_name,
-        id_activo=activo.id_activo if activo else None,
-        etiqueta=activo.etiqueta if activo else None,
-        activo_nombre=activo.nombre_activo if activo else None,
+        detalle=detalle or "",
+        usuario_app_username=visible_user_name(request_user),
+
+        id_activo=getattr(activo, "id_activo", None),
+        etiqueta=etiqueta,
+        activo_nombre=activo_nombre,
+
         tipo_mantencion=tipo_mantencion,
         prioridad=prioridad,
         estado_actual=estado_actual,
-        responsable_nombre=mantencion_obj.responsable_nombre,  # Esto puede requerir más lógica
-        solicitante_nombre=mantencion_obj.solicitante_nombre,  # Lo mismo aquí
-        descripcion=mantencion_obj.descripcion,
+
+        responsable_nombre=responsable_nombre,
+        solicitante_nombre=solicitante_nombre,
+
+        descripcion=getattr(mantencion_obj, "descripcion", "") or "",
+        id_empresa_id=getattr(mantencion_obj, "id_empresa_id", None),
     )
-    
-    return historial_log
+    return obj
+
+# --- Comentario para Registro (log) ---
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, redirect
+from django.http import HttpResponseForbidden
+from django.contrib import messages
+
+@login_required
+@require_POST
+def registro_comentar(request, pk):
+    from .models_inventario import Registro  # evita imports circulares
+    emp_id = request.session.get("empresa_id")
+
+    reg = get_object_or_404(Registro, pk=pk)
+
+    # (opcional) restringe por empresa si tu modelo la tiene
+    if hasattr(reg, "id_empresa_id") and emp_id and reg.id_empresa_id != emp_id:
+        return HttpResponseForbidden("No permitido")
+
+    comentario = (request.POST.get("comentario") or "").strip()
+    reg.comentario = comentario or None
+    reg.save(update_fields=["comentario"])
+    messages.success(request, "Comentario actualizado.")
+    return redirect(request.POST.get("next") or request.META.get("HTTP_REFERER") or "/")
+
+
 # ---------- Export CSV ----------
 
 def export_csv_view(model: Type[Model], cfg: CrudConfig):
@@ -1334,6 +1571,25 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
             ListCls.action_perm = None
         if cfg.slug == "historial_mantenciones":
             ListCls.action_perm = None
+
+######################################################################################################################
+######################################################################################################################
+        # Añadir restricción para el modelo 'registro'
+        if m._meta.model_name == "registro":  # Asegúrate de que el model_name es "registro"
+            ListCls.action_perm = None  # Desactivar las acciones de editar y eliminar para Registro
+            #UpdateCls.action_perm = None
+            #DeleteCls.action_perm = None
+
+
+        # 👉 Ruta especial para comentar Registros (slug es 'registros')
+        if m._meta.model_name == "registro":
+            from .crud import registro_comentar  # este archivo
+            patterns.append(
+                path(f"{cfg.slug}/<int:pk>/comentar/", registro_comentar, name=f"{cfg.slug}_comentar")
+            )
+
+######################################################################################################################
+######################################################################################################################
         # ----------------------------------------------------
 
 
@@ -1496,6 +1752,15 @@ CRUD_CONFIGS = _collect_unique_crud_configs()
 
 # Ordenar Activos por ID descendente por defecto (lo nuevo arriba)
 for _cfg in CRUD_CONFIGS:
+    # 👉 Registros: mostrar lo más nuevo primero
+    if _cfg.model._meta.model_name == "registro":
+        field_names = {f.name for f in _cfg.model._meta.fields}
+        if "fecha" in field_names:
+            _cfg.ordering = ("-fecha", f"-{_cfg.model._meta.pk.name}")
+        else:
+            # Fallback por si no hubiera 'fecha'
+            _cfg.ordering = (f"-{_cfg.model._meta.pk.name}",)
+
     if _cfg.model._meta.model_name == "factura":
         cols = list(_cfg.list_display)
         # insertamos la nueva columna después de id_proveedor (si existe)

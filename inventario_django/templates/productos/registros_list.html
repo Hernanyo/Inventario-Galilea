@@ -1,0 +1,34 @@
+<!-- productos/templates/productos/registros_list.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Registros de Cambios</h1>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Fecha</th>
+            <th>Acción</th>
+            <th>Objeto</th>
+            <th>ID Objeto</th>
+            <th>Descripción</th>
+            <th>Datos Anteriores</th>
+            <th>Datos Nuevos</th>
+            <th>Comentarios</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for registro in registros %}
+        <tr>
+            <td>{{ registro.fecha }}</td>
+            <td>{{ registro.tipo_registro }}</td>
+            <td>{{ registro.modelo_objeto }}</td>
+            <td>{{ registro.objeto_id }}</td>
+            <td>{{ registro.descripcion }}</td>
+            <td>{{ registro.datos_anterior|default:"No disponible" }}</td>
+            <td>{{ registro.datos_nuevos|default:"No disponible" }}</td>
+            <td>{{ registro.comentarios|default:"No comentarios" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
