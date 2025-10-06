@@ -1,47 +1,20 @@
-﻿# Arquitectura — Visión General
+﻿# Configuración
 
-```mermaid
-flowchart LR
-  A[Navegador<br/>(Usuario)] -->|HTTP/HTTPS| B[Django (Inventario)]
-  B -->|ORM| C[(PostgreSQL)]
-  B -->|Media| D[(Almacenamiento de archivos)]
-  B --> E[Señales/Auditoría<br/>Registro de acciones]
-  E --> C
-@'
-# Instalación
+## Variables de entorno (.env)
+Crea un archivo `.env` en la raíz del proyecto:
 
-1. Clonar repositorio y crear entorno virtual.
-2. Instalar dependencias (`pip install -r requirements.txt`).
-3. Configurar variables de entorno (DB, DEBUG, etc.).
-4. Ejecutar migraciones y levantar servidor.
+```dotenv
+DEBUG=True
+SECRET_KEY=pon_aqui_una_clave_segura
+ALLOWED_HOSTS=127.0.0.1,localhost
 
-```bash
-python manage.py migrate
-python manage.py runserver
+# Base de datos
+DB_NAME=inventario
+DB_USER=postgres
+DB_PASSWORD=tu_password
+DB_HOST=127.0.0.1
+DB_PORT=5432
 
-
-
-
-### 2) Reescribe `docs\architecture\overview.md`
-```powershell
-@'
-# Arquitectura — Visión General
-
-```mermaid
-flowchart LR
-  A[Navegador<br/>(Usuario)] -->|HTTP/HTTPS| B[Django (Inventario)]
-  B -->|ORM| C[(PostgreSQL)]
-  B -->|Media| D[(Almacenamiento de archivos)]
-  B --> E[Señales/Auditoría<br/>Registro de acciones]
-  E --> C
-
-
-
-### 3) Crea *placeholders* para las páginas que faltan del `nav` (así mkdocs no falla)
-```powershell
-@'
-# Configuración
-
-- **Multi-empresa:** selección de empresa vía sesión (`empresa_id`).
-- **Borrado lógico:** campo `eliminado` (oculto en formularios) y filtrado por defecto.
-- **Adjuntos de factura:** botones *Adjuntar/Reemplazar* y *Quitar factura*.
+# Archivos media
+MEDIA_ROOT=media
+MEDIA_URL=/media/

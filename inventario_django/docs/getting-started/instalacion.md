@@ -1,22 +1,32 @@
-\# Instalación
-
-
-
-1\. Clonar repositorio y crear entorno virtual.
-
-2\. Instalar dependencias (`pip install -r requirements.txt`).
-
-3\. Configurar variables de entorno (DB, DEBUG, etc.).
-
-4\. Ejecutar migraciones y levantar servidor.
-
-
-
-```bash
-
-python manage.py migrate
-
-python manage.py runserver
-
-
-
+* \# Instalación
+* 
+* \## Requisitos
+* \- Python 3.11+ (recomendado)
+* \- PostgreSQL 13+ (desarrollo/producción)
+* \- Git (opcional, recomendado)
+* 
+* \## Pasos (Windows / PowerShell)
+* ```bash
+* \# 1) Clonar y entrar
+* git clone https://github.com/Hernanyo/Inventario-Galilea.git
+* cd Inventario-Galilea/inventario\_django
+* 
+* \# 2) Entorno virtual
+* python -m venv .venv
+* .\\.venv\\Scripts\\Activate.ps1
+* 
+* \# 3) Dependencias
+* pip install -r requirements.txt
+* 
+* \# 4) Variables de entorno (.env)
+* \# ver: Guía Rápida → Configuración
+* 
+* \# 5) Migraciones
+* python manage.py migrate
+* 
+* \# 6) Superusuario
+* python manage.py createsuperuser
+* 
+* \# 7) Arrancar
+* python manage.py runserver
+* 

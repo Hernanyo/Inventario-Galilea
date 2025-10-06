@@ -6,15 +6,15 @@
 
 flowchart LR
 
-&nbsp;   A\[Navegador (Usuario)] -->|HTTP/HTTPS| B\[Django (Inventario)]
+&nbsp; A\[Navegador<br/>(Usuario)] -->|HTTP/HTTPS| B\[Django (Inventario)]
 
-&nbsp;   B -->|ORM| C\[(PostgreSQL)]
+&nbsp; B -->|ORM| C\[(PostgreSQL)]
 
-&nbsp;   B -->|Media| D\[(Almacenamiento de archivos /media)]
+&nbsp; B -->|Media| D\[(Almacenamiento de archivos)]
 
-&nbsp;   B --> E\[Señales / Auditoría<br/>Registro de acciones]
+&nbsp; B --> E\[Señales/Auditoría<br/>Registro de acciones]
 
-&nbsp;   E --> C
+&nbsp; E --> C
 
 
 
