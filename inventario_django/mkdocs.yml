@@ -1,7 +1,6 @@
 ﻿site_name: Inventario Galilea
 site_description: Documentación del sistema de inventario y mantenciones
 site_author: Equipo Galilea
-
 repo_url: https://github.com/Hernanyo/Inventario-Galilea
 repo_name: Hernanyo/Inventario-Galilea
 edit_uri: ""
@@ -31,25 +30,39 @@ theme:
 
 plugins:
   - search
+  - autorefs
   - mkdocstrings:
       default_handler: python
       handlers:
         python:
           paths: ["."]
           options:
-            show_source: true
             docstring_style: google
-            separate_signature: true
-            show_if_no_docstring: true
-            filters:
-              - "!^_"
+            #show_if_no_docstring: true      # 👈 temporal
+            #filters:
+            #  - "!^_"                        # oculta privados/underscore
+            show_source: false
+            show_root_toc_entry: false
+            members_order: source
+            inherited_members: true
+            merge_init_into_class: true
+            extra:
+              setup_commands:
+                - "import os"
+                - "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'inventario_django.settings')"
+                - "import django"
+                - "django.setup()"
 
 markdown_extensions:
   - admonition
   - attr_list
   - def_list
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight:
@@ -57,8 +70,17 @@ markdown_extensions:
   - toc:
       permalink: true
 
+
+extra_javascript:
+  - javascripts/mermaid.min.js      # 👈 usa el archivo local
+  - javascripts/mermaid-init.js     # 👈 tu inicializador local
+
+extra_css:
+  - styles/mermaid.css
+
 nav:
   - Inicio: index.md
+  - Introduccion: introduccion.md
   - Guía Rápida:
       - Instalación: getting-started/instalacion.md
       - Configuración: getting-started/configuracion.md
@@ -68,9 +90,43 @@ nav:
   - Arquitectura:
       - Visión General: architecture/overview.md
       - Modelo de Datos: architecture/data-model.md
-  - API (Código):
-      - CRUD Genérico: api/crud.md
-      - Modelos de Inventario: api/models_inventario.md
+      - Flujo: architecture/flows.md
+      - Seguridad: architecture/security.md
+
+  # (Quita por ahora: no tienes esos .md)
+  # - Configuración del proyecto:
+  #     - Settings del Proyecto: api/inventario_django.settings.md
+  #     - URLs del Proyecto: api/inventario_django.urls.md
+
+  - Código:
+      # Núcleo
+      - Mapa del Proyecto: api/_mapa_proyecto.md
+      - CRUD Genérico: api/productos.crud.md
+      - Modelos de Inventario: api/productos.models_inventario.md
+      - Views: api/productos.views.md
+      - Forms: api/productos.forms.md
+      - Utilidades: api/productos.utils.md
+
+      # Extras disponibles en tu carpeta
+      - Admin: api/productos.admin.md
+      - Apps: api/productos.apps.md
+      - Auth Backends: api/productos.auth_backends.md
+      - Current User: api/productos.current_user.md
+      #- Dashboard: api/productos.dashboard.md
+      - Middleware: api/productos.middleware.md
+      - Mixins: api/productos.mixins.md
+      - Models: api/productos.models.md
+      #- Overview: api/productos.overview.md
+      - Signals: api/productos.signals.md
+      #- Tests: api/productos.tests.md
+      - URLs: api/productos.urls.md
+      - Views Atributos: api/productos.views_atributos.md
+      - Views Auth: api/productos.views_auth.md
+      - Views Company: api/productos.views_company.md
+      - Views Qr: api/productos.views_qr.md
+      - Templatetags:
+          - Object Extras: api/productos.templatetags.object_extras.md
+  - Historias de Usuario: historias_usuario.md
   - Cambios: changelog.md
   - FAQ: faq.md
 

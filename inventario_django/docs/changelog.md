@@ -18,25 +18,3 @@ Formato propuesto: basado en \*Keep a Changelog\*.
 
 \- Estructura inicial del proyecto de documentación.
 
-\# FAQ
-
-
-
-\*\*¿Por qué no puedo editar/eliminar en Registro de Acciones?\*\*  
-
-Es un log/auditoría: solo lectura.
-
-
-
-\*\*¿Dónde configuro la empresa activa?\*\*  
-
-Tras iniciar sesión, selección de empresa en el header (se guarda en sesión).
-
-
-
-\*\*¿Exportar CSV respeta filtros?\*\*  
-
-Sí: búsqueda + filtros activos.
-
-
-

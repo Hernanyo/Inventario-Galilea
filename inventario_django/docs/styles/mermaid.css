@@ -1,0 +1,12 @@
+.mermaid {
+  display: block;
+  margin: 2rem auto;
+  text-align: center;
+  max-width: 95%;
+}
+
+/* Opcional: agrandar el texto y bordes */
+.mermaid svg {
+  font-size: 15px;
+  stroke-width: 1.2px;
+}

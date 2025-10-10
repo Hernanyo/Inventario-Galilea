@@ -1,0 +1,27 @@
+# Sugerencia para nav en mkdocs.yml
+API (Código):
+  - Admin: api/productos.admin.md
+  - Apps: api/productos.apps.md
+  - Auth Backends: api/productos.auth_backends.md
+  - CRUD Genérico: api/productos.crud.md
+  - Current User: api/productos.current_user.md
+  - Dashboard: api/productos.dashboard.md
+  - Forms: api/productos.forms.md
+  - Forms Old: api/productos.forms_old.md
+  - Middleware: api/productos.middleware.md
+  - Mixins: api/productos.mixins.md
+  - Models: api/productos.models.md
+  - Modelos de Inventario: api/productos.models_inventario.md
+  - Overview: api/productos.overview.md
+  - Signals: api/productos.signals.md
+  -   Init  : api/productos.templatetags.__init__.md
+  - Object Extras: api/productos.templatetags.object_extras.md
+  - Tests: api/productos.tests.md
+  - URLs del Proyecto: api/productos.urls.md
+  - Utilidades: api/productos.utils.md
+  - Views: api/productos.views.md
+  - Views Atributos: api/productos.views_atributos.md
+  - Views Auth: api/productos.views_auth.md
+  - Views Company: api/productos.views_company.md
+  - Views Old: api/productos.views_old.md
+  - Views Qr: api/productos.views_qr.md
