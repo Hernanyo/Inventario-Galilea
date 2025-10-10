@@ -7,6 +7,18 @@ from django.shortcuts import redirect
 from .current_user import set_current_user
 
 class CurrentUserMiddleware:
+    """
+    Middleware que establece el usuario actual en el contexto de la solicitud.
+
+    Asocia al hilo actual el usuario que está realizando la solicitud, 
+    para poder acceder a él desde cualquier parte de la aplicación 
+    durante la misma solicitud.
+
+    Su uso es para auditoría, trazabilidad, o para funciones que necesiten 
+    saber qué usuario está haciendo la solicitud.
+
+    Al final de la solicitud, limpia el usuario asociado al hilo.
+    """
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -22,6 +34,14 @@ class CurrentUserMiddleware:
 
 
 class SetAppUsernameMiddleware:
+    """
+    Middleware que establece el nombre de usuario actual en la sesión de la base de datos.
+
+    Al ejecutar cada solicitud, establece el nombre de usuario (`username`) 
+    en el contexto de la base de datos, permitiendo que se registre en los logs
+    o se use en procedimientos internos que necesiten saber qué usuario está realizando
+    la operación.
+    """
     def __init__(self, get_response): self.get_response = get_response
     def __call__(self, request):
         username = getattr(request.user, "username", None)
@@ -32,8 +52,14 @@ class SetAppUsernameMiddleware:
 
 class RequireCompanyMiddleware:
     """
-    Si el usuario está autenticado y no tiene empresa elegida en sesión,
-    redirige siempre al selector de empresa.
+    Middleware que verifica que un usuario autenticado tenga una empresa seleccionada en su sesión.
+
+    Si el usuario está autenticado y no tiene una empresa seleccionada en la sesión,
+    se redirige al selector de empresas. Permite que ciertas rutas como login, logout, 
+    y estáticos puedan ser accedidas sin tener una empresa activa en la sesión.
+
+    Permite que los usuarios sin empresa activa puedan seleccionar la empresa antes de 
+    acceder a otras partes de la aplicación.
     """
     def __init__(self, get_response):
         self.get_response = get_response

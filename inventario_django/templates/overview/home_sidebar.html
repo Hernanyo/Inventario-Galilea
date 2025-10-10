@@ -16,29 +16,36 @@
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
       </div>
       <div class="offcanvas-body p-0">
-        <div class="list-group list-group-flush sticky-top" style="top: 84px;">
-          {% for m in menu %}
-            {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'categoriaactivos'%}
-              <a href="/{{ m.slug }}/" 
-                 class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                <span>
-                  <i class="
-                    {% if m.slug == 'empresas' %}bi-buildings
-                    {% elif m.slug == 'empleados' %}bi-people
-                    {% elif m.slug == 'marcas' %}bi-tags
-                    {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
-                    {% elif m.slug == 'activos' %}bi-pc-display
-                    {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
-                    {% elif m.slug == 'facturas' %}bi-receipt
-                    {% else %}bi-folder
-                    {% endif %}
-                    me-2"></i>
-                  {{ m.name }}
-                </span>
-                <span class="badge rounded-pill text-bg-secondary">{{ m.count }}</span>
-              </a>
-            {% endif %}
-          {% endfor %}
+        <div class="sidebar-card">
+          <div class="sidebar-title">Navegación</div>
+
+          <div class="list-group list-group-flush sidebar-list">
+            {% for m in menu %}
+              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' %}
+
+                {% with path=request.path %}
+                <a href="/{{ m.slug }}/"
+                  class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if path|slice:":{{ m.slug|length|add:'2' }}" == '/'|add:m.slug|add:'/' %}active{% endif %}">
+                  <span>
+                    <i class="
+                      {% if m.slug == 'empresas' %}bi-buildings
+                      {% elif m.slug == 'empleados' %}bi-people
+                      {% elif m.slug == 'marcas' %}bi-tags
+                      {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
+                      {% elif m.slug == 'activos' %}bi-pc-display
+                      {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
+                      {% elif m.slug == 'facturas' %}bi-receipt
+                      {% else %}bi-folder
+                      {% endif %} me-2"></i>
+                    {{ m.name }}
+                  </span>
+                  <span class="badge rounded-pill">{{ m.count }}</span>
+                </a>
+                {% endwith %}
+
+              {% endif %}
+            {% endfor %}
+          </div>
         </div>
       </div>
     </div>
@@ -93,7 +100,7 @@
           <div class="card-body text-center kpi-body">
             <h6 class="text-muted">En uso</h6>
             <div class="display-6">{{ en_uso|default:0 }}</div>
-            <small class="text-muted">eactivos</small>
+            <small class="text-muted">activos</small>
           </div>
         </div>
       </a>
@@ -141,7 +148,7 @@
                 <tr><th>#</th><th>Nombre</th><th>Marca</th><th>Tipo</th></tr>
               </thead>
               <tbody>
-                {% for e in ultimos_activos %}
+                {% for e in ultimos_activos|slice:":5" %}
                   <tr>
                     <td>{{ e.id_activo }}</td>
                     <td>{{ e.nombre_activo }}</td>
@@ -166,7 +173,7 @@
                 <tr><th>#</th><th>Activo</th><th>Estado</th><th>Fecha</th></tr>
               </thead>
               <tbody>
-                {% for m in ultimas_mantenciones %}
+                {% for m in ultimas_mantenciones|slice:":5" %}
                   <tr>
                     <td>{{ m.id_mantencion }}</td>
                     <td>{{ m.id_activo }}</td>
@@ -193,7 +200,7 @@
       if (document.getElementById('chartTipos')) {
         new Chart(document.getElementById('chartTipos'), {
           type: 'bar',
-          data: { labels: tiposLabels, datasets: [{ label: 'Equipos', data: tiposValues }] },
+          data: { labels: tiposLabels, datasets: [{ label: 'Activos', data: tiposValues }] },
           options: { responsive: true, maintainAspectRatio: false }
         });
       }

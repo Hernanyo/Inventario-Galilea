@@ -18,10 +18,26 @@ except Exception:
 
 @method_decorator(login_required(login_url="login"), name="dispatch")
 class CardsGridView(TemplateView):
-    """Cuadrícula de módulos (antigua pantalla de tarjetas)."""
+    """
+    Vista que renderiza una cuadrícula de módulos (pantalla de tarjetas).
+    
+    Utiliza la configuración de CRUDs para mostrar un conteo de los registros 
+    en cada módulo. Los módulos son representados como tarjetas, con la cantidad 
+    de registros que contienen. Requiere que el usuario esté autenticado.
+
+    **Template:** `overview/cards_grid.html`
+    """
     template_name = "overview/cards_grid.html"
 
     def get_context_data(self, **kwargs):
+        """
+        Obtiene el contexto de la vista, que incluye la lista de tarjetas con el 
+        conteo de registros por cada módulo CRUD configurado.
+
+        :param kwargs: Argumentos adicionales para el contexto.
+        :return: Contexto con la lista de módulos y su conteo de registros.
+        """
+
         ctx = super().get_context_data(**kwargs)
         cards = []
         for cfg in get_crud_configs():
@@ -36,10 +52,24 @@ class CardsGridView(TemplateView):
 
 @method_decorator(login_required(login_url="login"), name="dispatch")
 class ListVerticalView(TemplateView):
-    """Listado vertical compacto de módulos."""
+    """
+    Vista que renderiza un listado vertical compacto de módulos.
+    
+    Similar a la vista `CardsGridView`, pero muestra la información de los 
+    módulos en un formato de lista vertical. Requiere que el usuario esté autenticado.
+
+    **Template:** `overview/list_vertical.html`
+    """
     template_name = "overview/list_vertical.html"
 
     def get_context_data(self, **kwargs):
+        """
+        Obtiene el contexto de la vista, similar a `CardsGridView`, pero en formato 
+        de lista vertical.
+
+        :param kwargs: Argumentos adicionales para el contexto.
+        :return: Contexto con la lista de módulos y su conteo de registros.
+        """
         ctx = super().get_context_data(**kwargs)
         cards = []
         for cfg in get_crud_configs():
@@ -54,10 +84,25 @@ class ListVerticalView(TemplateView):
 
 @method_decorator(login_required(login_url="login"), name="dispatch")
 class MetricsDashboardView(TemplateView):
-    """Dashboard con KPIs y gráficos."""
+    """
+    Vista que renderiza un dashboard con KPIs y métricas de los módulos.
+    
+    Muestra estadísticas clave sobre los registros en los modelos CRUD, incluyendo 
+    conteos totales y distribuciones por categorías como empleados, activos y mantenciones. 
+    Requiere que el usuario esté autenticado.
+
+    **Template:** `overview/dashboard_metrics.html`
+    """
     template_name = "overview/dashboard_metrics.html"
 
     def get_context_data(self, **kwargs):
+        """
+        Obtiene el contexto de la vista, que incluye métricas clave de los modelos 
+        y estadísticas sobre empleados, activos y mantenciones.
+
+        :param kwargs: Argumentos adicionales para el contexto.
+        :return: Contexto con KPIs, conteos de registros por modelo y distribuciones por categorías.
+        """
         ctx = super().get_context_data(**kwargs)
 
         # Conteos por modelo

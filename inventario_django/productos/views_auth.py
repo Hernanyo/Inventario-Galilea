@@ -9,8 +9,19 @@ from django.contrib import messages
 
 def seleccionar_empresa(request):
     """
-    Pantalla previa al login: elige empresa y guardamos en sesión.
-    Luego redirige al login normal.
+    Vista para seleccionar la empresa antes de iniciar sesión.
+    
+    Permite al usuario elegir una empresa desde una lista y guarda esa empresa en la sesión 
+    para que se mantenga disponible durante el proceso de login. Si hay una URL de redirección 
+    pendiente (almacenada en el parámetro "next"), la vista asegura que el usuario sea redirigido 
+    a dicha URL después de seleccionar la empresa.
+    
+    Si el usuario hace un POST, la empresa seleccionada se guarda en la sesión y se redirige 
+    al login. Si la URL contiene un parámetro "next", este se preserva para ser utilizado 
+    después del login. En caso contrario, se redirige directamente al login.
+    
+    Si la solicitud es GET, muestra un formulario para elegir la empresa disponible y redirige 
+    a la vista correspondiente.
     """
     # <----- AÑADIR AQUÍ: lee el "next" entrante para preservarlo
     next_url = request.GET.get("next") or request.POST.get("next") or ""
@@ -40,8 +51,10 @@ def seleccionar_empresa(request):
 # <----- AÑADIR ESTA VISTA NUEVA (para el link 'company_change' en tu login.html)
 def cambiar_empresa(request):
     """
-    Limpia la empresa de la sesión y vuelve al selector.
-    Preserva ?next= si venía.
+    Vista para cambiar la empresa seleccionada en la sesión.
+
+    Limpia los datos de la empresa de la sesión y redirige al selector de empresas. Si se proporciona
+    un parámetro "next" en la URL, se preserva para redirigir al usuario después de seleccionar la nueva empresa.
     """
     next_url = request.GET.get("next") or ""
     for key in ("empresa_id", "empresa_nombre", "empresa_slug"):

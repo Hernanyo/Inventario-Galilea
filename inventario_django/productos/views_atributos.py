@@ -9,6 +9,10 @@ from django.urls import reverse
 
 
 class AttrForm(forms.ModelForm):
+    """
+    Formulario para editar atributos de un activo.
+    Genera el formulario para el modelo AtributosActivo.
+    """
     class Meta:
         model = AtributosActivo
         fields = ("atributo", "valor")
@@ -20,6 +24,10 @@ class AttrForm(forms.ModelForm):
             f.widget.attrs["class"] = (css + " form-control").strip()
 #1##################################################################################################24-09-2025
 def atributosactivos_list(request):
+    """
+    Muestra el listado de tipos de activos disponibles en la empresa activa.
+    Filtra los tipos de activos según la empresa activa.
+    """
     emp_id = request.session.get("empresa_id")
     tipos = TipoActivo.objects.all()
     if emp_id:
@@ -39,6 +47,10 @@ def atributosactivos_list(request):
 #2##################################################################################################24-09-2025
 
 def editar_atributos_por_tipo(request, tipo_id):
+    """
+    Permite editar los atributos de un tipo de activo específico.
+    Solo los atributos de ese tipo se pueden editar o eliminar.
+    """
     tipo = get_object_or_404(TipoActivo, pk=tipo_id)
 #1################################################################################################24-05-2025
     emp_id = request.session.get("empresa_id")

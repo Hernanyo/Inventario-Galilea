@@ -10,20 +10,11 @@ from django.db.models import ForeignKey, OneToOneField
 
 class ModelPermsMixin(LoginRequiredMixin):
     """
-    Exige login y, si la vista define action_perm = ('view'|'add'|'change'|'delete'),
-    valida el permiso <app_label>.<action_perm>_<model_name>.
-    """
-    """
-    action_perm: str | None = None
-
-    def dispatch(self, request, *args, **kwargs):
-        if self.action_perm:
-            app_label = self.model._meta.app_label
-            model_name = self.model._meta.model_name
-            codename = f"{self.action_perm}_{model_name}"
-            if not request.user.has_perm(f"{app_label}.{codename}"):
-                raise PermissionDenied
-        return super().dispatch(request, *args, **kwargs)
+    Exige que el usuario esté autenticado y que tenga los permisos necesarios 
+    para realizar acciones sobre un modelo en particular. Los permisos son definidos
+    con la propiedad `action_perm` que se mapea a un permiso `<app_label>.<action_perm>_<model_name>`.
+    
+    El valor de `action_perm` puede ser 'view', 'add', 'change', o 'delete'.
     """
     def dispatch(self, request, *args, **kwargs):
         # <-- si la vista marca action_perm=None, no pedimos permisos extra
@@ -39,7 +30,10 @@ class ModelPermsMixin(LoginRequiredMixin):
 
 
 class CompanyRequiredMixin(LoginRequiredMixin):
-    """Exige que haya empresa en sesión; si no, redirige al selector."""
+    """
+    Exige que el usuario tenga una empresa seleccionada en la sesión.
+    Si no se encuentra configurada, redirige al selector de empresa.
+    """
     def dispatch(self, request, *args, **kwargs):
         if not request.session.get("empresa_id"):
             return redirect("productos:company_select")
@@ -51,6 +45,14 @@ class CompanyRequiredMixin(LoginRequiredMixin):
 from django.db.models import ForeignKey, OneToOneField
 
 def scope_qs_by_empresa(request, qs):
+    """
+    Aplica un filtro de empresa a las consultas, asegurando que los resultados
+    solo incluyan los objetos de la empresa activa en la sesión.
+    
+    :param request: La solicitud HTTP, que debe contener la empresa activa en la sesión.
+    :param qs: La queryset a filtrar por `id_empresa`.
+    :return: La queryset filtrada por empresa.
+    """
     if qs is None:
         return qs
     emp_id = request.session.get("empresa_id")
@@ -85,13 +87,19 @@ def scope_qs_by_empresa(request, qs):
     return qs
 
 class EmpresaScopeMixin(LoginRequiredMixin):
-    """Mixin para aplicar el scoping en CBVs."""
+    """
+    Mixin para aplicar el filtro de empresa en las vistas basadas en clases (CBVs).
+    Asegura que las consultas (`querysets`) solo devuelvan resultados de la empresa activa.
+    """
     def scope_queryset(self, qs):
         return scope_qs_by_empresa(self.request, qs)
 
 
 class SaveEmpresaMixin(LoginRequiredMixin):
-    """Si el modelo tiene id_empresa y viene vacío, lo completa con la empresa de sesión."""
+    """
+    Mixin que se asegura de que al guardar una instancia de modelo que tenga un campo `id_empresa`, 
+    este campo se complete automáticamente con el `empresa_id` de la sesión si no está presente.
+    """
     def form_valid(self, form):
         emp_id = self.request.session.get("empresa_id")
         if emp_id:

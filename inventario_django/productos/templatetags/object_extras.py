@@ -8,8 +8,19 @@ register = template.Library()
 @register.filter
 def attr(obj, name):
     """
-    Obtiene dinámicamente un atributo del objeto:
+    Obtiene dinámicamente un atributo del objeto.
+
+    Este filtro permite obtener cualquier atributo de un objeto de manera dinámica en los templates.
+    Ejemplo de uso en templates: 
     {{ obj|attr:"campo" }}  ->  getattr(obj, "campo")
+
+    Si el atributo no existe o el objeto es None, devuelve una cadena vacía.
+    Si el atributo es callable (un método), intenta invocar el método y devolver su resultado.
+
+    Args:
+        obj (object): El objeto sobre el que se quiere obtener el atributo.
+        name (str): El nombre del atributo que se desea obtener.
+
     """
     if obj is None or not name:
         return ""
@@ -26,8 +37,16 @@ def attr(obj, name):
 @register.filter
 def column_label(col_name: str) -> str:
     """
-    Etiquetas legibles para columnas en list.html.
-    Si no está en el mapping, aplica "replace _" y Title Case.
+    Etiquetas legibles para columnas en `list.html`.
+
+    Este filtro convierte nombres de columnas (usados en los templates) en etiquetas más legibles para el usuario.
+    Si no hay un mapeo específico para el nombre de la columna, realiza un "replace _" y convierte el texto a formato "Title Case".
+
+    Args:
+        col_name (str): El nombre de la columna (ej. 'id_activo', 'nombre_activo').
+
+    Returns:
+        str: Una etiqueta legible (ej. "Id Activo", "Nombre Activo").
     """
     mapping = {
         # Activos
@@ -52,8 +71,16 @@ def column_label(col_name: str) -> str:
 @register.filter(needs_autoescape=True)
 def underline_match(value, q, autoescape=True):
     """
-    Subraya (con un <span class="hl">...</span>) las coincidencias de `q`
-    dentro de `value`. Case-insensitive y seguro (escapa HTML).
+    Subraya las coincidencias de `q` dentro de `value`.
+
+    Este filtro subraya todas las ocurrencias de la cadena `q` dentro del valor `value`, de forma insensible a mayúsculas/minúsculas.
+    Las coincidencias son envueltas en un `<span class="hl">...</span>` para aplicar estilos de subrayado.
+    El filtro también asegura que el valor sea seguro para HTML.
+
+    Args:
+        value (str): El valor en el que buscar las coincidencias.
+        q (str): La cadena que se busca dentro de `value`.
+        autoescape (bool, optional): Si debe escapar automáticamente el valor. Por defecto es `True`.
     """
     if not q or value is None:
         return value

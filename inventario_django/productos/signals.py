@@ -7,6 +7,10 @@ from django.dispatch import receiver
 from django.contrib.auth.models import User
 from .models_inventario import Empleado
 from .utils import sync_user_groups_for_empleado, crear_usuario_y_enviar_correo
+from threading import local
+from django.db.models.signals import pre_save, post_save
+
+from .models_inventario import Activo, HistorialActivos
 
 # productos/signals.py
 from django.db.models.signals import post_save
@@ -14,20 +18,42 @@ from django.dispatch import receiver
 from .models_inventario import Empleado
 from .utils import ensure_auth_user_for_empleado, sync_user_groups_for_empleado, send_password_set_link
 
-
-
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 from .models_inventario import Activo, HistorialActivos
 
 
+def _as_str(obj):
+    """
+    Convierte un objeto en un string, retornando una cadena vacía si es None.
+    
+    :param obj: Objeto a convertir a string.
+    :return: String vacío si el objeto es None, de lo contrario, su representación en string.
+    """
+    return "" if obj is None else str(obj)
+
+
 def _empleado_empresa_dep(empleado):
+    """
+    Obtiene la empresa y el departamento de un empleado.
+
+    :param empleado: Instancia de `Empleado`.
+    :return: Tupla con `id_empresa` y `id_departamento` del empleado.
+    """
     if not empleado:
         return None, None
     return getattr(empleado, "id_empresa", None), getattr(empleado, "id_departamento", None)
 
 def _activo_empresa_dep(instance, prev=None):
+    """
+    Obtiene la empresa y el departamento de un activo, priorizando los valores actuales, 
+    luego los valores del responsable y finalmente los valores previos.
+
+    :param instance: Instancia de `Activo`.
+    :param prev: Instancia previa de `Activo` para obtener valores anteriores.
+    :return: Tupla con `id_empresa` y `id_departamento` del activo.
+    """
     emp = getattr(instance, "id_empresa", None)
     dep = getattr(instance, "id_departamento", None)
     if emp or dep:
@@ -42,7 +68,13 @@ def _activo_empresa_dep(instance, prev=None):
 
 @receiver(pre_save, sender=Activo)
 def activo_pre_save(sender, instance: Activo, **kwargs):
-    """Guarda snapshot previo para comparar en post_save."""
+    """
+    Guarda un snapshot previo del activo para ser utilizado en post_save para comparación.
+
+    :param sender: El modelo que dispara la señal.
+    :param instance: Instancia del objeto `Activo` antes de guardar.
+    :param kwargs: Argumentos adicionales.
+    """
     if instance.pk:
         try:
             instance._prev = sender.objects.select_related(
@@ -108,24 +140,30 @@ def activo_pre_save(sender, instance: Activo, **kwargs):
 @receiver(post_save, sender=Activo)
 def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
     """
-    Historial por alta/cambio de estado/responsable y también por cambios de otros campos relevantes
-    (nombre, etiqueta, marca, tipo, proveedor, empresa/departamento).
-    Observaciones se maneja aparte (abajo).
+    Registra un historial por creación, cambios de estado, cambios de responsable y cambios de otros campos 
+    relevantes en un activo.
+
+    :param sender: El modelo que dispara la señal.
+    :param instance: Instancia del objeto `Activo` después de guardar.
+    :param created: Si el objeto fue creado.
+    :param kwargs: Argumentos adicionales.
     """
     prev: Activo | None = getattr(instance, "_prev", None)
     usuario_actual = getattr(instance, "_usuario_actual", None)
 
+    # Empresa/Depto por prioridad (modelo / responsable / previo)
     empresa_actual, dep_actual = _activo_empresa_dep(instance, prev)
 
+    # ---- FOTO ACTUAL (siempre strings “congelados” donde el modelo lo permite) ----
     base = dict(
-        activo=instance,
-        etiqueta=getattr(instance, "etiqueta", "") or "",
-        nombre_activo=getattr(instance, "nombre_activo", "") or "",
+        activo=instance,  # FK para saber de qué activo es el evento (no se muestra en la lista)
+        etiqueta=(getattr(instance, "etiqueta", "") or ""),
+        nombre_activo=(getattr(instance, "nombre_activo", "") or ""),  # FOTO del nombre
         tipo_activo=getattr(instance, "id_tipo_activo", None) if hasattr(instance, "id_tipo_activo") else None,
-        usuario=usuario_actual,
-        empresa=empresa_actual,          # usa 'empresa', no 'id_empresa'
+        usuario=usuario_actual,          # Empleado que hizo el cambio (si lo seteas en la vista)
+        empresa=empresa_actual,          # deja el FK (tu modelo ya lo usa así)
         departamento=dep_actual,         # idem
-        responsable_actual=getattr(instance, "id_empleado", None),
+        responsable_actual=getattr(instance, "id_empleado", None),  # FK (tu modelo ya lo usa)
         fecha=timezone.now(),
     )
 
@@ -134,6 +172,7 @@ def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
         HistorialActivos.objects.create(
             estado_anterior=None,
             estado_nuevo=getattr(instance, "id_estado_activo", None),
+            accion="CREACION",
             **base,
         )
         return
@@ -141,7 +180,7 @@ def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
     if not prev:
         return
 
-    # --- Detección de cambios ---
+    # --- Detección de cambios (prev vs new) ---
     prev_estado_id = getattr(prev, "id_estado_activo_id", None)
     new_estado_id  = getattr(instance, "id_estado_activo_id", None)
     prev_resp_id   = getattr(prev, "id_empleado_id", None)
@@ -150,12 +189,11 @@ def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
     estado_cambia = prev_estado_id != new_estado_id
     resp_cambia   = prev_resp_id  != new_resp_id
 
-    # Otros campos relevantes
+    # Otros campos relevantes (para comentario)
     changes = []
 
     def add_change(label, old, new):
         if (old or "") != (new or ""):
-            # corta para no crecer sin control
             changes.append(f"{label}: '{(old or '')[:80]}' → '{(new or '')[:80]}'")
 
     add_change("Nombre", getattr(prev, "nombre_activo", None), getattr(instance, "nombre_activo", None))
@@ -168,30 +206,46 @@ def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
 
     otros_cambios = bool(changes)
 
-    # Si no hubo ningún cambio que nos interese, salimos
+    # Si no hubo nada relevante, no insertamos historial
     if not (estado_cambia or resp_cambia or otros_cambios):
         return
+
+    # Etiqueta de acción (para lectura rápida en el historial)
+    if estado_cambia:
+        accion = "ESTADO"
+    elif resp_cambia:
+        accion = "RESPONSABLE"
+    else:
+        accion = "EDICION"
 
     comentario = None
     if otros_cambios:
         comentario = ("; ".join(changes))[:2000]
 
-    # Si cambió estado o responsable, registramos con esos campos;
-    # si sólo cambiaron otros campos, dejamos estado_anterior = estado_nuevo = estado actual.
+    # Si cambió estado o responsable, registramos con esos campos “antes/ahora”.
+    # Si solo cambiaron otros campos, dejamos estado_anterior = estado_nuevo = estado actual,
+    # y responsable_anterior_fk = responsable_actual (foto del momento).
     HistorialActivos.objects.create(
         estado_anterior=getattr(prev, "id_estado_activo", None) if estado_cambia else getattr(instance, "id_estado_activo", None),
         estado_nuevo=getattr(instance, "id_estado_activo", None),
         responsable_anterior_fk_id=getattr(prev, "id_empleado_id", None) if resp_cambia else getattr(instance, "id_empleado_id", None),
         comentario=comentario,
+        accion=accion,
         **base,
     )
-
 
 # ---------- Observaciones ----------
 
 def _historial_snapshot_observaciones(activo: Activo, comentario: str, usuario=None):
     """
     Inserta un registro de OBSERVACIONES (estado anterior = nuevo).
+    
+    Registra los cambios en el campo de observaciones del activo, creando un 
+    historial con la acción correspondiente.
+
+    :param activo: Instancia de `Activo` sobre el cual se registran las observaciones.
+    :param comentario: Texto de las observaciones.
+    :param usuario: Usuario que realiza el cambio.
     """
     try:
         HistorialActivos.objects.create(
@@ -221,6 +275,13 @@ def _historial_snapshot_observaciones(activo: Activo, comentario: str, usuario=N
 def _activo_detectar_cambio_observaciones(sender, instance: Activo, **kwargs):
     """
     Prepara el mensaje cuando cambian las observaciones.
+    
+    Compara las observaciones previas y nuevas, y si hay cambios, se prepara
+    un mensaje que será registrado en el historial de observaciones.
+
+    :param sender: El modelo que dispara la señal.
+    :param instance: Instancia del objeto `Activo` antes de guardar.
+    :param kwargs: Argumentos adicionales.
     """
     if not instance.pk:
         instance._obs_log_msg = None
@@ -243,6 +304,19 @@ def _activo_detectar_cambio_observaciones(sender, instance: Activo, **kwargs):
 
 @receiver(post_save, sender=Activo)
 def _activo_log_cambio_observaciones(sender, instance: Activo, created: bool, **kwargs):
+    """
+    Registra un evento en el historial cuando se detecta un cambio en las observaciones.
+
+    Si se ha creado un nuevo `Activo`, guarda el mensaje de las observaciones
+    en el historial de activos. Si no es nuevo, registra los cambios en las 
+    observaciones.
+
+    :param sender: El modelo que dispara la señal.
+    :param instance: Instancia del objeto `Activo` después de guardar.
+    :param created: Si el objeto fue creado.
+    :param kwargs: Argumentos adicionales.
+    """
+
     if created:
         init = (instance.observaciones or "").strip()
         if init:
@@ -266,6 +340,15 @@ def _activo_log_cambio_observaciones(sender, instance: Activo, created: bool, **
 
 @receiver(post_save, sender=Empleado)
 def empleado_post_save(sender, instance: Empleado, created, **kwargs):
+    """
+    Crea un usuario para el empleado si no tiene uno asociado, y sincroniza los 
+    grupos de usuario según el rol del empleado.
+
+    :param sender: El modelo que dispara la señal.
+    :param instance: Instancia del objeto `Empleado`.
+    :param created: Si el objeto fue creado.
+    :param kwargs: Argumentos adicionales.
+    """
     # Si se crea un empleado con correo y sin user → crea user + envía link
     if created and instance.correo and not instance.user:
         crear_usuario_y_enviar_correo(instance)
@@ -310,8 +393,9 @@ from django.contrib.auth.models import Group
 
 def _audit_tables_ready() -> bool:
     """
-    Devuelve True sólo si ya existen las tablas necesarias para grabar en productos_registro.
-    Así evitamos ejecutar durante makemigrations/migrate inicial.
+    Verifica si las tablas necesarias para la auditoría están listas para registrar eventos.
+
+    :return: True si las tablas de auditoría están disponibles, False de lo contrario.
     """
     try:
         tables = set(connection.introspection.table_names())
