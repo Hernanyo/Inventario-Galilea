@@ -15,6 +15,17 @@ import re
 import unicodedata
 
 def normalize_name(s: str) -> str:
+    """
+    Normaliza un nombre eliminando tildes y espacios extra.
+
+    Este método se utiliza para comparar nombres de forma insensible a tildes y mayúsculas.
+
+    Parameters:
+    s (str): El nombre a normalizar.
+
+    Returns:
+    str: El nombre normalizado, en minúsculas y sin tildes.
+    """
     s = (s or "").strip()
     s = re.sub(r"\s+", " ", s)                # colapsa espacios
     s = unicodedata.normalize("NFKD", s)
@@ -22,6 +33,18 @@ def normalize_name(s: str) -> str:
     return s.lower()
 
 class MantencionForm(forms.ModelForm):
+    """
+    Formulario para la creación y edición de mantenimientos.
+
+    Este formulario permite gestionar las mantenciones, asignando los activos,
+    estados, tipos y prioridades, así como la fecha y descripción.
+
+    Attributes:
+        model (Mantencion): El modelo asociado con este formulario.
+        exclude (list): Campos a excluir del formulario.
+        widgets (dict): Widgets de entrada de los campos.
+        labels (dict): Etiquetas personalizadas para los campos.
+    """
     class Meta:
         model = Mantencion
         exclude = ['eliminado']  # Excluir el campo 'eliminado' en el formulario
@@ -49,6 +72,16 @@ class MantencionForm(forms.ModelForm):
         }
 
     def __init__(self, *args, request=None, **kwargs):
+        """
+        Inicializa el formulario, añadiendo filtros y configuraciones adicionales.
+
+        Esta función también asigna filtros específicos por empresa activa para
+        los campos de selección (activos, estados, tipos, etc.).
+
+        Parameters:
+        request (HttpRequest): La solicitud actual, para obtener la empresa activa.
+
+        """
         super().__init__(*args, **kwargs)
 
         # clases para selects/inputs
@@ -104,12 +137,36 @@ class MantencionForm(forms.ModelForm):
         self._request = request  # por si lo necesitas luego
 
     def clean_fecha(self):
+        """
+        Valida la fecha ingresada en el formulario.
+
+        La fecha no puede ser anterior a hoy, excepto si ya existe un registro
+        con la fecha pasada.
+
+        Parameters:
+        None
+
+        Returns:
+        date: La fecha validada.
+        """
         f = self.cleaned_data.get("fecha")
         if not getattr(self.instance, "pk", None) and f and f < date.today():
             raise ValidationError("La fecha no puede ser anterior a hoy.")
         return f
 
     def clean(self):
+        """
+        Realiza validaciones adicionales para asegurar que los campos seleccionados
+        pertenezcan a la empresa activa.
+
+        También autocompleta la empresa de la mantención si no se encuentra asignada.
+
+        Parameters:
+        None
+
+        Returns:
+        dict: Los datos del formulario validados.
+        """
         cleaned = super().clean()
         activo = cleaned.get("id_activo")
         if activo is None:
@@ -136,6 +193,17 @@ class MantencionForm(forms.ModelForm):
         return cleaned
     
 class EmpleadoForm(forms.ModelForm):
+    """
+    Formulario para la creación y edición de empleados.
+
+    Este formulario permite gestionar la información de los empleados, como
+    el nombre, rut, cargo, teléfono, y la asignación a un departamento y empresa.
+
+    Attributes:
+        model (Empleado): El modelo asociado con este formulario.
+        exclude (list): Campos a excluir del formulario (en este caso, 'user' y 'eliminado').
+        widgets (dict): Widgets de entrada de los campos.
+    """
     class Meta:
         model = Empleado
         # Ocultamos el OneToOne con auth_user para que no se edite desde aquí
@@ -158,6 +226,19 @@ class EmpleadoForm(forms.ModelForm):
 ################################################################################################################
 ################################################################################################################
     def save(self, commit=True):
+        """
+        Guarda el formulario creando un usuario asociado si no existe.
+
+        Si el empleado no tiene un usuario asociado, se crea un nuevo usuario
+        en el sistema con el correo como nombre de usuario y una contraseña
+        predeterminada.
+
+        Parameters:
+        commit (bool): Si se debe guardar o no el objeto en la base de datos.
+
+        Returns:
+        Empleado: El empleado guardado.
+        """
         # Crear el usuario automáticamente si no se ha asignado un user_id
         instance = super().save(commit=False)
         
@@ -177,6 +258,15 @@ class EmpleadoForm(forms.ModelForm):
 ################################################################################################################
 
 class FacturaAdjuntoForm(forms.ModelForm):
+    """
+    Formulario para adjuntar un archivo a una factura.
+
+    Este formulario permite agregar un archivo adjunto a una factura existente.
+
+    Attributes:
+        model (Factura): El modelo asociado con este formulario.
+        fields (list): Los campos del formulario, en este caso solo 'archivo_adjunto'.
+    """
     class Meta:
         model = Factura
         fields = ['archivo_adjunto']
@@ -187,6 +277,17 @@ from django.core.exceptions import ValidationError
 from .models_inventario import Marca
 
 class MarcaForm(forms.ModelForm):
+    """
+    Formulario para la creación y edición de marcas.
+
+    Este formulario permite gestionar las marcas asociadas a los productos
+    en la empresa.
+
+    Attributes:
+        model (Marca): El modelo asociado con este formulario.
+        fields (list): Los campos del formulario, en este caso 'nombre_marca' y 'id_empresa'.
+        widgets (dict): Widgets de entrada de los campos.
+    """
     class Meta:
         model = Marca
         fields = ["nombre_marca", "id_empresa"]  # <-- no incluimos 'eliminado'
@@ -198,12 +299,34 @@ class MarcaForm(forms.ModelForm):
         }
     # opcional: guardar ya “limpio” (sin espacios extra)
     def clean_nombre_marca(self):
+        """
+        Normaliza el nombre de la marca para eliminar espacios y mayúsculas innecesarias.
+
+        Este método asegura que el nombre de la marca se guarde de manera uniforme
+        al comparar con otras marcas.
+
+        Parameters:
+        None
+
+        Returns:
+        str: El nombre de la marca sin espacios extra.
+        """
         from .forms import re  # si no estás ya en este archivo
         name = (self.cleaned_data.get("nombre_marca") or "").strip()
         name = re.sub(r"\s+", " ", name)
         return name
 
     def clean(self):
+        """
+        Realiza validaciones adicionales para asegurarse de que el nombre de la marca
+        no se repita dentro de la empresa.
+
+        Parameters:
+        None
+
+        Returns:
+        dict: Los datos del formulario validados.
+        """
         cleaned = super().clean()
         empresa = cleaned.get("id_empresa")
         nombre  = cleaned.get("nombre_marca") or ""

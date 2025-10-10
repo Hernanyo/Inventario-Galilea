@@ -19,6 +19,15 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 class Empresa(models.Model):
+    """Empresa de la organización.
+
+    - PK: `id_empresa`
+    - Único: `rut_empresa`
+    - Borrado lógico: `eliminado`
+    - Tabla: `empresa` (managed=True)
+
+    Devuelve `nombre_empresa` en `__str__`.
+    """
     #id_empresa = models.AutoField(primary_key=True) ####################################2609
     id_empresa = models.AutoField(primary_key=True, db_column="id_empresa")
     rut_empresa = models.CharField(unique=True, max_length=20)
@@ -36,6 +45,16 @@ class Empresa(models.Model):
 
 
 class Departamento(models.Model):
+    """Departamento interno de una empresa.
+
+    - PK: `id_departamento`
+    - FK: `id_empresa → Empresa`
+    - Único por empresa: (`id_empresa`, `nombre_departamento`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `departamento`
+
+    `__str__` muestra "nombre (empresa)".
+    """
     #id_departamento = models.AutoField(primary_key=True)
     id_departamento = models.AutoField(primary_key=True, db_column="id_departamento")
     nombre_departamento = models.CharField(max_length=150)
@@ -53,6 +72,18 @@ class Departamento(models.Model):
 
 
 class Empleado(models.Model):
+    """Empleado de la empresa, con rol y vínculo opcional a usuario de Django.
+
+    - PK: `id_empleado`
+    - Único: `rut`, `correo` (opcional)
+    - FKs: `id_empresa → Empresa`, `id_departamento → Departamento`
+    - OneToOne: `user → auth.User` (opcional)
+    - Campo de rol: `rol` (p.ej., admin/usuario/invitado)
+    - Borrado lógico: `eliminado`
+    - Tabla: `empleado`
+
+    `__str__` devuelve nombre completo legible.
+    """
     #id_empleado = models.AutoField(primary_key=True)
     id_empleado = models.AutoField(primary_key=True, db_column="id_empleado")
 
@@ -82,6 +113,14 @@ class Empleado(models.Model):
 
 
 class Marca(models.Model):
+    """Catálogo de marcas de activos.
+
+    - PK: `id_marca`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `nombre_marca`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `marca`
+    """
     #id_marca = models.AutoField(primary_key=True)
     id_marca = models.AutoField(primary_key=True, db_column="id_marca")
     nombre_marca = models.CharField(max_length=100)
@@ -98,6 +137,17 @@ class Marca(models.Model):
 
 
 class EstadoActivo(models.Model):
+    """Estado de un activo (p.ej., operativo, en reparación, dado de baja).
+
+    - PK: `id_estado_activo`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `descripcion`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `estado_activo`
+    - Verbose: "Estado(s) de activo"
+
+    `__str__` devuelve `descripcion`.
+    """
     #id_estado_activo = models.AutoField(primary_key=True)
     id_estado_activo = models.AutoField(primary_key=True, db_column="id_estado_activo")
     descripcion = models.CharField(max_length=100)
@@ -116,6 +166,16 @@ class EstadoActivo(models.Model):
 
 
 class Proveedor(models.Model):
+    """Proveedor asociado a compras/facturación.
+
+    - PK: `id_proveedor`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `rut_proveedor`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `proveedor`
+
+    `__str__` devuelve `nombre_proveedor`.
+    """
     #id_proveedor = models.AutoField(primary_key=True)
     id_proveedor = models.AutoField(primary_key=True, db_column="id_proveedor")
     nombre_proveedor = models.CharField(max_length=200)
@@ -135,6 +195,16 @@ class Proveedor(models.Model):
 
 
 class TipoActivo(models.Model):
+    """Tipo o familia del activo (notebook, impresora, información, etc.).
+
+    - PK: `id_tipo_activo`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `tipo_activo`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `tipo_activo`
+
+    `__str__` devuelve `tipo_activo`.
+    """
     #id_tipo_activo = models.AutoField(primary_key=True)
     id_tipo_activo = models.AutoField(primary_key=True, db_column="id_tipo_activo")
     tipo_activo = models.CharField(max_length=100)
@@ -152,6 +222,26 @@ class TipoActivo(models.Model):
         return self.tipo_activo
 
 class Activo(models.Model):
+    """Activo inventariable con asignación, estado, QR y clasificación de seguridad.
+
+    - PK: `id_activo`
+    - FKs: `id_marca`, `id_tipo_activo`, `id_estado_activo` (opcional),
+            `id_empleado` (responsable opcional), `id_proveedor` (opcional),
+            `id_empresa` (opcional), `id_departamento` (opcional)
+    - Identificación: `etiqueta` (única)
+    - QR: `qr_code` (se genera automáticamente en alta si hay `etiqueta`)
+    - Seguridad/criticidad: `activo_critico`, `clasificacion`,
+            `confidencialidad`, `integridad`, `disponibilidad` (1..4)
+    - Borrado lógico: `eliminado`
+    - Tabla: `activo`
+    - Propiedad de compatibilidad: `empresa` (alias de `id_empresa`)
+
+    Lógica en `save()`:
+    - Autocompleta `id_empresa`/`id_departamento` desde `id_empleado` si faltan.
+    - Genera QR con `utils.generar_qr()` en creación cuando aplique.
+
+    `__str__` muestra "nombre - marca / tipo".
+    """
     #id_activo = models.AutoField(primary_key=True)
     id_activo = models.AutoField(primary_key=True, db_column="id_activo")
     nombre_activo = models.CharField(max_length=150)
@@ -213,6 +303,18 @@ class Activo(models.Model):
 
 
 class AtributosActivo(models.Model):
+    """Definición de atributo dinámico por tipo de activo.
+
+    - PK: `id_atributo_activo`
+    - FK: `id_tipo_activo → TipoActivo`
+    - Datos: `atributo`, `valor` (opcional por defecto)
+    - FK empresa opcional: `id_empresa`
+    - Único: (`id_tipo_activo`, `atributo`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `atributos_activo`
+
+    Útil para construir formularios dinámicos y metadatos por tipo.
+    """
     #id_atributo_activo = models.AutoField(primary_key=True)
     id_atributo_activo = models.AutoField(primary_key=True, db_column="id_atributo_activo")
     id_tipo_activo = models.ForeignKey(TipoActivo, models.DO_NOTHING, db_column='id_tipo_activo')
@@ -237,6 +339,14 @@ class AtributosActivo(models.Model):
     ## Nueva clase atributos por tipo de activos
 
 class AgregacionAtributosPorActivo(models.Model):
+    """Valor concreto de un atributo dinámico para un activo.
+
+    - PK: `id`
+    - FKs: `activo → Activo`, `atributo → AtributosActivo`
+    - Datos: `valor`
+    - Único: (`activo`, `atributo`)
+    - Tabla: `agregacion_atributos_por_activo`
+    """
     #id = models.AutoField(primary_key=True)
     id = models.AutoField(primary_key=True, db_column="id")
     activo = models.ForeignKey(Activo, models.DO_NOTHING, db_column='id_activo')
@@ -257,6 +367,16 @@ class AgregacionAtributosPorActivo(models.Model):
 
 
 class EstadoMantencion(models.Model):
+    """Estado del flujo de una mantención.
+
+    - PK: `id_estado_mantencion`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `tipo`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `estado_mantencion`
+
+    `__str__` devuelve `tipo`.
+    """
     #id_estado_mantencion = models.AutoField(primary_key=True)
     id_estado_mantencion = models.AutoField(primary_key=True, db_column="id_estado_mantencion")
     tipo = models.CharField(max_length=50)
@@ -272,6 +392,17 @@ class EstadoMantencion(models.Model):
         return self.tipo
     
 class TipoMantencion(models.Model):
+    """Clasificación de la mantención (correctiva, preventiva, etc.).
+
+    - PK: `id_tipo_mantencion`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `nombre`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `tipo_mantencion`
+    - Verbose: "Tipo(s) de mantención"
+
+    `__str__` devuelve `nombre`.
+    """
     #id_tipo_mantencion = models.AutoField(primary_key=True)
     id_tipo_mantencion = models.AutoField(primary_key=True, db_column="id_tipo_mantencion")
     nombre = models.CharField(max_length=50)
@@ -291,6 +422,16 @@ class TipoMantencion(models.Model):
 
 
 class PrioridadMantencion(models.Model):
+    """Prioridad de la mantención (alta, media, baja).
+
+    - PK: `id_prioridad`
+    - FK: `id_empresa → Empresa` (opcional)
+    - Único por empresa: (`id_empresa`, `nombre`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `prioridad_mantencion`
+
+    `__str__` devuelve `nombre`.
+    """
     #id_prioridad = models.AutoField(primary_key=True)
     id_prioridad = models.AutoField(primary_key=True, db_column="id_prioridad")
     nombre = models.CharField(max_length=50)
@@ -311,6 +452,25 @@ class PrioridadMantencion(models.Model):
 
 
 class Mantencion(models.Model):
+    """Mantención de un activo con estado, tipo, prioridad y asignaciones.
+
+    - PK: `id_mantencion`
+    - FKs: `id_activo → Activo`, `id_estado_mantencion → EstadoMantencion`,
+           `id_tipo_mantencion → TipoMantencion` (opcional),
+           `id_prioridad → PrioridadMantencion` (opcional),
+           `id_empresa → Empresa` (opcional),
+           `responsable → Empleado` (opcional),
+           `solicitante_user → auth.User` (opcional)
+    - Datos: `fecha`, `descripcion`
+    - Borrado lógico: `eliminado`
+    - Tabla: `mantencion`
+
+    Helpers:
+    - `responsable_nombre`, `asignado_a`, `asignado_a_id`,
+      `solicitante`/`solicitante_id`, `solicitante_nombre`.
+
+    `__str__` incluye id, activo, estado y fecha.
+    """
     #id_mantencion = models.AutoField(primary_key=True)
     id_mantencion = models.AutoField(primary_key=True, db_column="id_mantencion")
     id_activo = models.ForeignKey(Activo, models.DO_NOTHING, db_column='id_activo')
@@ -371,6 +531,18 @@ def solicitante_nombre(self):
     return full or u.get_username() or str(u)
 
 class Factura(models.Model):
+    """Factura asociada a proveedor y empresa, con soporte de archivo adjunto.
+
+    - PK: `id_factura`
+    - FKs: `id_proveedor → Proveedor` (opcional), `id_empresa → Empresa` (opcional)
+    - Datos: `fecha_emision`, `folio`, `observacion`
+    - Archivo: `archivo_adjunto` (sube a `media/facturas/`)
+    - Borrado lógico: `eliminado`
+    - Tabla: `factura`
+
+    Métodos:
+    - `proveedor_rut()` devuelve el RUT legible del proveedor si existe.
+    """
     #id_factura = models.AutoField(primary_key=True)
     id_factura = models.AutoField(primary_key=True, db_column="id_factura")
     id_proveedor = models.ForeignKey(Proveedor, models.DO_NOTHING, db_column='id_proveedor', blank=True, null=True)
@@ -411,6 +583,16 @@ class Factura(models.Model):
     proveedor_rut.short_description = "Proveedor"  # etiqueta de columna
 
 class DetalleFactura(models.Model):
+    """Detalle (ítem) de una factura.
+
+    - PK: `id_detalle_factura`
+    - FKs: `id_factura → Factura`, `id_activo → Activo` (opcional),
+           `id_empresa → Empresa` (opcional)
+    - Datos: `nombre_activo`, `cantidad`, `valor_unitario`,
+             `valor_neto`, `iva`, `valor_total`
+    - Borrado lógico: `eliminado`
+    - Tabla: `detalle_factura`
+    """
     #id_detalle_factura = models.AutoField(primary_key=True)
     id_detalle_factura = models.AutoField(primary_key=True, db_column="id_detalle_factura")
     id_factura = models.ForeignKey(Factura, models.DO_NOTHING, db_column='id_factura')
@@ -434,6 +616,22 @@ class DetalleFactura(models.Model):
     
 
 class HistorialActivos(models.Model):
+    """Snapshot de cambios de un activo (estado, responsable, ubicación, etc.).
+
+    - PK: `id` (autonumérico)
+    - FKs: `activo → Activo`, `tipo_activo → TipoActivo` (opcional),
+           `usuario → Empleado` (opcional), `id_empresa → Empresa` (opcional),
+           `departamento → Departamento` (opcional),
+           `estado_anterior/estado_nuevo → EstadoActivo` (opcionales),
+           `responsable_actual → Empleado` (opcional)
+    - Datos: `etiqueta`, `nombre_activo`, `modelo`, `ubicacion`, `comentario`,
+             `fecha` (default `timezone.now`)
+    - Compat: property `empresa` (alias de `id_empresa`)
+    - Extra: `responsable_anterior_fk` persistido y property `responsable_anterior`
+             que intenta resolver desde FK o el patrón `RESP_ANT=<id>` en `comentario`.
+    - Tabla: `historial_activos`
+    - `ordering`: más reciente primero
+    """
     #id = models.AutoField(primary_key=True)
     id = models.AutoField(primary_key=True, db_column="id")
     activo = models.ForeignKey(Activo, models.DO_NOTHING, db_column='activo_id')
@@ -518,49 +716,69 @@ class HistorialActivos(models.Model):
 # --- Nuevo:Historial de Mantenciones ---
 # --- Historial de Mantenciones (VIEW) ---
 
-class HistorialMantenciones(models.Model):
-    id_historial = models.IntegerField(primary_key=True)
-
-    id_mantencion = models.IntegerField()
-    fecha_evento = models.DateTimeField()
-    accion = models.CharField(max_length=50)
-    detalle = models.TextField(null=True, blank=True)
-    usuario_app_username = models.CharField(max_length=150, null=True, blank=True)
-
-    # Datos enriquecidos que expone la VIEW
-    id_activo = models.IntegerField(null=True, blank=True)
-    etiqueta = models.CharField(max_length=150, null=True, blank=True)
-    activo_nombre = models.CharField(max_length=150, null=True, blank=True)
-    descripcion = models.TextField(null=True, blank=True)
-
-    tipo_mantencion = models.CharField(max_length=50, null=True, blank=True)
-    prioridad = models.CharField(max_length=50, null=True, blank=True)
-    estado_actual = models.CharField(max_length=50, null=True, blank=True)
-
-    responsable_nombre = models.CharField(max_length=255, null=True, blank=True)
-    solicitante_nombre = models.CharField(max_length=255, null=True, blank=True)
-
-    old_values = models.JSONField(null=True, blank=True)
-    new_values = models.JSONField(null=True, blank=True)
-
-    @property
-    def asignado_a(self) -> str:
-        # Mostrar responsable si viene en la vista; si no, vacío
-        return (self.responsable_nombre or "").strip()
-
-    class Meta:
-        managed = False
-        db_table = "vw_historial_mantenciones"   # usa la VIEW, no crees tabla
-        verbose_name = "Historial de Mantenciones"
-        verbose_name_plural = "Historial de Mantenciones"
-        default_permissions = ("view",)
-
-    def __str__(self):
-        return f"[{self.id_mantencion}] {self.accion} @ {self.fecha_evento:%Y-%m-%d %H:%M}"
+#class HistorialMantenciones(models.Model):
+#    """Vista de solo lectura con el timeline de eventos de mantención.
+#
+#    - **managed=False** (usa la VIEW `vw_historial_mantenciones`)
+#    - PK: `id_historial` (proveniente de la vista)
+#    - Datos enriquecidos: etiquetas/nombres del activo, tipo/prioridad/estado,
+#      responsable/solicitante legibles, `old_values`/`new_values` (JSON)
+#    - Prop: `asignado_a` devuelve `responsable_nombre` si está disponible.
+#    """
+#    id_historial = models.IntegerField(primary_key=True)
+#
+#    id_mantencion = models.IntegerField()
+#    fecha_evento = models.DateTimeField()
+#    accion = models.CharField(max_length=50)
+#    detalle = models.TextField(null=True, blank=True)
+#    usuario_app_username = models.CharField(max_length=150, null=True, blank=True)
+#
+#    # Datos enriquecidos que expone la VIEW
+#    id_activo = models.IntegerField(null=True, blank=True)
+#    etiqueta = models.CharField(max_length=150, null=True, blank=True)
+#    activo_nombre = models.CharField(max_length=150, null=True, blank=True)
+#    descripcion = models.TextField(null=True, blank=True)
+#
+#    tipo_mantencion = models.CharField(max_length=50, null=True, blank=True)
+#    prioridad = models.CharField(max_length=50, null=True, blank=True)
+#    estado_actual = models.CharField(max_length=50, null=True, blank=True)
+#
+#    responsable_nombre = models.CharField(max_length=255, null=True, blank=True)
+#    solicitante_nombre = models.CharField(max_length=255, null=True, blank=True)
+#
+#    old_values = models.JSONField(null=True, blank=True)
+#    new_values = models.JSONField(null=True, blank=True)
+#
+#    @property
+#    def asignado_a(self) -> str:
+#        # Mostrar responsable si viene en la vista; si no, vacío
+#        return (self.responsable_nombre or "").strip()
+#
+#    class Meta:
+#        managed = False
+#        db_table = "vw_historial_mantenciones"   # usa la VIEW, no crees tabla
+#        verbose_name = "Historial de Mantenciones"
+#        verbose_name_plural = "Historial de Mantenciones"
+#        default_permissions = ("view",)
+#
+#    def __str__(self):
+#        return f"[{self.id_mantencion}] {self.accion} @ {self.fecha_evento:%Y-%m-%d %H:%M}"
 ####################################################################################################
 #nueva clase para mantenimiento
 
 class HistorialMantencionesLog(models.Model):
+    """Tabla persistente de eventos de mantención (log con “foto” legible).
+
+    - PK: `id_evento`
+    - Claves de negocio: `id_mantencion`, `fecha_evento`, `accion`, `detalle`
+    - Snapshot: `id_activo`, `etiqueta`, `activo_nombre`,
+                `tipo_mantencion`, `prioridad`, `estado_actual`,
+                `responsable_nombre`, `solicitante_nombre`, `descripcion`
+    - FK empresa: `id_empresa → Empresa` (opcional)
+    - Tabla: `historial_mantenciones_log`
+
+    `__str__` muestra timestamp, id de mantención y acción.
+    """
     #id_evento = models.BigAutoField(primary_key=True)
     id_evento = models.AutoField(primary_key=True, db_column="id_evento")
     id_mantencion = models.IntegerField()
@@ -611,6 +829,16 @@ from django.db.models.functions import Lower  # <-- importa esto arriba
 
 # Tipo de registro: indica qué tipo de acción se realizó
 class TipoRegistro(models.Model):
+    """Catálogo global de tipos de registro para auditoría.
+
+    - PK: `id_tipo_registro`
+    - Único global: `nombre`
+    - Datos: `descripcion`
+    - FK empresa: `id_empresa` (opcional)
+    - Borrado lógico: `eliminado`
+    - Tabla: `tipo_registro`
+    - `ordering`: por `nombre`
+    """
     id_tipo_registro = models.AutoField(primary_key=True)
     nombre = models.CharField(max_length=100, unique=True)  # único GLOBAL
     descripcion = models.TextField(blank=True, null=True)
@@ -630,6 +858,22 @@ class TipoRegistro(models.Model):
 
 # Registro maestro de acciones, para almacenar todas las acciones que suceden en la aplicación
 class Registro(models.Model):
+    """Registro maestro de acciones/auditoría sobre cualquier modelo.
+
+    - PK: `id_registro`
+    - FK usuario: `usuario → Empleado` (opcional)
+    - FK tipo: `tipo_registro → TipoRegistro`
+    - Target genérico: `content_type` + `object_id` + `objeto (GenericForeignKey)`
+    - Datos: `descripcion`, `datos_anteriores` (JSON), `datos_nuevos` (JSON),
+             `comentario`, `fecha` (auto_now_add)
+    - FK empresa: `id_empresa → Empresa` (opcional)
+    - Borrado lógico: `eliminado`
+
+    Lógica en `save()`:
+    - Normaliza `datetime` a ISO-8601 (propio y dentro de JSON anidado).
+
+    `ordering`: `-fecha`, `-id_registro` (recientes primero).
+    """
     id_registro = models.AutoField(primary_key=True)
     usuario = models.ForeignKey(Empleado, on_delete=models.SET_NULL, null=True, blank=True, db_column='usuario_id')
     tipo_registro = models.ForeignKey(TipoRegistro, on_delete=models.PROTECT)

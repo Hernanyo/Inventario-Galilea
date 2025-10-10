@@ -197,7 +197,7 @@
         <tr>
           <th><a href="?q={{ q }}&o=activo__id_activo">ID Activo</a></th>
           <th><a href="?q={{ q }}&o=etiqueta">Etiqueta</a></th>
-          <th><a href="?q={{ q }}&o=activo">Activo</a></th>
+          <th><a href="?q={{ q }}&o=nombre_activo">Nombre Activo</a></th>
           <th><a href="?q={{ q }}&o=fecha">Fecha</a></th>
           <th><a href="?q={{ q }}&o=responsable_anterior_fk">Responsable Anterior</a></th>
           <th><a href="?q={{ q }}&o=estado_anterior">Estado Anterior</a></th>
@@ -212,9 +212,9 @@
       <tbody>
         {% for item in items %}
           <tr>
-            <td>{{ item.activo.id_activo|default:"—" }}</td>
+            <td>{{ item.activo_id|default:"—" }}</td>
             <td>{{ item.etiqueta|default:"—" }}</td>
-            <td>{{ item.activo|default:"—" }}</td>
+            <td>{{ item.nombre_activo|default:"—" }}</td>
             <td>{{ item.fecha|date:"d-m-Y H:i"|default:"—" }}</td>
             <td>
               {% if item.responsable_anterior_fk %}

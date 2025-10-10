@@ -29,6 +29,15 @@ from django.db.models import Q
 
 
 def generar_qr(obj):
+    """
+    Genera un código QR a partir de la etiqueta del objeto y lo guarda en el campo `qr_code`.
+
+    Esta función crea un código QR con la etiqueta del objeto proporcionado y lo guarda como una imagen en el campo `qr_code` del objeto.
+
+    Parameters:
+        obj (Model): Objeto que contiene el campo `etiqueta` que será convertido en QR.
+
+    """
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(obj.etiqueta)  # usar la etiqueta como contenido del QR
     qr.make(fit=True)
@@ -43,6 +52,20 @@ def generar_qr(obj):
     obj.qr_code.save(filename, File(buffer), save=False)
 
 def log_mantencion_event(user, m, accion: str, detalle: str = ""):
+    """
+    Guarda una 'foto' de la mantención en el historial.
+
+    Esta función graba un registro detallado de los cambios en una mantención en la base de datos,
+    incluyendo información sobre el activo, estado, prioridad y responsables.
+
+    Parameters:
+        user (User): Usuario que ejecuta la acción.
+        m (Mantencion): Instancia de la mantención que está siendo registrada.
+        accion (str): Acción realizada (e.g., "CREAR", "EDITAR").
+        detalle (str): Detalles adicionales de la acción (opcional).
+
+
+    """
     username = getattr(user, "username", None) or None
     # valores “congelados”
     etiqueta = getattr(getattr(m, "id_activo", None), "etiqueta", None)
@@ -85,6 +108,17 @@ def log_mantencion_event(user, m, accion: str, detalle: str = ""):
         ])
 
 def crear_usuario_y_enviar_correo(empleado):
+    """
+    Crea un usuario en el sistema y envía un correo de activación de cuenta.
+
+    Si el empleado no tiene correo asociado, no se realiza ninguna acción. Si el correo está vacío,
+    se crea un usuario con el `RUT` como nombre de usuario y se envía un enlace para que el empleado defina su contraseña.
+
+    Parameters:
+        empleado (Empleado): El empleado para el que se creará el usuario.
+
+
+    """
     if not empleado.correo:
         return
 
@@ -137,8 +171,17 @@ def _ensure_role_groups():
 
 def ensure_auth_user_for_empleado(empleado):
     """
-    Crea (o trae) un auth.User con username=RUT y lo asocia a empleado.user.
-    Retorna (user, was_created).
+    Crea o recupera un usuario de autenticación asociado a un empleado.
+
+    Esta función crea un usuario de autenticación si no existe y lo asocia al empleado usando
+    el campo `rut` del empleado como nombre de usuario.
+
+    Parameters:
+        empleado (Empleado): El empleado para el que se debe asegurar el usuario.
+
+    Returns:
+        user (User): El usuario creado o recuperado.
+        was_created (bool): Indica si el usuario fue creado o ya existía.
     """
     user, was_created = User.objects.get_or_create(
         username=empleado.rut,               # LOGIN por RUT (coincide con tu RutBackend)
@@ -164,8 +207,15 @@ def ensure_auth_user_for_empleado(empleado):
 
 def sync_user_groups_for_empleado(empleado):
     """
-    Asigna grupos según empleado.rol y ajusta is_staff para admin.
-    Grupos esperados: rol_admin, rol_usuario, rol_invitado
+    Asigna los grupos según el rol del empleado.
+
+    Dependiendo del rol del empleado (`admin`, `invitado`, `usuario`), esta función asigna el grupo correspondiente.
+    Además, ajusta el campo `is_staff` para los administradores.
+
+    Parameters:
+        empleado (Empleado): El empleado cuya asignación de grupos y permisos se actualizará.
+
+
     """
     if not empleado.user:
         return
@@ -202,14 +252,28 @@ def sync_user_groups_for_empleado(empleado):
 
 def send_password_set_link(user):
     """
-    En dev imprime el link de 'definir contraseña' (password reset) en consola.
+    Genera un enlace para que el usuario defina su contraseña.
+
+    Este enlace se genera utilizando el sistema de tokens de Django y se imprime en la consola.
+
+    Parameters:
+        user (User): El usuario para el cual se genera el enlace de restablecimiento de contraseña.
+
     """
+
     uidb64 = str(user.pk)  # para dev simple; en prod usa urlsafe_base64_encode
     token = default_token_generator.make_token(user)
     url = f"{settings.SITE_URL}{reverse('password_reset_confirm', kwargs={'uidb64': uidb64, 'token': token})}"
     print(f"[DEV] Link para definir contraseña de {user.username}: {url}")
 
 def ensure_history_view_perms():
+    """
+    Asegura que los permisos de vista para el historial de activos y mantenciones estén presentes.
+
+    La función verifica que los permisos para ver los registros de historial de activos y mantenciones
+    estén asignados a los grupos de usuarios correspondientes.
+
+    """
     app_label = "productos"
     model_codenames = [
         "historialactivos",            # -> view_historialactivos

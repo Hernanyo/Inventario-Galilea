@@ -53,7 +53,6 @@ from .views_qr import qr_print_view
 from .views import CompanySelectView, company_clear
 from .views_auth import seleccionar_empresa, cambiar_empresa
 from django.views.generic import ListView
-from .models_inventario import HistorialMantenciones
 from .mixins import EmpresaScopeMixin, scope_qs_by_empresa
 
 
@@ -119,6 +118,11 @@ historial_cfg = CrudConfig(
 )
 
 class HistorialList(view_class(HistorialActivos, historial_cfg, GenericList)):
+    """
+    Vista que muestra el historial de los activos registrados en el sistema.
+    Permite visualizar el historial de cambios de estado, responsable y observaciones
+    de cada activo.
+    """
     action_perm = None
     def get_queryset(self):
         qs = super().get_queryset().select_related(
@@ -144,6 +148,10 @@ urlpatterns += [
 
 # --- Historial filtrado por activo ---
 class HistorialPorActivo(HistorialList):
+    """
+    Vista filtrada que muestra el historial de un activo específico.
+    Solo muestra los eventos relacionados con el activo seleccionado.
+    """
     action_perm = None
     def dispatch(self, request, *args, **kwargs):
         self.activo = get_object_or_404(Activo, pk=kwargs["pk"])
@@ -220,6 +228,10 @@ mant_cfg = CrudConfig(
 
 # (opcional pero recomendado) en el mismo archivo o en views.py si prefieres:
 class MantencionList(view_class(Mantencion, mant_cfg, GenericList)):
+    """
+    Vista que muestra la lista de mantenciones registradas en el sistema.
+    Permite ordenar las mantenciones por el ID si no se proporciona un parámetro de orden.
+    """
     def get_queryset(self):
         qs = super().get_queryset()
         # si NO hay ?o= (orden solicitado desde la UI), ordena por ID DESC
@@ -228,6 +240,10 @@ class MantencionList(view_class(Mantencion, mant_cfg, GenericList)):
         return qs
 
 class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
+    """
+    Vista para crear una nueva mantención en el sistema.
+    Registra automáticamente un evento en el historial de mantenciones al crear una mantención.
+    """
     form_class = MantencionForm
 
     def get_form_kwargs(self):
@@ -243,6 +259,10 @@ class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
         return resp
 
 class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
+    """
+    Vista para editar una mantención existente en el sistema.
+    Registra automáticamente un evento en el historial de mantenciones al actualizar la mantención.
+    """
     form_class = MantencionForm
 
     def get_form_kwargs(self):
@@ -256,6 +276,10 @@ class MantencionUpdate(view_class(Mantencion, mant_cfg, GenericUpdate)):
         return resp
 
 class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
+    """
+    Vista que muestra el historial de mantenciones registrado en el sistema.
+    Deshabilita la opción de crear nuevos registros en el historial de mantenciones.
+    """
     action_perm = None  
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -264,6 +288,10 @@ class HistorialMantencionesList(view_class(HistorialMantencionesLog, hist_mant_c
         return ctx
 
 class HistorialMantencionDetalle(HistorialMantencionesList):
+    """
+    Vista que muestra el historial detallado de una mantención específica.
+    Filtra el historial para mostrar solo los eventos de la mantención seleccionada.
+    """
     action_perm = None 
     def dispatch(self, request, *args, **kwargs):
         self.id_mantencion = kwargs["id_mantencion"]
@@ -305,6 +333,9 @@ urlpatterns += [
 
 # Disponibles = estado 'bodega' y sin responsable
 class ActivosDisponiblesList(view_class(Activo, build_config(Activo), GenericList)):
+    """
+    Vista que muestra los activos disponibles en bodega sin asignar a ningún responsable.
+    """
     def get_queryset(self):
         qs = super().get_queryset().select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado")
         return qs.filter(
@@ -320,6 +351,9 @@ class ActivosDisponiblesList(view_class(Activo, build_config(Activo), GenericLis
 
 # En uso = asignados (responsable NO nulo)
 class ActivosEnUsoList(view_class(Activo, build_config(Activo), GenericList)):
+    """
+    Vista que muestra los activos en uso, es decir, asignados a un responsable.
+    """
     def get_queryset(self):
         qs = super().get_queryset().select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado")
         return qs.filter(

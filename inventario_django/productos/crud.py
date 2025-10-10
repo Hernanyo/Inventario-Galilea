@@ -1,15 +1,30 @@
 # productos/crud.py
 #from .models_inventario import CategoriaActivo
+
+"""CRUD genérico para la app `productos`.
+
+Provee:
+- Clases `GenericList/Create/Update/Delete` con:
+  - Búsqueda rápida y **filtro avanzado** por tipo de campo (FK/num/bool/date).
+  - **Scope por empresa** (si el modelo tiene `id_empresa`/`empresa` o cuelga de `Activo`).
+  - **Borrado lógico** si el modelo tiene campo `eliminado`.
+  - Formularios generados automáticamente con widgets y soporte de **archivos**.
+  - Exportación CSV respetando búsqueda y filtros.
+
+- Registro automático de URL patterns para todos los modelos de `productos`.
+
+Notas:
+- La visibilidad y permisos se controlan con `ModelPermsMixin` y `EmpresaScopeMixin`.
+- El menú y columnas se infieren con `CrudConfig`.
+"""
 from .models import HistorialMantencionesLog
 from django.utils.dateparse import parse_date
 import json
 from django.contrib import messages
 from django.http import HttpResponseRedirect   # 👈 Faltaba este import
 from django.urls import reverse_lazy
-
 from django.contrib.auth.decorators import login_required
 from .utils import crear_usuario_y_enviar_correo, sync_user_groups_for_empleado
-
 from productos.utils import crear_usuario_y_enviar_correo
 from dataclasses import dataclass, field
 from django.core.exceptions import FieldDoesNotExist
@@ -47,19 +62,25 @@ from .mixins import EmpresaScopeMixin
 from .mixins import SaveEmpresaMixin
 from .models_inventario import Empleado, Departamento  # al inicio del archivo
 from .utils import crear_usuario_y_enviar_correo
-
-
-
-
-
-
 from productos.models_inventario import HistorialMantencionesLog  # evitar ciclos
 from productos.forms import MantencionForm
 # arriba de _build_default_form (o dentro), suma estos imports de tipos de campo
 from django.db.models import FileField, ImageField
 from django.forms import ClearableFileInput
 
+
+
+
 def _build_default_form(model):
+    """Crea un `ModelForm` para `model` con widgets razonables y soporte de archivos.
+
+    - Aplica `Select`, `DateInput`, `DateTimeInput`, `Textarea`, `NumberInput`,
+      `CheckboxInput`, y `ClearableFileInput` en File/Image.
+    - Excluye automáticamente `eliminado` si existe.
+
+    Returns:
+        Type[forms.ModelForm]: Clase de formulario generada.
+    """
     from django.db.models import DateField, DateTimeField, ForeignKey, TextField, BooleanField, IntegerField, FloatField
     widgets = {}
     for f in model._meta.fields:
@@ -100,6 +121,15 @@ def _empresa_field_info(model) -> tuple[bool, bool]:
     return (True, isinstance(f, (ForeignKey, OneToOneField)))
 
 def _model_has_empresa_fk(model) -> bool:
+    """
+    Verifica si el modelo tiene un campo de relación `id_empresa` (ya sea como FK o OneToOne).
+    
+    Args:
+        model: El modelo Django a verificar.
+    
+    Returns:
+        bool: True si el modelo tiene una relación `id_empresa`.
+    """
     f = next((f for f in model._meta.get_fields() if getattr(f, "name", None) == "id_empresa"), None)
     return bool(f and getattr(f, "is_relation", False))
 
@@ -107,6 +137,20 @@ def _model_has_empresa_fk(model) -> bool:
 
 @dataclass
 class CrudConfig:
+    """Configuración por modelo para las vistas genéricas.
+
+    Args:
+        model: Modelo de Django.
+        slug: Segmento de URL (p.ej., `"activos"`).
+        verbose_plural: Nombre legible (plural) para la UI.
+        list_display: Columnas visibles en listados (se sanea para ocultar `eliminado`).
+        search_fields: Campos de búsqueda rápida (`icontains`).
+        ordering: Orden por defecto.
+        label_attr: Atributo preferido para representar una fila.
+
+    Atributos:
+        can_create, can_change, can_delete, se inyecta en runtime según permisos del usuario.
+    """
     model: Type[Model]
     slug: str                     # p.ej. "activos"
     verbose_plural: str           # p.ej. "Activos"
@@ -117,6 +161,11 @@ class CrudConfig:
 
     # etiqueta legible para un objeto
     def obj_label(self, obj):
+        """Devuelve una etiqueta legible para `obj`.
+
+        Prioriza `label_attr`; si no, intenta con campos comunes (nombre, descripcion,
+        serie, codigo, etc.) y finalmente `str(obj)`.
+        """
         if self.label_attr:
             val = getattr(obj, self.label_attr, None)
             if val:
@@ -148,6 +197,10 @@ class CrudConfig:
 #################################################################################################################
 #################################################################################################################    
     def get_list_display(self):
+        """Columnas de lista filtradas.
+
+        Oculta el flag `eliminado` para no mostrarlo en la tabla.
+        """
         # Excluye 'eliminado' de la lista de columnas a mostrar
         return [field for field in self.list_display if field != "eliminado"]
 #################################################################################################################
@@ -164,6 +217,11 @@ def infer_text_fields(m: Type[Model]) -> List[str]:
 
 
 def infer_list_display(m: Type[Model]) -> List[str]:
+    """Infiera columnas "útiles" para la vista de lista.
+
+    Selecciona PK + campos legibles (texto/números/fechas/FK) hasta 9 columnas máx.
+    Da prioridad a campos comunes como nombre, descripción, etc.
+    """
     pk_name = m._meta.pk.name
     cols: List[str] = [pk_name]
 
@@ -245,8 +303,17 @@ def _field_kind(model, field_name):
 
 def _build_adv_fields_from_list_display(model, list_display):
     """
-    Devuelve [{"name":..., "label":..., "type":...}, ...] para columnas reales del modelo.
-    No rompe si una col no es un Field real (la salta).
+    Construye los campos de filtro avanzado a partir de los campos visibles en `list_display`.
+    
+    Para cada campo en `list_display`, se infiere el tipo de filtro (por ejemplo, `fk`, `char`, `num`, etc.) 
+    y se genera una estructura de datos adecuada para su uso en la interfaz.
+    
+    Args:
+        model: El modelo Django que contiene los campos.
+        list_display: Los campos que se deben mostrar en la vista de lista.
+    
+    Returns:
+        list: Lista de diccionarios con la estructura de los campos de filtro avanzado.
     """
     label_overrides = {
         "id_activo": "Id Activo",
@@ -297,13 +364,16 @@ def _adv_choices_for_fk_fields(request, model, adv_fields):
 
 
 def _apply_advanced_filter(qs, model, field_name, raw_value):
-    """
-    Aplica filtro seguro según el tipo del campo.
-    - fk: si fv es dígito filtra por pk; si no, intenta buscar por campos 'nombre/descripcion/...'
-    - char: icontains
-    - num: exact (si es dígito); si no, none()
-    - bool: true/false/1/0/si/no
-    - date/datetime: intenta parsear YYYY-MM-DD -> __date, si no, startswith como string
+    """Aplica el **filtro avanzado** según el tipo del campo.
+
+    - fk: por PK si `raw_value` es dígito; si no, por campos legibles del relacionado.
+    - char: `icontains`.
+    - num: exact si es dígito; si no, `none()`.
+    - bool: admite `true/false/1/0/si/no`.
+    - date/datetime: `YYYY-MM-DD` → `__date`; si no, `startswith`.
+
+    Returns:
+        QuerySet: queryset filtrado.
     """
     if not field_name:
         return qs
@@ -402,7 +472,16 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
 
 def _scope_by_empresa(qs, model, emp_id):
-    """Aplica filtro por empresa según el tipo de campo disponible en el modelo."""
+    """Restringe `qs` a la empresa activa.
+
+    Prioridad:
+      1) `id_empresa` (FK o entero) en el propio modelo.
+      2) `empresa` (FK).
+      3) Si cuelga de `Activo`, filtra por `id_activo__id_empresa_id`.
+
+    Returns:
+        QuerySet: queryset con el alcance aplicado.
+    """
     if not emp_id:
         return qs
 
@@ -434,6 +513,21 @@ def _scope_by_empresa(qs, model, emp_id):
 ######################################################################################################################################
 ######################################################################################################################################
 class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
+    """Lista genérica con búsqueda, orden y **filtro avanzado**.
+
+    - **Scope empresa** si corresponde (ver `_scope_by_empresa`).
+    - **Borrado lógico**: si el modelo tiene `eliminado`, no muestra eliminados.
+    - Búsqueda rápida incluye PK/numéricos y FKs si `q` es dígito.
+
+    Query params:
+        q: texto de búsqueda.
+        o: orden (campo o `-campo`).
+        f, fv: campo + valor para filtro avanzado.
+
+    Context:
+        cfg (CrudConfig), list_display (sin `eliminado`), adv_fields/choices en JSON,
+        permisos `can_create`/`can_change`/`can_delete`.
+    """
     template_name = "crud/list.html"
     context_object_name = "items"
     paginate_by = 25
@@ -442,6 +536,11 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
 
 #111111111111111111111111111##########################################################################################################
     def get_queryset(self):
+        """Construye el queryset aplicando:
+        scope por empresa, exclusión de `eliminado`,
+        búsqueda rápida (`q`), filtro avanzado (`f`/`fv`)
+        y orden (`o` o `cfg.ordering`).
+        """
         q = (self.request.GET.get("q") or "").strip()
         order = (self.request.GET.get("o") or "").strip()
         qs = self.model.objects.all()
@@ -568,6 +667,9 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
 ##2222222222222222222222222222222#########################################################################################################
 
     def get_context_data(self, **kwargs):
+        """Agrega metadatos del filtro avanzado, permisos y bloques laterales
+        (últimos items por tipo) cuando aplica.
+        """
         ctx = super().get_context_data(**kwargs)
         ctx["q"] = self.request.GET.get("q", "")
         ctx["o"] = self.request.GET.get("o", "")
@@ -632,6 +734,13 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
 
 
 class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView):
+    """Create genérico con formularios automáticos y **soporte de archivos**.
+
+    - Filtra combos por empresa activa.
+    - Para modelos especiales (`Activo`, `Mantencion`, etc.) usa formularios
+      específicos; si no, usa `_build_default_form`.
+    - Al crear `Activo`, registra historial de forma segura.
+    """
     template_name = "crud/form.html"
     action_perm = "add"
     crud_config: CrudConfig
@@ -686,6 +795,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
     
     def get_form_kwargs(self):
+        """Incluye `POST` y **FILES** en métodos de escritura para soportar uploads."""
         kwargs = super().get_form_kwargs()
         # MUY IMPORTANTE: pasar archivos en métodos de escritura
         if self.request.method in ("POST", "PUT", "PATCH"):
@@ -858,29 +968,29 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             #sync_user_groups_for_empleado(form.instance) GENERA ERRORES INHABILITADO POR AHORA
 
 ###################################################################################2509
-        # >>> NUEVO: historial “a la segura” al CREAR activo desde CRUD
-        if self.model.__name__ == "Activo":
-            try:
-                from .models_inventario import HistorialActivos
-                e = self.object
-                usuario_empleado = getattr(self.request.user, "empleado", None)
-                HistorialActivos.objects.create(
-                    activo=e,
-                    etiqueta=e.etiqueta,
-                    nombre_activo=e.nombre_activo,
-                    modelo=None,  # si no usas modelo en Activo
-                    tipo_activo=getattr(e, "id_tipo_activo", None),
-                    accion="CREACION",
-                    usuario=usuario_empleado,
-                    id_empresa=getattr(e, "id_empresa", None),
-                    departamento=getattr(e, "id_departamento", None),
-                    estado_nuevo=getattr(e, "id_estado_activo", None),
-                    responsable_actual=getattr(e, "id_empleado", None),
-                    comentario="Creado desde CRUD",
-                )
-            except Exception:
-                # nunca romper el guardado por el historial
-                pass
+#        # >>> NUEVO: historial “a la segura” al CREAR activo desde CRUD
+#        if self.model.__name__ == "Activo":
+#            try:
+#                from .models_inventario import HistorialActivos
+#                e = self.object
+#                usuario_empleado = getattr(self.request.user, "empleado", None)
+#                HistorialActivos.objects.create(
+#                    activo=e,
+#                    etiqueta=e.etiqueta,
+#                    nombre_activo=e.nombre_activo,
+#                    modelo=None,  # si no usas modelo en Activo
+#                    tipo_activo=getattr(e, "id_tipo_activo", None),
+#                    accion="CREACION",
+#                    usuario=usuario_empleado,
+#                    id_empresa=getattr(e, "id_empresa", None),
+#                    departamento=getattr(e, "id_departamento", None),
+#                    estado_nuevo=getattr(e, "id_estado_activo", None),
+#                    responsable_actual=getattr(e, "id_empleado", None),
+#                    comentario="Creado desde CRUD",
+#                )
+#            except Exception:
+#                # nunca romper el guardado por el historial
+#                pass
 ###################################################################################2509
 
     
@@ -888,6 +998,12 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 
 
 class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
+    """Update genérico con soporte de archivos y lógica de negocio.
+
+    - Filtra combos por empresa activa.
+    - Sincroniza atributos dinámicos de `Activo` según `TipoActivo`.
+    - En `Empleado`, alinea correo en `auth_user` y puede crear usuario si aplica.
+    """
     template_name = "crud/form.html"
     action_perm = "change"
     crud_config: CrudConfig
@@ -1007,27 +1123,76 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         # === GUARDAR / ACTUALIZAR VALORES DE ATRIBUTOS (solo Activo) ===
         if self.model.__name__ == "Activo":
             activo = self.object
-            tipo_id = self.request.POST.get("id_tipo_activo") or getattr(activo, "id_tipo_activo_id", None)
-            if tipo_id:
-                attrs = list(
+
+            # 1) detectamos tipo actual y si el formulario realmente envió atributos
+            posted_attr_keys = [k for k in self.request.POST.keys() if k.startswith("attr_")]
+            posted_tipo = self.request.POST.get("id_tipo_activo")
+            tipo_id = posted_tipo or getattr(activo, "id_tipo_activo_id", None)
+
+            # 2) ¿cambió el tipo?
+            prev_obj = None
+            prev_tipo_id = None
+            try:
+                prev_obj = self.get_object()
+                prev_tipo_id = getattr(prev_obj, "id_tipo_activo_id", None)
+            except Exception:
+                pass
+            tipo_cambiado = (posted_tipo and str(prev_tipo_id or "") != str(posted_tipo))
+
+            # 3) Si NO hay campos attr_* en el POST y NO cambió el tipo → no tocar nada
+            if not posted_attr_keys and not tipo_cambiado:
+                pass
+            else:
+                from .models_inventario import AtributosActivo, AgregacionAtributosPorActivo
+                from django.db import transaction
+
+                # atributos definidos para el tipo seleccionado
+                attrs_ids = list(
                     AtributosActivo.objects
                     .filter(id_tipo_activo_id=tipo_id)
                     .values_list("id_atributo_activo", flat=True)
                 )
-                with transaction.atomic():
-                    # estrategia simple: borrar y recrear
-                    AgregacionAtributosPorActivo.objects.filter(activo_id=activo.id_activo).delete()
-                    nuevos = []
-                    for attr_id in attrs:
-                        v = self.request.POST.get(f"attr_{attr_id}", "").strip()
-                        nuevos.append(AgregacionAtributosPorActivo(
-                            activo_id=activo.id_activo,
-                            atributo_id=attr_id,
-                            valor=v or None
-                        ))
-                    if nuevos:
-                        AgregacionAtributosPorActivo.objects.bulk_create(nuevos, ignore_conflicts=True)
 
+                # estado actual guardado
+                actuales = {
+                    r.atributo_id: r
+                    for r in AgregacionAtributosPorActivo.objects.filter(activo_id=activo.id_activo)
+                }
+
+                with transaction.atomic():
+                    # 3.a) Actualizar/crear sólo los que vinieron en el formulario
+                    for attr_id in attrs_ids:
+                        raw = self.request.POST.get(f"attr_{attr_id}", None)
+                        if raw is None and not tipo_cambiado:
+                            # no se posteó este atributo y no cambió el tipo → lo dejamos igual
+                            continue
+                        val = (raw or "").strip() if raw is not None else ""
+
+                        row = actuales.get(attr_id)
+                        if row:
+                            # sólo guardamos si realmente cambió el valor
+                            if (row.valor or "") != (val or ""):
+                                row.valor = (val or None)
+                                row.save(update_fields=["valor"])
+                        else:
+                            # crear sólo si hay valor
+                            if val:
+                                AgregacionAtributosPorActivo.objects.create(
+                                    activo_id=activo.id_activo,
+                                    atributo_id=attr_id,
+                                    valor=val
+                                )
+
+                    # 3.b) Si CAMBIÓ el tipo → eliminar los atributos que ya no apliquen
+                    if tipo_cambiado:
+                        ids_validos = set(attrs_ids)
+                        sobra = [
+                            r.pk for r in actuales.values()
+                            if r.atributo_id not in ids_validos
+                        ]
+                        if sobra:
+                            # esto sí generará registros ELIMINAR, pero sólo cuando cambia el tipo (esperado)
+                            AgregacionAtributosPorActivo.objects.filter(pk__in=sobra).delete()
         return resp
 
 
@@ -1139,6 +1304,12 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 
     
 class ActivoForm(forms.ModelForm):
+    """Formulario de `Activo` con reglas de negocio y filtrado por empresa.
+
+    - Oculta/ajusta campos según tipo de activo y si es crítico.
+    - Valida coherencia de responsable/empresa/departamento.
+    - En `save()`, persiste atributos dinámicos vinculados al `TipoActivo`.
+    """
     class Meta:
         model = Activo
         fields = [
@@ -1313,6 +1484,12 @@ class ActivoForm(forms.ModelForm):
         return activo
 
 class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
+    """Delete genérico con **borrado lógico** si el modelo tiene `eliminado`.
+
+    - Si existe `eliminado`: marca y guarda (forzando tipo de evento para auditoría).
+    - Si no existe: hard delete normal (super().delete()).
+    - Restringe `dispatch` a `empleado.rol == "admin"`.
+    """
     template_name = "crud/delete.html"
     action_perm = "delete"
     crud_config: CrudConfig
@@ -1402,8 +1579,18 @@ from django.utils import timezone
 
 def log_mantencion_event(request_user, mantencion_obj, accion: str, detalle: str = ""):
     """
-    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log
-    sin depender de propiedades opcionales del modelo (usa fallbacks).
+    Guarda un evento en el historial de una mantención, incluyendo detalles del activo, tipo de mantención y responsable.
+    
+    Esta función crea un registro en el modelo `HistorialMantencionesLog` para rastrear eventos asociados a mantenciones, como cambios de estado y acciones realizadas.
+    
+    Args:
+        request_user: El usuario que realiza la acción.
+        mantencion_obj: El objeto de mantención sobre el que se realiza la acción.
+        accion: La acción realizada (por ejemplo, "CREACIÓN", "ACTUALIZACIÓN").
+        detalle: Detalles adicionales sobre la acción realizada (opcional).
+    
+    Returns:
+        HistorialMantencionesLog: El registro creado en el historial de mantenciones.
     """
     from .models_inventario import HistorialMantencionesLog  # import local para evitar ciclos
 
@@ -1477,6 +1664,10 @@ from django.contrib import messages
 @login_required
 @require_POST
 def registro_comentar(request, pk):
+    """Actualiza el `comentario` de un `Registro`.
+
+    Valida empresa activa si el modelo la posee.
+    """
     from .models_inventario import Registro  # evita imports circulares
     emp_id = request.session.get("empresa_id")
 
@@ -1496,6 +1687,11 @@ def registro_comentar(request, pk):
 # ---------- Export CSV ----------
 
 def export_csv_view(model: Type[Model], cfg: CrudConfig):
+    """View factory: genera un endpoint que exporta la lista a CSV.
+
+    Respeta búsqueda (`q`) y filtro avanzado (`f`/`fv`) + scope por empresa.
+    Encabezados = `cfg.list_display`.
+    """
     def view(request):
         if not request.user.has_perm(f"{model._meta.app_label}.view_{model._meta.model_name}"):
             return HttpResponse(status=403)
@@ -1555,6 +1751,11 @@ def view_class(model, cfg, base_cls):
 
 
 def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
+    """Genera URL patterns (CRUD + CSV) para los modelos dados o todos los de `productos`.
+
+    - Ajusta permisos/acciones para modelos especiales (p. ej., `registro`).
+    - Añade ruta `comentar` para `registro`.
+    """
     models = include if include else discover_producto_models()
     patterns = []
     for m in models:
@@ -1641,6 +1842,17 @@ historial_cfg = CrudConfig(
 )
 
 def _dictfetchall(cursor):
+    """
+    Convierte los resultados de un cursor de base de datos en una lista de diccionarios.
+    
+    Cada diccionario contiene una fila de resultados, con las claves siendo los nombres de las columnas y los valores los datos de esa fila.
+    
+    Args:
+        cursor: El cursor de la base de datos que contiene los resultados de la consulta.
+    
+    Returns:
+        list: Una lista de diccionarios con los resultados de la consulta.
+    """
     cols = [col[0] for col in cursor.description]
     return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
@@ -1785,6 +1997,40 @@ for _cfg in CRUD_CONFIGS:
         _cfg.ordering = ("-id_mantencion",)
     if _cfg.model._meta.model_name == "factura":
         _cfg.ordering = ("-id_factura",)
+
+        # === Historial de Activos: mostrar la FOTO del nombre, no la FK ===
+    if _cfg.model._meta.model_name == "historialactivos":
+        cols = list(_cfg.list_display)
+
+        # Reemplaza la columna 'activo' por 'nombre_activo' (foto congelada)
+        if "activo" in cols:
+            i = cols.index("activo")
+            cols[i] = "nombre_activo"
+        else:
+            # por si el infer no incluyó la foto, la metemos arriba
+            if "nombre_activo" not in cols:
+                cols.insert(1, "nombre_activo")
+
+        # Asegura 'etiqueta' cerca de nombre (útil para identificar)
+        if "etiqueta" not in cols:
+            cols.insert(1, "etiqueta")
+
+        # Si tienes 'responsable_anterior_fk' y prefieres mostrar el string legible:
+        # (quítalo si tu modelo no lo tiene)
+        # try:
+        #     cols[cols.index("responsable_anterior_fk")] = "responsable_anterior"
+        # except ValueError:
+        #     pass
+
+        _cfg.list_display = cols
+
+        # Búsqueda por los campos denormalizados (foto)
+        _cfg.search_fields = list(dict.fromkeys(
+            ["etiqueta", "nombre_activo"] + list(_cfg.search_fields)
+        ))
+
+        # Ordena por lo más reciente primero
+        _cfg.ordering = ("-fecha",)  # o ("-fecha", f"-{_cfg.model._meta.pk.name}")
 
 
         # 👇 AQUI define los campos buscables CORRECTOS

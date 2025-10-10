@@ -76,6 +76,12 @@ except Exception:
     Activo = TipoActivo = Mantencion = None
 
 class CompanySelectView(TemplateView):
+    """Vista para seleccionar la empresa activa.
+
+    - Permite al usuario seleccionar entre las empresas disponibles.
+    - Si se selecciona una empresa, se guarda en la sesión.
+    - Si no se selecciona, se muestra un formulario con las empresas disponibles.
+    """
     template_name = "empresa/select_company.html"
 
     def get_context_data(self, **kwargs):
@@ -102,6 +108,11 @@ class CompanySelectView(TemplateView):
     
 @login_required
 def company_clear(request):
+    """Desasigna la empresa seleccionada en la sesión.
+
+    - Elimina la empresa activa de la sesión actual.
+    - Muestra un mensaje informando que la empresa fue deseleccionada.
+    """
     # Elimina selección actual
     request.session.pop("empresa_id", None)
     request.session.pop("empresa_nombre", None)
@@ -109,6 +120,11 @@ def company_clear(request):
     return redirect(reverse_lazy("productos:company_select"))
 
 class HomeView(CompanyRequiredMixin, TemplateView):
+    """Vista principal de la aplicación, con estadísticas y menú filtrado por empresa.
+
+    - Muestra estadísticas de activos y mantenciones filtradas por empresa.
+    - Permite ver el menú de opciones basado en la empresa activa.
+    """
     template_name = "overview/home_sidebar.html"
     login_url = reverse_lazy("productos:company_select")
 
@@ -211,6 +227,11 @@ class HomeView(CompanyRequiredMixin, TemplateView):
         return ctx
 
 def _log_mantencion_snapshot(mant: Mantencion, accion: str, user, detalle: str = ""):
+    """Crea un registro de historial de mantención con un snapshot de los cambios.
+
+    - Crea un historial detallado de la acción realizada sobre la mantención.
+    - Guarda datos legibles como nombre de responsable y estado del activo.
+    """
     # Nombre visible: full_name → nombre del Empleado → username
     emp = getattr(user, "empleado", None)
     visible_name = (user.get_full_name() or (str(emp) if emp else "") or user.username)
@@ -238,6 +259,11 @@ def _log_mantencion_snapshot(mant: Mantencion, accion: str, user, detalle: str =
 
 @login_required
 def mantencion_nueva(request):
+    """Vista para crear una nueva mantención.
+
+    - Permite registrar una nueva mantención y asociar un usuario como solicitante.
+    - Guarda el registro de la mantención y genera un historial.
+    """
     if request.method == 'POST':
         form = MantencionForm(request.POST, request=request)
         if form.is_valid():
@@ -254,6 +280,11 @@ def mantencion_nueva(request):
 
 @login_required
 def mantencion_editar(request, pk):
+    """Vista para editar una mantención existente.
+
+    - Permite modificar una mantención existente.
+    - Guarda el historial de cambios, incluyendo cambios de estado o asignación.
+    """
     mant = get_object_or_404(Mantencion, pk=pk)
 
     emp_id = request.session.get("empresa_id")
@@ -279,6 +310,11 @@ def mantencion_editar(request, pk):
     return render(request, 'mantenciones/editar.html', {'form': form, 'mantencion': mant})
 
 class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
+    """Vista para mostrar activos disponibles para asignación.
+
+    - Filtra los activos por estado "bodega" y muestra solo los activos sin asignar.
+    - Permite asignar activos a un empleado.
+    """
     template_name = "activos/disponibles_asignar.html"
 
     def get_queryset_disponibles(self):
@@ -430,6 +466,11 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
 
 @login_required
 def historial_mantenciones_activo(request, activo_id: int):
+    """Vista para ver el historial de mantenciones de un activo específico.
+
+    - Muestra todas las mantenciones relacionadas con un activo específico.
+    - Filtra las mantenciones por empresa y activo.
+    """
     emp_id = request.session.get("empresa_id")
     activo = get_object_or_404(Activo, pk=activo_id)
 
@@ -479,6 +520,11 @@ from .mixins import CompanyRequiredMixin
 from django.http import HttpResponseForbidden
 
 class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
+    """Vista para desasignar activos de empleados.
+
+    - Permite desasignar múltiples activos de un empleado y asignarlos a un estado "bodega".
+    - Registra un historial de la acción realizada.
+    """
     template_name = "activos/en_uso_desasignar.html"
 
     def get_queryset_asignados(self):
@@ -598,6 +644,11 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
     
 @login_required
 def api_atributos_por_tipo(request):
+    """API que devuelve los atributos de un tipo de activo específico.
+
+    - Filtra los atributos según el tipo de activo y empresa activa.
+    - Devuelve los atributos en formato JSON.
+    """
     tipo_id = request.GET.get("tipo_id")
     emp_id = request.session.get("empresa_id")
     print("Empresa ID en api_atributos_por_tipo:", emp_id)  # Depuración
@@ -682,6 +733,11 @@ def nuevos_estados_mantencion(request):
 from .models_inventario import Factura
 
 class FacturaListView(LoginRequiredMixin, ListView):
+    """Vista para listar las facturas.
+
+    - Permite visualizar una lista paginada de las facturas asociadas a la empresa activa.
+    - Soporta filtrado por proveedor y folio de factura.
+    """
     model = Factura
     template_name = "productos/facturas_list.html"
     context_object_name = "facturas"
@@ -698,6 +754,10 @@ class FacturaListView(LoginRequiredMixin, ListView):
         return qs
 
 class FacturaDetailView(LoginRequiredMixin, DetailView):
+    """Vista para ver los detalles de una factura específica.
+
+    - Muestra información detallada de una factura específica.
+    """
     model = Factura
     template_name = "productos/factura_detail.html"
     context_object_name = "factura"
@@ -710,6 +770,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from .models_inventario import Factura
 
 def factura_attach_file(request, factura_id):
+    """Vista para adjuntar un archivo a una factura existente.
+
+    - Permite adjuntar un archivo a la factura y guarda el archivo en el sistema.
+    - Muestra un mensaje de éxito o error según el resultado de la operación.
+    """
     factura = get_object_or_404(Factura, id_factura=factura_id)
 
     if request.method == "POST" and request.FILES.get("archivo_adjunto"):
@@ -722,37 +787,42 @@ def factura_attach_file(request, factura_id):
 
 #########################################################################################################
 #########################################################################################################0110
-@login_required
-@require_POST
-def factura_quitar_adjunto(request, factura_id: int):
-    factura = get_object_or_404(Factura, id_factura=factura_id)
-
-    # seguridad multiempresa
-    emp_id = request.session.get("empresa_id")
-    if emp_id and factura.id_empresa_id != emp_id:
-        raise Http404("Factura fuera de la empresa actual.")
-
-    if factura.archivo_adjunto:
-        # (opcional) borra el archivo del disco; quítalo si prefieres conservarlo
-        try:
-            factura.archivo_adjunto.delete(save=False)
-        except Exception:
-            pass
-
-        # fuerza el cambio del campo para que el signal lo registre
-        factura.archivo_adjunto = None
-        factura.save(update_fields=["archivo_adjunto"])
-
-        messages.success(request, "Se quitó el archivo adjunto.")
-    else:
-        messages.info(request, "La factura no tenía archivo adjunto.")
-
-    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER")
-    return redirect(next_url or "productos:facturas_list")
+#@login_required
+#@require_POST
+#def factura_quitar_adjunto(request, factura_id: int):
+#    factura = get_object_or_404(Factura, id_factura=factura_id)
+#
+#    # seguridad multiempresa
+#    emp_id = request.session.get("empresa_id")
+#    if emp_id and factura.id_empresa_id != emp_id:
+#        raise Http404("Factura fuera de la empresa actual.")
+#
+#    if factura.archivo_adjunto:
+#        # (opcional) borra el archivo del disco; quítalo si prefieres conservarlo
+#        try:
+#            factura.archivo_adjunto.delete(save=False)
+#        except Exception:
+#            pass
+#
+#        # fuerza el cambio del campo para que el signal lo registre
+#        factura.archivo_adjunto = None
+#        factura.save(update_fields=["archivo_adjunto"])
+#
+#        messages.success(request, "Se quitó el archivo adjunto.")
+#    else:
+#        messages.info(request, "La factura no tenía archivo adjunto.")
+#
+#    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER")
+#    return redirect(next_url or "productos:facturas_list")
 from django.views.generic import ListView
 from .models import Registro
 
 class RegistroListView(ListView):
+    """Vista para listar los registros de acciones realizadas en el sistema.
+
+    - Muestra un listado de registros filtrados por empresa activa.
+    - Permite ver el historial de acciones de auditoría.
+    """
     model = Registro
     template_name = "productos/registros_list.html"
     context_object_name = "registros"
@@ -774,6 +844,11 @@ from .models_inventario import Factura
 
 @login_required
 def factura_quitar_adjunto(request, factura_id):
+    """Vista para quitar un archivo adjunto de una factura.
+
+    - Permite quitar el archivo adjunto de una factura y eliminar el archivo físico.
+    - Muestra un mensaje informando el estado de la operación.
+    """
     factura = get_object_or_404(Factura, id_factura=factura_id)
 
     # (opcional) seguridad multi-empresa

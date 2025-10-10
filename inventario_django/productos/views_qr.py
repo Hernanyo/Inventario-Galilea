@@ -10,6 +10,15 @@ from django.urls import reverse_lazy
 
 @login_required
 def qr_print_view(request, pk):
+    """
+    Vista que genera y muestra un código QR para un activo específico.
+    
+    Este método toma un `pk` (ID de activo), obtiene el activo de la base de datos, 
+    genera un código QR basado en la etiqueta del activo y lo renderiza en una plantilla 
+    para imprimirlo o visualizarlo.
+
+    Además, se realiza una depuración para verificar la etiqueta y el string base64 del QR.
+    """
     from .models_inventario import Activo
     obj = get_object_or_404(Activo, pk=pk)
 
