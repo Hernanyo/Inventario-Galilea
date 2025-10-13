@@ -297,3 +297,46 @@ def ensure_history_view_perms():
     for gname in groups:
         g, _ = Group.objects.get_or_create(name=gname)
         g.permissions.add(*perms)
+###################################################################################
+#########################################################################################
+# --- EXPORTS / HELPERS PARA CSV EXCEL ---------------------------------------
+
+from typing import Iterable, Optional
+from django.db.models import Prefetch
+
+def get_attr_value_de_activo(activo, nombres_posibles: Iterable[str]) -> str:
+    """
+    Devuelve el valor del atributo dinámico (AgregacionAtributosPorActivo) cuyo
+    nombre coincida con alguno de `nombres_posibles` (case/acentos/espacios flexibles).
+
+    Args:
+        activo (models.Activo): Activo objetivo (con relación `agregacionatributosporactivo_set`).
+        nombres_posibles (Iterable[str]): Nombres alternativos aceptados (ej. ['número de serie','serial','sn']).
+
+    Returns:
+        str: Valor del atributo si existe; si no, cadena vacía.
+    """
+    from .models_inventario import AgregacionAtributosPorActivo  # import local
+
+    normaliza = (
+        lambda s: "".join(
+            ch for ch in (s or "").lower()
+            .replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u")
+            .replace("_"," ").replace("-"," ")
+        ) if s else ""
+    )
+
+    candidatos = {normaliza(n) for n in nombres_posibles}
+    # Reutiliza valores ya traídos (si prefetch) o hace query liviana
+    vals = getattr(activo, "_valores_attr_cache", None)
+    if vals is None:
+        qs = (AgregacionAtributosPorActivo.objects
+              .filter(activo=activo)
+              .select_related("atributo"))
+        vals = [(normaliza(x.atributo.atributo), x.valor or "") for x in qs]
+        activo._valores_attr_cache = vals
+
+    for nombre_norm, valor in vals:
+        if nombre_norm in candidatos:
+            return valor or ""
+    return ""

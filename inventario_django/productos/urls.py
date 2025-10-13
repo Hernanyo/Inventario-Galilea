@@ -463,3 +463,14 @@ urlpatterns += [
          views.factura_quitar_adjunto,
          name="factura_quitar_adjunto"),
 ]
+
+from . import views
+
+urlpatterns += [
+    # ... tus rutas existentes ...
+    path(
+        "activos/exportar/criticos-excel/",
+        views.exportar_activos_criticos_excel,
+        name="exportar_activos_criticos_excel",
+    ),
+]

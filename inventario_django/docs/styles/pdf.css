@@ -1,0 +1,125 @@
+﻿/* ====== Ajuste de página tipo documento ====== */
+@page { size: A4; margin: 20mm 18mm; }
+
+/* Todo lo siguiente solo aplica al imprimir o al /print/ */
+@media print {
+  /* Oculta UI del tema */
+  .md-header, .md-sidebar, .md-footer, .md-toolbar, .md-search { display: none !important; }
+
+  /* El contenido ocupa todo el ancho */
+  .md-main, .md-content { max-width: none !important; }
+
+  /* Tipografía más “documento” */
+  .md-typeset { font-size: 12pt; line-height: 1.35; }
+  code, pre { font-size: 10pt; }
+
+  /* Evitar cortes feos */
+  h1, h2, h3 { break-after: avoid; break-inside: avoid; }
+  table, pre, blockquote { break-inside: avoid; }
+  img { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Utilidad para forzar salto de página */
+  .pagebreak { break-after: page; }
+}
+
+/* Portada centrada: funciona si el H1 tiene clase .cover */
+h1.cover {
+  display: block;
+  text-align: center;
+  margin-top: 25vh;
+  font-size: 42px;
+  margin-bottom: 8px;
+}
+
+/* Centrar los párrafos justo después del H1 de portada */
+h1.cover + p {
+  text-align: center;
+  margin: 4px 0;
+}
+
+/* Oculta la tabla de contenidos automática del plugin en /print_page/ */
+@media print {
+  .print-site-toc, .md-print-toc { display: none !important; }
+}
+
+@page rotated { size: A4 landscape; margin: 8mm;}
+
+/* Caja que fuerza esa página a paisaje + salto de página antes y después */
+.landscape { page: rotated; }
+.landscape { break-before: page; break-after: page; }
+
+/* 3) Quita límites de ancho y padding del contenido dentro de .landscape */
+.landscape .md-content,
+.landscape .md-content__inner,
+.landscape .md-typeset {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+
+/* 4) Haz que el SVG de Mermaid ocupe el 100% de la página */
+.landscape .mermaid,
+.landscape .mermaid > svg {
+    width: 100% !important;
+    height: auto !important;
+    max-width: none !important;
+    display: block !important;
+}
+
+/* 5) Override extra por si el SVG trae width/height inline */
+.landscape .mermaid svg[width][height] {
+    width: 100% !important;
+    height: auto !important;
+}
+
+/* === Páginas “landscape” dedicadas a diagramas === */
+@page A4land { size: A4 landscape; margin: 10mm; }
+
+/* Evita cortes feos */
+.mermaid { break-inside: avoid-page; }
+
+/* Contenedor de “página completa” */
+.fullpage {
+  /* En pantalla: que crezca sin límites horizontales dentro del flujo */
+  overflow: visible;
+}
+
+/* En impresión: fuerza el uso de toda la hoja */
+@media print {
+  .fullpage.landscape { page: A4land; }
+
+  /* Haz que el SVG ocupe prácticamente todo el ancho imprimible */
+  .fullpage .mermaid,
+  .fullpage .mermaid svg {
+    width: 270mm !important; /* ~ancho útil A4 apaisado con márgenes 10mm */
+    height: auto !important;
+    max-width: none !important;
+  }
+
+  /* Si lo quieres en vertical a hoja completa, usa .portrait en lugar de .landscape */
+  @page A4port { size: A4 portrait; margin: 10mm; }
+  .fullpage.portrait { page: A4port; }
+  .fullpage.portrait .mermaid,
+  .fullpage.portrait .mermaid svg { width: 190mm !important; }
+}
+
+/* Solo aplica al ER que envuelves con .er-bigger */
+.er-bigger .mermaid svg {
+  /* agranda todo el SVG (nodos + labels) */
+  transform: scale(1.35);
+  transform-origin: top left;
+  width: 135% !important;   /* evita que el navegador lo “encoga” */
+  height: auto !important;
+}
+
+/* Sube tamaño de texto en varias variantes que usa Mermaid ER */
+.er-bigger .mermaid svg text,
+.er-bigger .mermaid svg .label,
+.er-bigger .mermaid svg .entityLabel,
+.er-bigger .mermaid svg .relationshipLabel,
+.er-bigger .mermaid svg foreignObject,
+.er-bigger .mermaid svg foreignObject div {
+  font-size: 18px !important;   /* súbelo a 20/22 si quieres más */
+  line-height: 1.15 !important;
+}

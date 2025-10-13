@@ -1,11 +1,13 @@
-﻿document.addEventListener('DOMContentLoaded', () => {
-  if (window.mermaid) {
-    mermaid.initialize({
-      startOnLoad: true,
-      securityLevel: 'loose',     // permite <br/> si lo usas
-      flowchart: { htmlLabels: true }
-    });
-  } else {
-    console.warn('Mermaid no está cargado (window.mermaid undefined).');
-  }
+﻿// javascripts/mermaid-init.js
+document.addEventListener("DOMContentLoaded", function () {
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "loose",
+    theme: "default",
+    themeVariables: {
+      fontSize: "26px"   // ← sube el tamaño base (ajusta a gusto: 24–30px)
+    },
+    flowchart: { useMaxWidth: false },
+    er:        { useMaxWidth: false, diagramPadding: 20 } // padding extra
+  });
 });

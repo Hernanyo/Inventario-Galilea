@@ -263,6 +263,7 @@ class Activo(models.Model):
     disponibilidad = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(4)])
     clasificacion = models.CharField(max_length=20, choices=[('confidencial', 'Confidencial'),('uso_interno', 'Uso Interno'), ('publico', 'Público'),],blank=True, null=True,)
     eliminado = models.BooleanField(default=False)
+    numero_serie = models.CharField(max_length=120, blank=True, null=True, db_index=True, help_text="Número de serie del activo (si aplica).")
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
     @property

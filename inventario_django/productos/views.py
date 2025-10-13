@@ -867,3 +867,132 @@ def factura_quitar_adjunto(request, factura_id):
 
     next_url = request.POST.get("next") or reverse("productos:facturas_list")
     return redirect(next_url)
+
+##################################################################################
+######################################################################################
+from django.http import HttpResponse
+from django.utils import timezone
+import csv
+
+from .models_inventario import Activo, DetalleFactura
+from .utils import get_attr_value_de_activo
+
+def exportar_activos_criticos_excel(request):
+    """
+    Exporta SOLO los activos marcados como críticos en un CSV compatible con Excel,
+    usando el encabezado de tu planilla (área, serie, nombre, descripción, etc.).
+
+    Encabezado (exacto):
+        Area, Numero de serie, Nombre del activo, Descripcion, Tipo, Nombre equipo,
+        Clasificacion, Confid, Integ, Dispon, Total valor, Valor del activo
+
+    - Delimitador: ';' (para Excel en Windows).
+    - Codificación: UTF-8 con BOM (para que Excel detecte tildes).
+    - Multiempresa: si el usuario tiene `empleado.id_empresa`, filtra por esa empresa.
+
+    Args:
+        request (django.http.HttpRequest): Petición web.
+
+    Returns:
+        django.http.HttpResponse: Respuesta con attachment CSV.
+    """
+    qs = (Activo.objects
+          .filter(eliminado=False, activo_critico=True)
+          .select_related(
+              "id_empresa", "id_departamento", "id_tipo_activo",
+              "id_marca", "id_estado_activo", "id_empleado"
+          )
+          .order_by("etiqueta"))
+
+    # Filtro por empresa del usuario, si corresponde
+    emp = getattr(getattr(request.user, "empleado", None), "id_empresa", None)
+    if emp:
+        qs = qs.filter(id_empresa=emp)
+
+    # Prefetch pequeño de atributos dinámicos (para nº de serie, modelo, hostname)
+    # (Opcional: si quieres súper óptimo, puedes añadir un Prefetch aquí)
+
+    # Respuesta CSV con BOM
+    now = timezone.localtime().strftime("%Y%m%d_%H%M")
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename=activos_criticos_{now}.csv'
+    response.write("\ufeff")  # BOM para Excel
+
+    writer = csv.writer(response, delimiter=";", lineterminator="\r\n")
+
+    headers = [
+        "Area",
+        "Numero de serie",
+        "Nombre del activo",
+        "Descripcion",
+        "Tipo",
+        "Nombre equipo",
+        "Clasificacion",
+        "Confid",
+        "Integ",
+        "Dispon",
+        "Total valor",
+        "Valor del activo",
+    ]
+    writer.writerow(headers)
+
+    # Helper para mapping de clasificación a rótulo "bonito"
+    def clasif_label(cod: str) -> str:
+        mapa = {
+            "confidencial": "confidencial",
+            "uso_interno": "uso interno",
+            "publico": "público",
+        }
+        return mapa.get((cod or "").lower(), cod or "")
+
+    for a in qs:
+        # Atributos dinámicos buscados por nombres alternativos
+        nro_serie = (a.numero_serie or get_attr_value_de_activo(
+            a,
+            ["número de serie", "numero de serie", "serial", "sn", "s/n", "service tag"]
+        ) or "").strip()
+        descripcion = get_attr_value_de_activo(
+            a,
+            ["modelo", "model", "descripcion", "descripción"]
+        )
+        nombre_equipo = a.etiqueta or ""
+
+        # Área = departamento
+        area = getattr(a.id_departamento, "nombre_departamento", "") or ""
+
+        # Tipo
+        tipo = getattr(a.id_tipo_activo, "tipo_activo", "") or ""
+
+        # Clasificación
+        clasif = clasif_label(a.clasificacion or "")
+
+        # Criticidad (numéricos o vacío)
+        confid = a.confidencialidad or 0
+        integ = a.integridad or 0
+        dispon = a.disponibilidad or 0
+        total_valor= confid + integ + dispon
+
+        # "Valor del activo" (unitario estimado: primero encontrado)
+        unit = (DetalleFactura.objects
+                .filter(id_activo=a, eliminado=False)
+                .values_list("valor_unitario", flat=True)
+                .first())
+        valor_unitario = unit or ""
+
+        writer.writerow([
+            area,
+            nro_serie,
+            a.nombre_activo or "",
+            descripcion,
+            tipo,
+            nombre_equipo,
+            clasif,
+            confid,
+            integ,
+            dispon,
+            total_valor,
+            valor_unitario,
+        ])
+
+    return response
+

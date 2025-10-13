@@ -1,4 +1,27 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
 
-# MkDocs build output
-site/
+# Entornos / OS
+.venv/
+.env
+*.log
 
+# Django (generados)
+inventario_django/media/
+inventario_django/staticfiles/
+inventario_django/static/
+
+# MkDocs (build)
+inventario_django/site/
+
+# Node
+node_modules/
+
+# Artefactos locales
+*_reporte_git_*.txt
+*_comparacion_ramas_*.txt
+
+# CRDs varios
+*.DS_Store

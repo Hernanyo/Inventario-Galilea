@@ -31,6 +31,18 @@ theme:
 plugins:
   - search
   - autorefs
+      # Opcional: si quieres ocultar cabecera/pie del tema en la página de impresión
+      # include_css: []
+#  - with-pdf:
+#      output_path: site/Documentacion-Inventario-Galilea.pdf
+#      cover: docs/_cover.md
+#      cover_title: "Inventario Galilea — Documentación"
+#      author: "Hernán Méndez Sepúlveda"
+#      toc_title: "Contenido"
+#      render_js: false
+#      css:
+#        - docs/styles/pdf.css
+
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -52,6 +64,11 @@ plugins:
                 - "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'inventario_django.settings')"
                 - "import django"
                 - "django.setup()"
+  - print-site:
+      add_to_navigation: false
+      print_page_title: "Documentación completa"
+      toc_depth: 1        # 👈 esto desactiva la “Table of Contents” generada
+
 
 markdown_extensions:
   - admonition
@@ -74,11 +91,14 @@ markdown_extensions:
 extra_javascript:
   - javascripts/mermaid.min.js      # 👈 usa el archivo local
   - javascripts/mermaid-init.js     # 👈 tu inicializador local
+  - javascripts/print-hide-toc.js     # ← añade esta línea
 
 extra_css:
   - styles/mermaid.css
+  - styles/pdf.css
 
 nav:
+  - Portada: _cover.md
   - Inicio: index.md
   - Introduccion: introduccion.md
   - Guía Rápida:

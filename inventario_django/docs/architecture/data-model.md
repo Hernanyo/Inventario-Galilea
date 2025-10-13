@@ -18,7 +18,12 @@ Este sistema es **multi-empresa**: muchas tablas incluyen `id_empresa` y todas l
   - **Historial de Mantenciones**: tabla log (`HistorialMantencionesLog`) + VIEW (`HistorialMantenciones`).
   - **Registro**/**TipoRegistro**: bitácora genérica por tipo de acción y objeto.
 
+<div class="fullpage landscape">
 ```mermaid
+%%{init:{
+  "er": { "useMaxWidth": true, "layoutDirection": "TB" },
+  "themeVariables": { "fontFamily": "Arial" }
+}}%%
 erDiagram
   Empresa ||--o{ Departamento : "tiene"
   Empresa ||--o{ Empleado : "tiene"
@@ -71,3 +76,83 @@ erDiagram
   TipoRegistro ||--o{ Registro : "clasifica"
   Empleado ||--o{ Registro : "actor"
 ```
+</div>
+
+<div class="fullpage landscape">
+```mermaid
+%%{init:{
+  "theme":"base",
+  "themeVariables":{"fontSize":"26px","fontFamily":"Arial"},
+  "flowchart":{"nodeSpacing":70,"rankSpacing":90,"padding":16},
+  "er":{"diagramPadding":20,"useMaxWidth":true}
+}}%%
+flowchart TB
+  classDef entity fill:#fff,stroke:#666,rx:6,ry:6;
+
+  subgraph Empresa_y_Catalogos
+    Empresa:::entity
+    Departamento:::entity
+    Empleado:::entity
+    Marca:::entity
+    Proveedor:::entity
+    TipoActivo:::entity
+    EstadoActivo:::entity
+    EstadoMantencion:::entity
+    TipoMantencion:::entity
+    PrioridadMantencion:::entity
+  end
+
+  subgraph Operacion
+    Activo:::entity
+    Mantencion:::entity
+    Factura:::entity
+    DetalleFactura:::entity
+  end
+
+  subgraph Auditoria
+    HistorialActivos:::entity
+    HistorialMantencionesLog:::entity
+    Registro:::entity
+    TipoRegistro:::entity
+    User:::entity
+  end
+
+  Empresa -->|"1..* tiene"| Departamento
+  Empresa -->|"1..* tiene"| Empleado
+  Empresa -->|"1..* tiene"| Marca
+  Empresa -->|"1..* tiene"| Proveedor
+  Empresa -->|"1..* tiene"| TipoActivo
+  Empresa -->|"1..* tiene"| EstadoActivo
+  Empresa -->|"1..* tiene"| EstadoMantencion
+  Empresa -->|"1..* tiene"| TipoMantencion
+  Empresa -->|"1..* tiene"| PrioridadMantencion
+
+  Departamento -->|"1..* ubicación"| Activo
+  Empleado -->|"1..* responsable"| Activo
+  TipoActivo -->|"1..* tipo"| Activo
+  EstadoActivo -->|"1..* estado"| Activo
+
+  Activo -->|"1..* recibe"| Mantencion
+  EstadoMantencion -->|"1..* estado"| Mantencion
+  TipoMantencion -->|"1..* tipo"| Mantencion
+  PrioridadMantencion -->|"1..* prioridad"| Mantencion
+  User -->|"1..* solicitante_user"| Mantencion
+
+  Empresa -->|"1..* tiene"| Factura
+  Proveedor -->|"1..* emite"| Factura
+  Factura -->|"1..* ítems"| DetalleFactura
+  Activo -->|"0..* opcional"| DetalleFactura
+
+  Activo -->|"1..* auditoría"| HistorialActivos
+  TipoActivo -->|"1..* snapshot tipo"| HistorialActivos
+  EstadoActivo -->|"1..* estado ant/nuevo"| HistorialActivos
+  Empleado -->|"1..* usuario"| HistorialActivos
+
+  Mantencion -->|"1..* eventos"| HistorialMantencionesLog
+  Empresa -->|"1..* ámbito"| HistorialMantencionesLog
+
+  TipoRegistro -->|"1..* clasifica"| Registro
+  Empleado -->|"1..* actor"| Registro
+  Empresa -->|"1..* ámbito"| Registro
+```
+</div>

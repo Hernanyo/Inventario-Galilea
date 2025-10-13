@@ -1320,6 +1320,7 @@ class ActivoForm(forms.ModelForm):
             "id_empleado",  # responsable (opcional)
             "id_proveedor",
             "etiqueta",
+            "numero_serie",       # 👈 nuevo campo en el form
             "observaciones",
             "id_empresa",  # NUEVO: siempre visible en el form
             "id_departamento",  # NUEVO: siempre visible en el form
@@ -1350,6 +1351,10 @@ class ActivoForm(forms.ModelForm):
             "integridad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Ingrese un número del 1 al 4", "min": 1, "max": 4, "step": 1, "inputmode": "numeric", "title": "Valor permitido: 1, 2, 3 o 4"}),
             "disponibilidad": forms.NumberInput(attrs={"class": "form-control", "placeholder": "Ingrese un número del 1 al 4", "min": 1, "max": 4, "step": 1, "inputmode": "numeric", "title": "Valor permitido: 1, 2, 3 o 4"}),
         }
+    def clean_numero_serie(self):
+        v = (self.cleaned_data.get("numero_serie") or "").strip()
+        # Opcional: normalizar mayúsculas o quitar espacios extra
+        return v
 
     def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1683,27 +1688,107 @@ def registro_comentar(request, pk):
     messages.success(request, "Comentario actualizado.")
     return redirect(request.POST.get("next") or request.META.get("HTTP_REFERER") or "/")
 
-
+######################################################################################################################
+##################################################################################################
 # ---------- Export CSV ----------
 
-def export_csv_view(model: Type[Model], cfg: CrudConfig):
-    """View factory: genera un endpoint que exporta la lista a CSV.
+# crud.py
+import csv
+from dataclasses import asdict
+from datetime import date, datetime
+from typing import Any, Iterable, List, Optional, Sequence, Type
+from django.db.models import Model
+from django.http import HttpResponse
 
-    Respeta búsqueda (`q`) y filtro avanzado (`f`/`fv`) + scope por empresa.
-    Encabezados = `cfg.list_display`.
+# … (resto de imports que ya tienes)
+
+def _get_attr(obj: Any, path: str, default: Any = "") -> Any:
+    """Obtiene un atributo con soporte de 'ruta.con.puntos' y callables."""
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return default
+        cur = getattr(cur, part, default)
+        if callable(cur):
+            try:
+                cur = cur()
+            except TypeError:
+                # métodos que requieren args: ignoramos
+                return default
+    return default if cur is None else cur
+
+def _format_value(v: Any, date_fmt: str = "%Y-%m-%d", dt_fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Normaliza valores a str bonita para CSV (bool, fechas, decimales, etc.)."""
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return "Sí" if v else "No"
+    if isinstance(v, (date, datetime)):
+        if isinstance(v, datetime):
+            return v.strftime(dt_fmt)
+        return v.strftime(date_fmt)
+    return str(v)
+
+def _headers_for(model: Type[Model], fields: Sequence[str], override: Optional[Sequence[str]] = None) -> List[str]:
+    """Construye encabezados: usa verbose_name cuando exista; permite override."""
+    if override:
+        return list(override)
+    out = []
+    for f in fields:
+        verbose = None
+        # si viene con punto, intenta el primer tramo como campo del modelo
+        try:
+            base = f.split(".")[0]
+            field_obj = model._meta.get_field(base)
+            verbose = getattr(field_obj, "verbose_name", None)
+        except Exception:
+            verbose = None
+        if verbose:
+            out.append(str(verbose).capitalize())
+        else:
+            out.append(f.replace("_", " ").capitalize())
+    return out
+
+
+def export_csv_view(model: Type[Model], cfg: "CrudConfig"):
     """
+    Crea una vista que exporta la lista a CSV de forma **genérica** y amigable con Excel.
+
+    Respeta: búsqueda (`q`), filtro avanzado (`f`/`fv`) y *scope* por empresa.
+    Por defecto exporta `cfg.list_display` con encabezados derivados de `verbose_name`.
+
+    Personalizaciones opcionales por modelo (si existen como atributos en `cfg`):
+      - `csv_fields: list[str]`  → campos/paths a exportar (por defecto `list_display`)
+      - `csv_headers: list[str]` → encabezados manuales (mismo largo que `csv_fields`)
+      - `csv_filename: str`      → nombre base de archivo (por defecto `cfg.slug`)
+      - `csv_delimiter: str`     → delimitador (por defecto `;`)
+      - `csv_date_format: str`   → formato de fecha (por defecto `%Y-%m-%d`)
+      - `csv_datetime_format: str`→ formato de datetime (por defecto `%Y-%m-%d %H:%M`)
+
+    Returns:
+        HttpResponse: attachment CSV.
+    """
+    # Defaults sensatos + overrides si están definidos en cfg
+    fields: List[str] = list(getattr(cfg, "csv_fields", None) or cfg.list_display)
+    headers: List[str] = _headers_for(model, fields, getattr(cfg, "csv_headers", None))
+    filename: str = getattr(cfg, "csv_filename", None) or f"{cfg.slug}.csv"
+    delimiter: str = getattr(cfg, "csv_delimiter", ";")
+    date_fmt: str = getattr(cfg, "csv_date_format", "%Y-%m-%d")
+    dt_fmt: str = getattr(cfg, "csv_datetime_format", "%Y-%m-%d %H:%M")
+
     def view(request):
+        # Permiso ver
         if not request.user.has_perm(f"{model._meta.app_label}.view_{model._meta.model_name}"):
             return HttpResponse(status=403)
 
-        q = request.GET.get("q", "").strip()
         rows = model.objects.all()
 
-        # aplicar scope por empresa (helper sin hacks)
+        # Scope empresa
         from .mixins import scope_qs_by_empresa
         rows = scope_qs_by_empresa(request, rows)
 
-
+        # Búsqueda simple
+        q = (request.GET.get("q") or "").strip()
         if q and cfg.search_fields:
             from django.db.models import Q
             cond = Q()
@@ -1711,28 +1796,41 @@ def export_csv_view(model: Type[Model], cfg: CrudConfig):
                 cond |= Q(**{f"{f}__icontains": q})
             rows = rows.filter(cond)
 
-############################################################################################################################
-        # Filtro avanzado en CSV (mismo contrato f/fv)
+        # Filtro avanzado (contrato f/fv)
         f = (request.GET.get("f") or "").strip()
         fv = (request.GET.get("fv") or "").strip()
         if f:
             rows = _apply_advanced_filter(rows, model, f, fv)
-############################################################################################################################
 
-        resp = HttpResponse(content_type="text/csv")
-        resp["Content-Disposition"] = f'attachment; filename="{cfg.slug}.csv"'
-        w = csv.writer(resp)
-        w.writerow(cfg.list_display)
+        # Respuesta CSV con BOM para Excel
+        resp = HttpResponse(content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp.write("\ufeff")  # BOM
 
-        for r in rows:
-            out = []
-            for col in cfg.list_display:
-                val = getattr(r, col, "")
-                out.append("" if val is None else str(val))
-            w.writerow(out)
+        writer = csv.writer(resp, delimiter=delimiter, lineterminator="\r\n", quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(headers)
+
+        # Si en list_display hay métodos/propiedades, también funcionan
+        for obj in rows:
+            row_out = []
+            for field in fields:
+                # get_FOO_display si corresponde
+                value = None
+                if "." not in field and hasattr(obj, f"get_{field}_display"):
+                    try:
+                        value = getattr(obj, f"get_{field}_display")()
+                    except Exception:
+                        value = None
+                if value is None:
+                    value = _get_attr(obj, field, "")
+                row_out.append(_format_value(value, date_fmt, dt_fmt))
+            writer.writerow(row_out)
         return resp
+
     return view
 
+############################################################################################################################
+######################################################################################################################################
 
 # ---------- Registro automático de modelos y URL patterns ----------
 

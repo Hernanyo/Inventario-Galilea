@@ -60,6 +60,8 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">Atributos de Activos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">Estados de Activos</a>
       <a href="{% url 'productos:historial_activos_list' %}" class="btn btn-info">Historial de Activos</a>
+      <a href="{% url 'productos:exportar_activos_criticos_excel' %}" class="btn btn-outline-success btn-sm" title="Exportar solo activos críticos (Excel CSV)">Exportar críticos (Excel)</a>
+
     {% endif %}
 
     {% if view.crud_config.model_name == 'mantencion' %}
