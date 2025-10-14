@@ -14,7 +14,7 @@ from .views import (
 from .crud import (
     urlpatterns as crud_urls,
     qr_print_view,
-    historial_mantencion,
+    #historial_mantencion,
     ultimos_cambios_mantenciones,
 )
 from django.urls import path, include
@@ -192,7 +192,7 @@ hist_mant_cfg = CrudConfig(
         "tipo_mantencion",
         "prioridad",
         "estado_actual",
-        "asignado_a",
+        "asignadO",
         #"responsable_nombre",
         #"solicitante_nombre",
         "descripcion",
@@ -219,10 +219,26 @@ mant_cfg = CrudConfig(
     slug="mantencions",
     verbose_plural="Mantenciones",
     list_display=[
-        "id_mantencion", "id_activo", "fecha",
-        "id_estado_mantencion", "id_tipo_mantencion", "id_prioridad",
+        "id_mantencion",
+        "id_activo",
+        "asignado",
+        "responsable",
+        "id_estado_mantencion",
+        "id_tipo_mantencion",
+        "id_prioridad",
+        "fecha",
+
+
     ],
-    search_fields=["descripcion", "id_activo__etiqueta", "id_activo__nombre_activo"],
+    search_fields=[
+        "descripcion",
+        "id_activo__etiqueta",
+        "id_activo__nombre_activo",
+        "asignado__nombre",
+        "asignado__apellido_paterno",
+        "responsable__nombre",
+        "responsable__apellido_paterno",
+    ],
     ordering=["-id_mantencion"], 
 )
 
@@ -233,7 +249,15 @@ class MantencionList(view_class(Mantencion, mant_cfg, GenericList)):
     Permite ordenar las mantenciones por el ID si no se proporciona un parámetro de orden.
     """
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related(
+            "id_activo",
+            "asignado",
+            "responsable",
+            "id_estado_mantencion",
+            "id_tipo_mantencion",
+            "id_prioridad",
+            "id_empresa",
+        )
         # si NO hay ?o= (orden solicitado desde la UI), ordena por ID DESC
         if "o" not in self.request.GET:
             return qs.order_by("-id_mantencion")
@@ -250,6 +274,14 @@ class MantencionCreate(view_class(Mantencion, mant_cfg, GenericCreate)):
         kwargs = super().get_form_kwargs()
         kwargs["request"] = self.request          # <- PASA request AL FORM
         return kwargs
+    
+        # 👇 agrega esto:
+    def get_initial(self):
+        initial = super().get_initial()
+        activo_id = self.request.GET.get("id_activo")
+        if activo_id:
+            initial["id_activo"] = activo_id
+        return initial
 
     def form_valid(self, form):
         form.instance.solicitante_user = self.request.user   # ← AQUÍ
@@ -412,8 +444,8 @@ urlpatterns += [
     # Historial SOLO de las mantenciones del activo
     path("activos/<int:activo_id>/historial/", views.historial_mantenciones_activo, name="activos_historial"),
     # (Opcional) Historial detallado de una mantención específica si no estaba:
-    path("mantenciones/<int:id_mantencion>/historial/", historial_mantencion, name="mantencion_historial"),
-    path("mantenciones/<int:pk>/historial/", views.HistorialMantencionIndividual.as_view(), name="historial_mantencion"),
+    ####path("mantenciones/<int:id_mantencion>/historial/", historial_mantencion, name="mantencion_historial"),
+    ####path("mantenciones/<int:pk>/historial/", views.HistorialMantencionIndividual.as_view(), name="historial_mantencion"),
 ]
 
 MantencionList = view_class(Mantencion, mant_cfg, GenericList)
@@ -473,4 +505,35 @@ urlpatterns += [
         views.exportar_activos_criticos_excel,
         name="exportar_activos_criticos_excel",
     ),
+]
+
+path(
+    "mantenciones/<int:id_mantencion>/historial/",
+    HistorialMantencionDetalle.as_view(),
+    name="historial_mantencion",
+)
+
+path(
+    "mantenciones/<int:pk>/historial/",
+    HistorialMantencionDetalle.as_view(),
+    name="historial_mantencion_pk",
+)
+urlpatterns += [
+    # ... tus otras rutas ...
+    path("api/atributos-por-tipo/", api_atributos_por_tipo, name="api_atributos_por_tipo"),
+]
+
+# productos/urls.py  (o donde registras tus rutas del CRUD)
+from productos.views import activo_detail
+
+
+urlpatterns += [
+    path("activos/<int:pk>/", activo_detail, name="activos_detail"),
+]
+
+# productos/urls.py
+from productos.views import empleado_detail
+
+urlpatterns += [
+    path("empleados/<int:pk>/", empleado_detail, name="empleados_detail"),
 ]

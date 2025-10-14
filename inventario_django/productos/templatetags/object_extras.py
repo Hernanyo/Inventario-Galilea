@@ -57,8 +57,9 @@ def column_label(col_name: str) -> str:
         "id_tipo_activo": "Tipo Activo",
         "tipo_activo": "Tipo Activo",
         "id_estado_activo": "Estado Activo",
+        "id_condicion_activo": "Condición",     # 👈 NUEVO
         # Otros que se vean con 'activo' en el nombre:
-        "id_empleado": "Empleado",
+        "id_empleado": "Asignado a",
         "id_marca": "Marca",
         "id_proveedor": "Proveedor",
         "observaciones": "Observaciones",
@@ -98,3 +99,11 @@ def underline_match(value, q, autoescape=True):
     result = pattern.sub(r'<span class="hl">\g<0></span>', s_esc)
     return mark_safe(result)
 #222222222222222222222222222222222222##############################################################################
+
+
+@register.filter
+def get_item(d, key):
+    try:
+        return d.get(key, "")
+    except Exception:
+        return ""

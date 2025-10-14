@@ -10,7 +10,7 @@ from .models_inventario import (
     EstadoMantencion, TipoMantencion, PrioridadMantencion
 )
 from django.contrib.auth.models import User
-from .models import Empleado
+#from .models import Empleado
 import re
 import unicodedata
 
@@ -50,6 +50,7 @@ class MantencionForm(forms.ModelForm):
         exclude = ['eliminado']  # Excluir el campo 'eliminado' en el formulario
         fields = [
             "id_activo",
+            "asignado",
             "id_estado_mantencion",
             "id_tipo_mantencion",
             "id_prioridad",
@@ -122,6 +123,12 @@ class MantencionForm(forms.ModelForm):
                     Empleado.objects.filter(id_empresa_id=emp_id, estado_activo=True)
                     .order_by("nombre", "apellido_paterno", "apellido_materno")
                 )
+
+            if "asignado" in self.fields:
+                self.fields["asignado"].queryset = (
+                    Empleado.objects.filter(id_empresa_id=emp_id, estado_activo=True)
+                    .order_by("nombre", "apellido_paterno", "apellido_materno")
+                )
         else:
             # fallback si no hay empresa en sesión
             if "responsable" in self.fields:
@@ -133,6 +140,43 @@ class MantencionForm(forms.ModelForm):
         if "fecha" in self.fields and not getattr(self.instance, "pk", None):
             self.fields["fecha"].widget.attrs["min"] = date.today().isoformat()
             self.fields["fecha"].initial = date.today()
+
+
+        # ---------- PREFILL ASIGNADO desde el ACTIVO ----------
+        # ---------- PREFILL (id_activo y asignado) ----------
+        # 1) Levanta el id del activo desde varios nombres de parámetro posibles
+        activo_id_from_qs = None
+        if request is not None:
+            for key in ("activo", "id_activo", "aid", "pk", "id"):
+                val = request.GET.get(key)
+                if val:
+                    try:
+                        activo_id_from_qs = int(val)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+
+        # 2) Determina el activo actual (por instancia o querystring)
+        activo_obj = None
+        if getattr(self.instance, "id_activo_id", None):
+            activo_obj = self.instance.id_activo
+        elif activo_id_from_qs:
+            activo_obj = Activo.objects.filter(pk=activo_id_from_qs).first()
+            if activo_obj and "id_activo" in self.fields and not self.is_bound:
+                # Usa self.initial para asegurar que el widget lo respete
+                self.initial["id_activo"] = activo_obj.pk
+
+        # 3) Si el activo tiene empleado asignado, prellenar "asignado"
+        if activo_obj and getattr(activo_obj, "id_empleado_id", None) and "asignado" in self.fields:
+            empleado_id = activo_obj.id_empleado_id
+
+            # Asegura que el empleado esté en el queryset (por si filtros lo excluyen)
+            qs = self.fields["asignado"].queryset or Empleado.objects.all()
+            if not qs.filter(pk=empleado_id).exists():
+                self.fields["asignado"].queryset = qs | Empleado.objects.filter(pk=empleado_id)
+
+            if not self.is_bound:
+                self.initial["asignado"] = empleado_id
 
         self._request = request  # por si lo necesitas luego
 
@@ -171,6 +215,13 @@ class MantencionForm(forms.ModelForm):
         activo = cleaned.get("id_activo")
         if activo is None:
             return cleaned
+
+        # Si no se envió "asignado" pero el activo tiene responsable, lo completamos
+        if not cleaned.get("asignado") and getattr(activo, "id_empleado_id", None):
+            cleaned["asignado"] = activo.id_empleado
+
+        # Rellenar el campo visual 'asignado' ignorando el POST (por estar disabled)
+        self.cleaned_data["asignado"] = activo.id_empleado
 
         emp_id = getattr(activo, "id_empresa_id", None)
 

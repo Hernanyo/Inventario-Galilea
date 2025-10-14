@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ empleado.nombre }} {{ empleado.apellido_paterno }}{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-3">
+  {{ empleado.nombre }} {{ empleado.apellido_paterno }} {{ empleado.apellido_materno }}
+</h1>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Datos del empleado</h5>
+        <dl class="row mb-0">
+          <dt class="col-sm-4">RUT</dt>
+          <dd class="col-sm-8">{{ empleado.rut }}</dd>
+
+          <dt class="col-sm-4">Estado</dt>
+          <dd class="col-sm-8">
+            {% if empleado.estado_activo %}En actividad{% else %}Inactivo{% endif %}
+          </dd>
+
+          <dt class="col-sm-4">Cargo</dt>
+          <dd class="col-sm-8">{{ empleado.cargo|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Correo</dt>
+          <dd class="col-sm-8">{{ empleado.correo|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Teléfono</dt>
+          <dd class="col-sm-8">{{ empleado.telefono|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Empresa</dt>
+          <dd class="col-sm-8">{{ empleado.id_empresa|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Departamento</dt>
+          <dd class="col-sm-8">{{ empleado.id_departamento|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Usuario app</dt>
+          <dd class="col-sm-8">{{ empleado.user|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Rol</dt>
+          <dd class="col-sm-8">{{ empleado.rol|default:"—" }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <a class="btn btn-primary btn-sm" href="{% url 'productos:empleados_update' empleado.pk %}">Editar</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'productos:empleados_list' %}">Volver</a>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title mb-3">
+          Activos asignados ({{ activos|length }})
+        </h5>
+
+        {% if activos %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Etiqueta</th>
+                  <th>Nombre</th>
+                  <th>Marca</th>
+                  <th>Tipo</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for a in activos %}
+                  <tr>
+                    <td>{{ a.id_activo }}</td>
+                    <td>{{ a.etiqueta }}</td>
+                    <td>{{ a.nombre_activo }}</td>
+                    <td>{{ a.id_marca|default:"—" }}</td>
+                    <td>{{ a.id_tipo_activo|default:"—" }}</td>
+                    <td>{{ a.id_estado_activo|default:"—" }}</td>
+                    <td class="text-end">
+                      <a class="btn btn-xs btn-outline-primary"
+                         href="{% url 'productos:activos_detail' a.id_activo %}">
+                        Ver
+                      </a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-muted">No tiene activos asignados.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

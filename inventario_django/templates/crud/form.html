@@ -93,29 +93,44 @@
               <div id="attrs-container" class="vstack gap-2"></div>
 
               <script>
-                (function(){
-                  const tipoSelect = document.getElementById('id_id_tipo_activo');
-                  const container  = document.getElementById('attrs-container');
+              (function(){
+                const tipoSelect = document.getElementById('id_id_tipo_activo'); // Django genera id_* del field
+                const container  = document.getElementById('attrs-container');
+                  // 👇 toma el id del activo si estamos editando, o null si es nuevo
+                const ACTIVO_ID = {{ object.id_activo|default:"null" }};
 
-                  async function loadAttrs(tipoId) {
-                    container.innerHTML = '';
-                    if (!tipoId) return;
-                    const res = await fetch("{% url 'productos:api_atributos_por_tipo' %}?tipo_id=" + encodeURIComponent(tipoId));
+                function renderEmpty(msg){
+                  container.innerHTML = `<div class="text-muted small">${msg}</div>`;
+                }
+
+                async function loadAttrs(tipoId) {
+                  container.innerHTML = '';
+                  if (!tipoId) { renderEmpty('Selecciona un tipo de activo.'); return; }
+
+                  const base = "{% url 'productos:api_atributos_por_tipo' %}";
+                  const qs = new URLSearchParams({ tipo_id: String(tipoId) });
+                  {% if object %} qs.set("activo_id", "{{ object.id_activo }}"); {% endif %}
+
+                  try {
+                    const res = await fetch(`${base}?${qs.toString()}`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const data = await res.json();
-                    (data.items || []).forEach(item => {
+
+                    const items = (data.items || []);
+                    if (!items.length) { renderEmpty('Este tipo no tiene atributos configurados.'); return; }
+
+                    for (const item of items) {
                       const wrap = document.createElement('div');
                       wrap.className = 'row g-2 align-items-center';
 
-                      // etiqueta
                       const col1 = document.createElement('div');
                       col1.className = 'col-12 col-md-4';
                       col1.innerHTML = `<label class="form-label mb-1">${item.atributo}</label>`;
                       wrap.appendChild(col1);
 
-                      // input valor
                       const col2 = document.createElement('div');
                       col2.className = 'col-12 col-md-8';
-                      const defVal = item.valor || '';
+                      const defVal = (item.valor || '');
                       col2.innerHTML = `
                         <input type="text" class="form-control"
                               name="attr_${item.id_atributo_activo}"
@@ -125,19 +140,21 @@
                       wrap.appendChild(col2);
 
                       container.appendChild(wrap);
-                    });
+                    }
+                  } catch (err) {
+                    console.error('Error al cargar atributos:', err);
+                    renderEmpty('No se pudieron cargar los atributos (revisa la consola).');
                   }
+                }
 
-                  // Carga inicial (por si al editar ya hay tipo seleccionado)
-                  if (tipoSelect && tipoSelect.value) {
-                    loadAttrs(tipoSelect.value);
-                  }
-                  // Cambio de tipo → recarga atributos
-                  if (tipoSelect) {
-                    tipoSelect.addEventListener('change', ev => loadAttrs(ev.target.value));
-                  }
-                })();
+                if (tipoSelect) {
+                  if (tipoSelect.value) loadAttrs(tipoSelect.value);  // carga inicial (edición)
+                  tipoSelect.addEventListener('change', ev => loadAttrs(ev.target.value));
+                }
+              })();
               </script>
+
+
             {% endif %}
 
               <div class="mb-2">

@@ -67,6 +67,7 @@ from productos.forms import MantencionForm
 # arriba de _build_default_form (o dentro), suma estos imports de tipos de campo
 from django.db.models import FileField, ImageField
 from django.forms import ClearableFileInput
+import inspect
 
 
 
@@ -322,9 +323,11 @@ def _build_adv_fields_from_list_display(model, list_display):
         "id_estado_activo": "Id Estado Activo",
         "id_marca": "Id Marca",
         "id_proveedor": "Id Proveedor",
+        "id_factura": "Factura (folio)",   # 👈 NUEVO
         "id_empleado": "Responsable",
         "observaciones": "Observaciones",
         "etiqueta": "Etiqueta",
+        "id_condicion_activo": "Condición",   # 👈 NUEVO
     }
     out = []
     for col in list_display:
@@ -801,6 +804,12 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         if self.request.method in ("POST", "PUT", "PATCH"):
             kwargs["data"] = self.request.POST
             kwargs["files"] = self.request.FILES
+        FormClass = self.get_form_class()
+        try:
+            if "request" in inspect.signature(FormClass.__init__).parameters:
+                kwargs["request"] = self.request
+        except (TypeError, ValueError):
+            pass
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -841,6 +850,14 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                     qs = qs.filter(id_activo__id_empresa_id=emp_id)
             ctx["side_title"] = "Últimas mantenciones"
             ctx["side_items"] = qs.select_related("id_activo").order_by("-id_mantencion")[:15]
+
+        elif self.model.__name__ == "CondicionActivo":
+            from .models_inventario import CondicionActivo
+            qs = CondicionActivo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            ctx["side_title"] = "Últimas condiciones de activo"
+            ctx["side_items"] = qs.order_by("-id_condicion_activo")[:15]
 
         # EMPRESA: últimas empresas
         elif self.model.__name__ == "Empresa":
@@ -993,7 +1010,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 #                pass
 ###################################################################################2509
 
-    
+        messages.success(self.request, "Guardado correctamente.")
         return resp
 
 
@@ -1125,7 +1142,10 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             activo = self.object
 
             # 1) detectamos tipo actual y si el formulario realmente envió atributos
+            #posted_attr_keys = [k for k in self.request.POST.keys() if k.startswith("attr_")]
             posted_attr_keys = [k for k in self.request.POST.keys() if k.startswith("attr_")]
+            
+
             posted_tipo = self.request.POST.get("id_tipo_activo")
             tipo_id = posted_tipo or getattr(activo, "id_tipo_activo_id", None)
 
@@ -1193,6 +1213,7 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                         if sobra:
                             # esto sí generará registros ELIMINAR, pero sólo cuando cambia el tipo (esperado)
                             AgregacionAtributosPorActivo.objects.filter(pk__in=sobra).delete()
+        messages.success(self.request, "Cambios guardados correctamente.")
         return resp
 
 
@@ -1216,6 +1237,11 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             ultima  = qs.order_by("-id_activo").first()
             ctx["ultimos_activos"] = ultimos
             ctx["ultima_etiqueta"] = ultima.etiqueta if ultima else None
+
+        if self.model.__name__ == "Activo" and obj:
+            from .models_inventario import AgregacionAtributosPorActivo as AAPA
+            pares = AAPA.objects.filter(activo_id=obj.id_activo).values_list("atributo_id", "valor")
+            ctx["attr_values"] = {f"attr_{aid}": val for aid, val in pares}
 
         elif self.model.__name__ == "Mantencion":
             from .models_inventario import Mantencion as Mant
@@ -1317,8 +1343,10 @@ class ActivoForm(forms.ModelForm):
             "nombre_activo",
             "id_marca",
             "id_estado_activo",
+            "id_condicion_activo",   # 👈 NUEVO
             "id_empleado",  # responsable (opcional)
             "id_proveedor",
+            "id_factura",
             "etiqueta",
             "numero_serie",       # 👈 nuevo campo en el form
             "observaciones",
@@ -1335,6 +1363,7 @@ class ActivoForm(forms.ModelForm):
             "id_estado_activo": forms.Select(attrs={"class": "form-select"}),
             "id_empleado": forms.Select(attrs={"class": "form-select"}),
             "id_proveedor": forms.Select(attrs={"class": "form-select"}),
+            "id_factura": forms.Select(attrs={"class": "form-select"}),  # 👈 NUEVO
             "id_departamento": forms.Select(attrs={"class": "form-select"}),
             "id_marca": forms.Select(attrs={"class": "form-select"}),
             "id_tipo_activo": forms.Select(attrs={"class": "form-select"}),
@@ -1392,6 +1421,28 @@ class ActivoForm(forms.ModelForm):
                 qs = qs.filter(id_empresa_id=emp_id)
             self.fields["id_empleado"].queryset = qs.order_by("nombre", "apellido_paterno")
 
+
+        # en ActivoForm.__init__
+        if "id_factura" in self.fields:
+            from .models_inventario import Factura
+            fqs = Factura.objects.all()
+            if emp_id:
+                # si Factura tiene id_empresa, filtramos por la empresa activa
+                fqs = fqs.filter(id_empresa_id=emp_id)
+            # Orden: primero fecha desc, luego folio
+            fqs = fqs.order_by("-fecha_emision", "folio")
+            self.fields["id_factura"].queryset = fqs
+            self.fields["id_factura"].label = "Factura (folio)"
+            self.fields["id_factura"].help_text = "Opcional. Selecciona por folio; puedes dejarlo en blanco."
+        
+        # Condición de activo solo de la empresa
+        if "id_condicion_activo" in self.fields:
+            from .models_inventario import CondicionActivo
+            qs = CondicionActivo.objects.all()
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+            self.fields["id_condicion_activo"].queryset = qs.order_by("descripcion")
+
         # Departamentos solo de la empresa
         if "id_departamento" in self.fields:
             dqs = Departamento.objects.all()
@@ -1430,6 +1481,21 @@ class ActivoForm(forms.ModelForm):
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
             self.fields["id_estado_activo"].queryset = qs.order_by("descripcion")
+
+        # --- Precarga de atributos dinámicos guardados ---
+        try:
+            # Solo si estamos editando un activo existente
+            if self.instance and getattr(self.instance, "id_activo", None):
+                from .models_inventario import AgregacionAtributosPorActivo as AAPA
+                # OJO: en Django los nombres del FK son 'activo' y 'atributo'
+                pares = (AAPA.objects
+                        .filter(activo_id=self.instance.id_activo)
+                        .values_list("atributo_id", "valor"))
+                for atributo_id, valor in pares:
+                    self.initial[f"attr_{atributo_id}"] = valor
+        except Exception:
+            # Nunca romper el form si algo viene raro
+            pass
 
     def clean(self):
         cleaned = super().clean()
@@ -1472,20 +1538,33 @@ class ActivoForm(forms.ModelForm):
         with transaction.atomic():
             activo = super().save(commit=commit)
             if commit and self.request:
-                #activo.atributos_dinamicos.all().delete()
                 tipo_id = self.cleaned_data.get("id_tipo_activo")
                 if tipo_id:
                     atributos = AtributosActivo.objects.filter(id_tipo_activo=tipo_id)
                     if self.request.session.get("empresa_id"):
                         atributos = atributos.filter(id_tipo_activo__id_empresa_id=self.request.session.get("empresa_id"))
+
+                    # estado actual
+                    existentes = {
+                        (aa.atributo_id): aa
+                        for aa in AgregacionAtributosPorActivo.objects.filter(activo_id=activo.id_activo)
+                    }
+
                     for attr in atributos:
-                        valor = self.request.POST.get(f"atributo_{attr.id_atributo_activo}")
-                        if valor:
-                            AgregacionAtributosPorActivo.objects.create(
-                                id_activo=activo,
-                                id_atributo_activo=attr,
-                                valor=valor
-                            )
+                        key = f"attr_{attr.id_atributo_activo}"
+                        valor = (self.request.POST.get(key) or "").strip()
+                        fila = existentes.get(attr.id_atributo_activo)
+                        if fila:
+                            if (fila.valor or "") != valor:
+                                fila.valor = valor or None
+                                fila.save(update_fields=["valor"])
+                        else:
+                            if valor:
+                                AgregacionAtributosPorActivo.objects.create(
+                                    activo_id=activo.id_activo,
+                                    atributo_id=attr.id_atributo_activo,
+                                    valor=valor
+                                )
         return activo
 
 class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
@@ -2050,6 +2129,7 @@ SLUG_ALIASES = {
     "activo": "activos",
     "tipoactivo": "tipos_activo",
     "atributosactivo": "atributos_activo",
+    "condicionactivo": "condiciones_activo",  # 👈 NUEVO
 }
 
 def make_slug(m: Type[Model]) -> str:
@@ -2070,6 +2150,30 @@ for _cfg in CRUD_CONFIGS:
         else:
             # Fallback por si no hubiera 'fecha'
             _cfg.ordering = (f"-{_cfg.model._meta.pk.name}",)
+
+
+    if _cfg.model._meta.model_name == "activo":
+        cols = list(_cfg.get_list_display())
+        # Inserta 'id_factura' después de 'id_proveedor' si existe
+        try:
+            i = cols.index("id_proveedor")
+            if "id_factura" not in cols:
+                cols.insert(i + 1, "id_factura")
+        except ValueError:
+            if "id_factura" not in cols:
+                cols.append("id_factura")
+        _cfg.list_display = cols
+    # Activo: mostrar la columna "Condición" en la lista
+    if _cfg.model._meta.model_name == "activo":
+        cols = list(_cfg.list_display)
+        try:
+            i = cols.index("id_estado_activo")
+            if "id_condicion_activo" not in cols:
+                cols.insert(i + 1, "id_condicion_activo")
+        except ValueError:
+            if "id_condicion_activo" not in cols:
+                cols.append("id_condicion_activo")
+        _cfg.list_display = cols
 
     if _cfg.model._meta.model_name == "factura":
         cols = list(_cfg.list_display)

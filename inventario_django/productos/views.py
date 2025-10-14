@@ -4,6 +4,8 @@
 from django.views.generic import ListView, DetailView
 from django.views.generic import ListView, DetailView
 from .crud import ActivoForm
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Factura
 from .forms import FacturaAdjuntoForm  # Formulario para adjuntar el archivo
@@ -66,6 +68,8 @@ from django.http import Http404
 from .models_inventario import Activo, Mantencion
 from django.db import connection
 from .crud import GenericList, view_class
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
 
 # modelos opcionales (según tu app)
 try:
@@ -292,7 +296,7 @@ def mantencion_editar(request, pk):
         raise Http404("Mantención no pertenece a la empresa actual.")
 
     estado_ant = mant.id_estado_mantencion_id
-    asignado_ant = mant.asignado_a_id
+    asignado_ant = mant.asignado_id
 
     if request.method == 'POST':
         form = MantencionForm(request.POST, instance=mant, request=request)
@@ -300,7 +304,7 @@ def mantencion_editar(request, pk):
             mant = form.save()
             if mant.id_estado_mantencion_id != estado_ant:
                 _log_mantencion_snapshot(mant, 'ESTADO', request.user, 'Cambio de estado')
-            if mant.asignado_a_id != asignado_ant:
+            if mant.asignado_id != asignado_ant:
                 _log_mantencion_snapshot(mant, 'ASIGN', request.user, 'Asignación/Reasignación')
             _log_mantencion_snapshot(mant, 'EDICION', request.user, 'Edición de mantención')
             return redirect('productos:mantencions_list')  # ver nota (d) abajo
@@ -649,57 +653,89 @@ def api_atributos_por_tipo(request):
     - Filtra los atributos según el tipo de activo y empresa activa.
     - Devuelve los atributos en formato JSON.
     """
+    from .models_inventario import AtributosActivo, AgregacionAtributosPorActivo
+
     tipo_id = request.GET.get("tipo_id")
+    activo_id = request.GET.get("activo_id")  # 👈 opcional
     emp_id = request.session.get("empresa_id")
+
     print("Empresa ID en api_atributos_por_tipo:", emp_id)  # Depuración
     if not tipo_id:
         return JsonResponse({"items": []})
-    attrs = AtributosActivo.objects.filter(id_tipo_activo_id=tipo_id)
+
+    # 1) QuerySet primero, luego .values()
+    qs = AtributosActivo.objects.filter(id_tipo_activo_id=tipo_id)
     if emp_id:
-        attrs = attrs.filter(id_empresa_id=emp_id)
+        # La empresa está en TipoActivo
+        qs = qs.filter(id_tipo_activo__id_empresa_id=emp_id)
 
-    items = list(attrs.values("id_atributo_activo", "atributo", "valor"))
-    return JsonResponse({"items": items})
-
-
-# Config base del historial (si ya la tienes, reutilízala)
-hist_mant_cfg = type("Cfg", (), {
-    "model": HistorialMantencionesLog,
-    "slug": "historial_mantenciones",
-    "verbose_name": "Historial de mantenciones",
-    "verbose_name_plural": "Historial de mantenciones",
-    "list_display": [
-        "id_activo", "etiqueta", "activo_nombre",
-        "fecha_evento", "tipo_mantencion", "prioridad",
-        "estado_actual", "asignado_a", "descripcion", "detalle",
-        "usuario_app_username",
-    ],
-    "ordering": ["-fecha_evento"],
-    "can_create": False, "can_update": False, "can_delete": False,
-})()
+    attrs = list(qs.values("id_atributo_activo", "atributo"))
 
 
-class HistorialMantencionIndividual(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
-    """Listado filtrado al id de mantención (pk)."""
-    def get_queryset(self):
-        return (
-            HistorialMantencionesLog.objects
-            .filter(id_mantencion=self.kwargs["pk"])
-            .order_by("-fecha_evento")
+    # 2) Valores guardados para el activo (si viene)
+    valores = {}
+    if activo_id:
+        valores = dict(
+            AgregacionAtributosPorActivo.objects
+            .filter(activo_id=activo_id)
+            .values_list("atributo_id", "valor")
         )
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        # título/subtítulo bonito
-        try:
-            mant = Mantencion.objects.select_related("id_activo").get(pk=self.kwargs["pk"])
-            ctx["subtitle"] = f"Mantención {mant.id_mantencion} · {mant.id_activo}"
-        except Mantencion.DoesNotExist:
-            ctx["subtitle"] = f"Mantención {self.kwargs['pk']}"
-        # sin botón “Nuevo”
-        self.crud_config.can_create = False
-        ctx["can_create"] = False
-        return ctx
+    items = [
+        {
+            "id_atributo_activo": a["id_atributo_activo"],
+            "atributo": a["atributo"],
+            "valor": valores.get(a["id_atributo_activo"], "")
+        }
+        for a in attrs
+    ]
+    return JsonResponse({"items": items})
+
+## Config base del historial (si ya la tienes, reutilízala)
+#hist_mant_cfg = type("Cfg", (), {
+#    "model": HistorialMantencionesLog,
+#    "slug": "historial_mantenciones",
+#    "verbose_name": "Historial de mantenciones",
+#    "verbose_name_plural": "Historial de mantenciones",
+#    "list_display": [
+#        "id_activo",
+#        "etiqueta",
+#        "activo_nombre",
+#        "asignado_a",
+#        "fecha_evento",
+#        "tipo_mantencion", 
+#        "prioridad",
+#        "estado_actual",
+#        "descripcion",
+#        "detalle",
+#        "usuario_app_username",
+#    ],
+#    "ordering": ["-fecha_evento"],
+#    "can_create": False, "can_update": False, "can_delete": False,
+#})()
+
+
+#class HistorialMantencionIndividual(view_class(HistorialMantencionesLog, hist_mant_cfg, GenericList)):
+#    """Listado filtrado al id de mantención (pk)."""
+#    def get_queryset(self):
+#        return (
+#            HistorialMantencionesLog.objects
+#            .filter(id_mantencion=self.kwargs["pk"])
+#            .order_by("-fecha_evento")
+#        )
+#
+#    def get_context_data(self, **kwargs):
+#        ctx = super().get_context_data(**kwargs)
+#        # título/subtítulo bonito
+#        try:
+#            mant = Mantencion.objects.select_related("id_activo").get(pk=self.kwargs["pk"])
+#            ctx["subtitle"] = f"Mantención {mant.id_mantencion} · {mant.id_activo}"
+#        except Mantencion.DoesNotExist:
+#            ctx["subtitle"] = f"Mantención {self.kwargs['pk']}"
+#        # sin botón “Nuevo”
+#        self.crud_config.can_create = False
+#        ctx["can_create"] = False
+#        return ctx
     
 
 @login_required
@@ -996,3 +1032,71 @@ def exportar_activos_criticos_excel(request):
 
     return response
 
+# productos/views.py
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, render
+from django.http import HttpResponseForbidden
+from .models_inventario import Activo, AgregacionAtributosPorActivo
+
+# productos/views.py
+@login_required
+def activo_detail(request, pk: int):
+    emp_id = request.session.get("empresa_id")
+    activo = (
+        Activo.objects
+        .select_related(
+            "id_marca", "id_tipo_activo", "id_estado_activo",
+            "id_empleado", "id_proveedor", "id_departamento"
+        )
+        .get(pk=pk)
+    )
+
+    if emp_id and getattr(activo, "id_empresa_id", None) and activo.id_empresa_id != emp_id:
+        return HttpResponseForbidden("No permitido")
+
+    pares = (
+        AgregacionAtributosPorActivo.objects
+        .filter(activo_id=pk)
+        .select_related("atributo")
+        .order_by("atributo__atributo")
+    )
+    attrs = [{"nombre": p.atributo.atributo, "valor": p.valor} for p in pares]
+
+    # etiqueta legible para la clasificación
+    mapa_clasif = {"confidencial": "Confidencial", "uso_interno": "Uso interno", "publico": "Público"}
+    clasif_legible = mapa_clasif.get((activo.clasificacion or "").lower(), activo.clasificacion or "")
+
+    ctx = {"activo": activo, "attrs": attrs, "clasif_legible": clasif_legible}
+    return render(request, "activos/detail.html", ctx)
+
+
+# productos/views.py
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, render
+from .models_inventario import Empleado, Activo
+
+@login_required
+def empleado_detail(request, pk: int):
+    emp_id = request.session.get("empresa_id")
+
+    empleado = (
+        Empleado.objects
+        .select_related("id_empresa", "id_departamento", "user")
+        .get(pk=pk)
+    )
+
+    # seguridad multiempresa (opcional)
+    if emp_id and getattr(empleado, "id_empresa_id", None) and empleado.id_empresa_id != emp_id:
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("No permitido")
+
+    # Activos asignados a este empleado
+    activos = (
+        Activo.objects
+        .select_related("id_marca", "id_tipo_activo", "id_estado_activo")
+        .filter(id_empleado_id=empleado.id_empleado)
+        .order_by("-id_activo")
+    )
+
+    ctx = {"empleado": empleado, "activos": activos}
+    return render(request, "empleados/detail.html", ctx)

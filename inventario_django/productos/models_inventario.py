@@ -165,6 +165,30 @@ class EstadoActivo(models.Model):
         return self.descripcion
 
 
+class CondicionActivo(models.Model):
+    """
+    Condición física/lógica del activo (Nuevo, Defectuoso, Perdido, etc.)
+    - PK: id_condicion_activo
+    - Único por empresa: (id_empresa, descripcion)
+    """
+    id_condicion_activo = models.AutoField(primary_key=True, db_column="id_condicion_activo")
+    descripcion = models.CharField(max_length=100)
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        managed = True
+        db_table = 'condicion_activo'
+        unique_together = (('id_empresa', 'descripcion'),)
+        verbose_name = "Condición de activo"
+        verbose_name_plural = "Condiciones de activo"
+
+    def __str__(self):
+        return self.descripcion
+
+
+
+
 class Proveedor(models.Model):
     """Proveedor asociado a compras/facturación.
 
@@ -264,6 +288,10 @@ class Activo(models.Model):
     clasificacion = models.CharField(max_length=20, choices=[('confidencial', 'Confidencial'),('uso_interno', 'Uso Interno'), ('publico', 'Público'),],blank=True, null=True,)
     eliminado = models.BooleanField(default=False)
     numero_serie = models.CharField(max_length=120, blank=True, null=True, db_index=True, help_text="Número de serie del activo (si aplica).")
+    # en class Activo:
+    id_condicion_activo = models.ForeignKey(CondicionActivo, models.DO_NOTHING, db_column='id_condicion_activo', blank=True, null=True, verbose_name="Condición")
+    id_factura = models.ForeignKey('Factura', models.DO_NOTHING, db_column='id_factura', blank=True, null=True, verbose_name='Factura (folio)')
+
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
     @property
@@ -481,6 +509,7 @@ class Mantencion(models.Model):
     id_prioridad = models.ForeignKey(PrioridadMantencion, models.DO_NOTHING, db_column='id_prioridad', null=True, blank=True)
     fecha = models.DateField(blank=True, null=True)
     descripcion = models.TextField(blank=True, null=True)
+    asignado = models.ForeignKey(Empleado, models.DO_NOTHING, db_column='asignado_id', null=True, blank=True, related_name='mantenciones_asignado')
 
  # 👇 NUEVO: mapea la columna existente en BD
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
@@ -565,9 +594,20 @@ class Factura(models.Model):
 
 
     def __str__(self):
-        prov = self.id_proveedor or "Proveedor s/i"
-        f = self.fecha_emision.isoformat() if self.fecha_emision else "s/f"
-        return f"Factura {self.id_factura} · {prov} · {f}"
+        # Si hay folio, lo mostramos; si no, queda vacío
+        folio_txt = f" · Folio {self.folio.strip()}" if self.folio and self.folio.strip() else ""
+
+        # Nombre legible del proveedor (intenta campos comunes)
+        prov = (
+            getattr(self.id_proveedor, "nombre", None)
+            or getattr(self.id_proveedor, "nombre_proveedor", None)
+            or (str(self.id_proveedor) if self.id_proveedor else "Proveedor s/i")
+        )
+
+        # Fecha legible
+        f = self.fecha_emision.strftime("%d-%m-%Y") if self.fecha_emision else "s/f"
+
+        return f"Factura {self.id_factura}{folio_txt} · {prov} · {f}"
     
     def proveedor_rut(self):
         """Muestra 'Proveedor (RUT)' en la lista."""

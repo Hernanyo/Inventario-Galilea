@@ -59,6 +59,7 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoactivos_list' %}">Tipos de Activos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">Atributos de Activos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">Estados de Activos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:condicionactivos_list' %}">Condiciones de Activos</a>
       <a href="{% url 'productos:historial_activos_list' %}" class="btn btn-info">Historial de Activos</a>
       <a href="{% url 'productos:exportar_activos_criticos_excel' %}" class="btn btn-outline-success btn-sm" title="Exportar solo activos críticos (Excel CSV)">Exportar críticos (Excel)</a>
 
@@ -250,11 +251,11 @@
           <th><a href="?q={{ q }}&o=id_activo">Id Activo</a></th>
           <th><a href="?q={{ q }}&o=etiqueta">Etiqueta</a></th>
           <th><a href="?q={{ q }}&o=activo_nombre">Nombre Activo</a></th>
+          <th><a href="?q={{ q }}&o=responsable_nombre">Asignado axxxx</a></th>
           <th><a href="?q={{ q }}&o=fecha_evento">Fecha Evento</a></th>
           <th><a href="?q={{ q }}&o=tipo_mantencion">Tipo Mantención</a></th>
           <th><a href="?q={{ q }}&o=prioridad">Prioridad</a></th>
           <th><a href="?q={{ q }}&o=estado_actual">Estado Actual</a></th>
-          <th><a href="?q={{ q }}&o=responsable_nombre">Asignado a</a></th>
           <th><a href="?q={{ q }}&o=descripcion">Descripción</a></th>
           <th><a href="?q={{ q }}&o=detalle">Detalle</a></th>
           <th>Usuario</th>
@@ -266,10 +267,10 @@
             <td>{{ item.id_activo|default:"—" }}</td>
             <td>{{ item.etiqueta|default:"—" }}</td>
             <td>{{ item.activo_nombre|default:"—" }}</td>
+            <td>{{ item.estado_actual|default:"—" }}</td>
             <td>{{ item.fecha_evento|localtime|date:"d-m-Y H:i" }}</td>
             <td>{{ item.tipo_mantencion|default:"—" }}</td>
             <td>{{ item.prioridad|default:"—" }}</td>
-            <td>{{ item.estado_actual|default:"—" }}</td>
             <td>{{ item.asignado_a|default:"—" }}</td>
             <td>{{ item.descripcion|default:"—" }}</td>
             <td>{{ item.detalle|default:"—" }}</td>
@@ -288,6 +289,11 @@
               <th class="obs-col">
                 <a href="?q={{ q }}&o={{ col }}">Obs.</a>
               </th>
+
+            {# ➜ NUEVO: título corto para la columna de factura #}
+            {% elif view.crud_config.model_name == 'activo' and col == 'id_factura' %}
+              <th><a href="?q={{ q }}&o={{ col }}">Factura</a></th>
+
             {% else %}
               <th>
                 <a href="?q={{ q }}&o={{ col }}">{{ col|column_label }}</a>
@@ -333,16 +339,67 @@
               <span class="text-muted">—</span>
             {% endif %}
           </td>
+        
+        
+        {# ➜ NUEVO: celda compacta para Factura #}
+        {% elif view.crud_config.model_name == 'activo' and col == 'id_factura' %}
+          <td class="fact-col">
+            {% if item.id_factura %}
+              <button
+                type="button"
+                class="btn btn-xs btn-outline-dark factura-pop"
+                data-bs-toggle="popover"
+                data-bs-placement="bottom"
+                data-bs-html="true"
+                data-bs-trigger="focus"
+                tabindex="0"
+                data-bs-title="Factura {{ item.id_factura.folio|default:item.id_factura.id_factura }}"
+                data-bs-content="
+                  <div><strong>Folio:</strong> {{ item.id_factura.folio|default:'—' }}</div>
+                  <div><strong>Proveedor:</strong> {{ item.id_factura.id_proveedor|default:'—' }}</div>
+                  <div><strong>Fecha:</strong> {{ item.id_factura.fecha_emision|date:'d-m-Y'|default:'—' }}</div>
+                  {% if item.id_factura.archivo_adjunto %}
+                    <div style='margin-top:4px;'>
+                      <a href='{{ item.id_factura.archivo_adjunto.url }}' target='_blank' rel='noopener'>Ver archivo</a>
+                    </div>
+                  {% endif %}
+                ">
+                Factura
+              </button>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+
 
 
         {% else %}
-          <td>
-            {% if q %}
-              {{ item|attr:col|underline_match:q }}
+            <td>
+            {% if view.crud_config.model_name == 'activo' %}
+              {% if col == 'nombre_activo' or col == 'etiqueta' %}
+                <a href="{% url 'productos:activos_detail' item.id_activo %}">
+                  {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
+                </a>
+              {% else %}
+                {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
+              {% endif %}
+
+            {% elif view.crud_config.model_name == 'empleado' %}
+              {% if col == 'rut' or col == 'nombre' %}
+                <a href="{% url 'productos:empleados_detail' item.id_empleado %}">
+                  {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
+                </a>
+              {% else %}
+                {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
+              {% endif %}
+
             {% else %}
-              {{ item|attr:col }}
+              {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
             {% endif %}
           </td>
+
+
         {% endif %}
       {% endfor %}
       {% if view.crud_config.model_name == 'activo' %}
@@ -403,6 +460,14 @@
       {% if view.crud_config.slug != 'historial_activos' and view.crud_config.slug != 'historial_mantenciones' %}
         <td class="text-right">
           {% if view.crud_config.model_name == 'activo' %}
+              <!-- 👇 NUEVO: crea mantención para este activo -->
+            {% if can_create %}
+              <a class="btn btn-xs btn-outline-primary"
+                href="{% url 'productos:mantencions_create' %}?id_activo={{ item.id_activo }}">
+                + Mantención
+              </a>
+            {% endif %}
+
             {% if can_change %}
               <a class="btn btn-xs btn-warning" href="{% url 'productos:activos_update' item.id_activo %}">
                 <i class="bi bi-pencil-square me-1"></i>Editar
@@ -744,6 +809,14 @@ updateDateTime();
   })();
 </script>
 <!-- ######################################################################################################################################## -->
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.factura-pop').forEach(function (el) {
+    new bootstrap.Popover(el);
+  });
+});
+</script>
 
 <style>
   th.obs-col, td.obs-col {
