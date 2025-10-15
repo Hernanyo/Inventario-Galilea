@@ -86,7 +86,7 @@ urlpatterns = [
     path("", HomeView.as_view(), name="home"),
 
     # Dashboard
-    path("dashboard/", MetricsDashboardView.as_view(), name="dashboard"),
+    #path("dashboard/", MetricsDashboardView.as_view(), name="dashboard"),
 
     # Alias opcional
     path("listado/", ListVerticalView.as_view(), name="list"),
@@ -536,4 +536,14 @@ from productos.views import empleado_detail
 
 urlpatterns += [
     path("empleados/<int:pk>/", empleado_detail, name="empleados_detail"),
+]
+
+
+# productos/urls.py
+from .views import ActivosCriticosList
+
+urlpatterns += [
+    path("activos/criticos/", ActivosCriticosList.as_view(), name="activos_criticos"),
+    # Ya tienes el exportador:
+    # path("activos/exportar/criticos-excel/", views.exportar_activos_criticos_excel, name="exportar_activos_criticos_excel"),
 ]

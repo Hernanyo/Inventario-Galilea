@@ -175,6 +175,14 @@ class HomeView(CompanyRequiredMixin, TemplateView):
         disponibles   = qs_activos.filter(id_empleado__isnull=True).count()
         en_uso        = qs_activos.filter(id_empleado__isnull=False).count()
 
+
+        # Activos criticos
+        criticos = qs_activos.filter(activo_critico=True).count()
+        ctx.update({
+            # ...
+            "activos_criticos": criticos,
+        })
+
         # Mantenciones (con fallback si el modelo no tiene id_empresa)
         Mant = Mantencion  # ya importado arriba
         qs_mant = Mant.objects.all() if Mant else None
@@ -193,6 +201,19 @@ class HomeView(CompanyRequiredMixin, TemplateView):
             mant_pend = qs_mant.exclude(
                 id_estado_mantencion__tipo__in=["Cerrada", "Completada", "Cancelada"]
             ).count()
+
+            # Mantenciones completadas
+            mant_comp = 0
+            if Mant and qs_mant is not None:
+                # ... (lo que ya tienes)
+
+                # ✅ NUEVO: total de mantenciones completadas
+                mant_comp = qs_mant.filter(
+                    id_estado_mantencion__tipo__iexact="Completada"
+                ).count()
+
+
+
             ult_mant = (
                 qs_mant.select_related("id_activo", "id_estado_mantencion")
                       .order_by("-id_mantencion")[:6]
@@ -211,6 +232,7 @@ class HomeView(CompanyRequiredMixin, TemplateView):
             "disponibles": disponibles,
             "en_uso": en_uso,
             "mantenciones_pendientes": mant_pend,
+            "mantenciones_completadas": mant_comp,   # ✅ NUEVO
             "ultimos_activos": qs_activos.order_by("-id_activo")[:15],
             "ultimas_mantenciones": ult_mant,
         })
@@ -1100,3 +1122,51 @@ def empleado_detail(request, pk: int):
 
     ctx = {"empleado": empleado, "activos": activos}
     return render(request, "empleados/detail.html", ctx)
+
+
+# --- Listado de Activos críticos ---
+# productos/views.py
+from django.views.generic import TemplateView
+from django.utils import timezone
+from django.db.models import Prefetch
+from .mixins import CompanyRequiredMixin
+from .models_inventario import Activo, DetalleFactura
+
+class ActivosCriticosList(CompanyRequiredMixin, TemplateView):
+    template_name = "activos/criticos_list.html"
+
+    def get_queryset_criticos(self):
+        emp_id = self.request.session.get("empresa_id")
+        qs = (
+            Activo.objects
+            .select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado", "id_departamento")
+            .filter(eliminado=False, activo_critico=True)
+            .order_by("-id_activo")
+        )
+        if emp_id:
+            qs = qs.filter(id_empresa_id=emp_id)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset_criticos()
+
+        for a in qs:
+            a.total_cid = (a.confidencialidad or 0) + (a.integridad or 0) + (a.disponibilidad or 0)
+
+
+        # (opcional) prefetch de 1er valor unitario para mostrar en tabla
+        precios = {
+            a.id_activo: (DetalleFactura.objects
+                          .filter(id_activo=a, eliminado=False)
+                          .values_list("valor_unitario", flat=True)
+                          .first())
+            for a in qs
+        }
+
+        ctx["activos"] = qs
+        ctx["total"]   = qs.count()
+        ctx["precios"] = precios
+        return ctx
+
+

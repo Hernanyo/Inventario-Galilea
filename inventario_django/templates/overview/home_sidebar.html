@@ -70,7 +70,7 @@
   <!-- KPIs -->
   <div class="row g-3 mb-4 align-items-stretch">
 
-    <div class="col-md-3">
+    <div class="col-md-2">
       <div class="card h-100 shadow-sm">
         <div class="card-body text-center kpi-body">
           <h6 class="text-muted">Activos</h6>
@@ -80,8 +80,21 @@
       </div>
     </div>
 
+    <div class="col-md-2">
+      <a href="{% url 'productos:activos_criticos' %}" class="text-decoration-none">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body text-center kpi-body">
+            <h6 class="text-muted">Activos críticos</h6>
+            <div class="display-6">{{ activos_criticos|default:0 }}</div>
+            <small class="text-muted">exportar CSV</small>
+          </div>
+        </div>
+      </a>
+    </div>
+
+
     <!-- Disponibles → click lleva a la lista filtrada -->
-    <div class="col-md-3">
+    <div class="col-md-2">
       <a href="{% url 'productos:activos_disponibles' %}" class="text-decoration-none">
         <div class="card h-100 shadow-sm">
           <div class="card-body text-center kpi-body">
@@ -94,7 +107,7 @@
     </div>
 
     <!-- En uso → click lleva a la lista filtrada -->
-    <div class="col-md-3">
+    <div class="col-md-2">
       <a href="{% url 'productos:activos_desasignar' %}" class="text-decoration-none">
         <div class="card h-100 shadow-sm">
           <div class="card-body text-center kpi-body">
@@ -106,7 +119,7 @@
       </a>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md-2">
       <div class="card h-100 shadow-sm">
         <div class="card-body text-center kpi-body">
           <h6 class="text-muted">Mantenciones pendientes</h6>
@@ -115,6 +128,18 @@
         </div>
       </div>
     </div>
+
+
+    <div class="col-md-2">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body text-center kpi-body">
+          <h6 class="text-muted">Mantenciones completadas</h6>
+          <div class="display-6">{{ mantenciones_completadas|default:0 }}</div>
+          <small class="text-muted">tareas</small>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 

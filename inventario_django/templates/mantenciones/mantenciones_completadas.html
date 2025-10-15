@@ -1,0 +1,34 @@
+<!-- mantenciones_completadas.html -->
+{% extends "base_generic.html" %}
+
+{% block content %}
+    <h2>Listado de Mantenciones Completadas</h2>
+    <div>
+        <h3>Mantenciones Completadas: {{ mantenciones.count }}</h3>
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Activo</th>
+                <th>Descripción</th>
+                <th>Estado</th>
+                <th>Fecha de inicio</th>
+                <th>Fecha de finalización</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mantencion in mantenciones %}
+                <tr>
+                    <td>{{ mantencion.id_mantencion }}</td>
+                    <td>{{ mantencion.id_activo.nombre_activo }}</td>
+                    <td>{{ mantencion.descripcion }}</td>
+                    <td>{{ mantencion.id_estado_mantencion.tipo }}</td>
+                    <td>{{ mantencion.fecha_inicio }}</td>
+                    <td>{{ mantencion.fecha_finalizacion }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}

@@ -38,7 +38,8 @@ def set_company(request, empresa_id):
     emp = Empresa.objects.get(pk=empresa_id)
     request.session["empresa_nombre"] = emp.nombre_empresa
     request.session["empresa_slug"] = slugify(emp.nombre_empresa or "")
-    return redirect("productos:dashboard")
+    #return redirect("productos:dashboard")
+    return redirect("productos:activos_list")
 
 def company_change(request):
     """
