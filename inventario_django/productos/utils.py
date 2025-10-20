@@ -340,3 +340,50 @@ def get_attr_value_de_activo(activo, nombres_posibles: Iterable[str]) -> str:
         if nombre_norm in candidatos:
             return valor or ""
     return ""
+
+
+
+    #######################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><
+# productos/utils.py
+from django.db.models.functions import Substr, Length, Cast, Coalesce
+from django.db.models import IntegerField, Max
+from .models_inventario import Activo, TipoActivo
+
+# productos/utils.py
+import re
+from productos.models_inventario import Activo, TipoActivo
+
+def siguiente_etiqueta(emp_id: int, tipo_id: int) -> str | None:
+    """
+    Calcula la próxima etiqueta para el tipo dado dentro de la empresa.
+    Usa TipoActivo.estructura_etiqueta como prefijo (si existe) o las 3 primeras
+    letras del tipo, y suma 1 al último correlativo encontrado.
+    """
+    try:
+        tipo = TipoActivo.objects.get(pk=tipo_id)
+    except TipoActivo.DoesNotExist:
+        return None
+
+    # Prefijo desde estructura_etiqueta o fallback a 3 letras del tipo
+    prefix = (tipo.estructura_etiqueta or tipo.tipo_activo[:3]).upper()
+
+    # Filtra activos de esa empresa y tipo
+    qs = Activo.objects.filter(id_empresa_id=emp_id, id_tipo_activo_id=tipo_id)
+
+    # Busca la última etiqueta con ese prefijo
+    last = (
+        qs.filter(etiqueta__startswith=prefix)
+          .order_by("-id_activo")
+          .values_list("etiqueta", flat=True)
+          .first()
+    )
+
+    next_num = 1
+    if last:
+        # Si la etiqueta es p.ej. NBK00015 -> saca 15 y suma 1
+        m = re.match(rf"^{re.escape(prefix)}(\d+)$", last)
+        if m:
+            next_num = int(m.group(1)) + 1
+
+    # ancho 5 como en tus datos (NBK00015, IMP00008, etc.)
+    return f"{prefix}{next_num:05d}"

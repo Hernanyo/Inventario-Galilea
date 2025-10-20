@@ -32,28 +32,40 @@
           <!-- ⚠️ Importante: ocultos del form (incluye form.id) -->
           {% for h in form.hidden_fields %}{{ h }}{% endfor %}
 
+
           <div class="row g-2 align-items-end">
-            <div class="col-md-5">
+            <div class="col-md-4">
               <label class="form-label">Atributo</label>
               {{ form.atributo }}
-              {% if form.atributo.errors %}
-                <div class="text-danger small">{{ form.atributo.errors }}</div>
-              {% endif %}
+              {% if form.atributo.errors %}<div class="text-danger small">{{ form.atributo.errors }}</div>{% endif %}
             </div>
-            <div class="col-md-5">
+
+            <div class="col-md-4">
               <label class="form-label">Valor (opcional)</label>
               {{ form.valor }}
-              {% if form.valor.errors %}
-                <div class="text-danger small">{{ form.valor.errors }}</div>
+              {% if form.valor.errors %}<div class="text-danger small">{{ form.valor.errors }}</div>{% endif %}
+            </div>
+
+            <div class="col-md-3 text-end">
+              {% if form.instance.pk %}
+                <a class="btn btn-sm btn-outline-secondary"
+                  href="{% url 'productos:atributoopcionportipoactivos_list' %}?atributo={{ form.instance.id_atributo_activo }}">
+                  Opciones ({{ form.instance.opciones.count|default:0 }})
+                </a>
+                <a class="btn btn-sm btn-primary ms-1"
+                  href="{% url 'productos:atributoopcionportipoactivos_create' %}?atributo={{ form.instance.id_atributo_activo }}">
+                  + Nueva
+                </a>
               {% endif %}
             </div>
-            <div class="col-md-2">
-              <!-- ✅ Mostrar DELETE siempre; si la fila es nueva no afecta -->
+
+            <div class="col-md-1">
               <div class="form-check mt-4">
                 {{ form.DELETE }} <label class="form-check-label">Eliminar</label>
               </div>
             </div>
           </div>
+
         </div>
       {% empty %}
         <div class="alert alert-info">Aún no hay atributos para este tipo.</div>
@@ -87,6 +99,7 @@
     <div class="d-flex gap-2 mt-3">
       <button id="btn-add" type="button" class="btn btn-info">+ Añadir atributo</button>
       <button class="btn btn-primary" type="submit">Guardar</button>
+      <button class="btn btn-success" name="save_stay" value="1">Crear atributo y recargar</button>
     </div>
   </form>
 </div>

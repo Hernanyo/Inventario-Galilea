@@ -13,6 +13,29 @@ from django.contrib.auth.models import User
 #from .models import Empleado
 import re
 import unicodedata
+from django import forms
+from django.db.models import Q
+from .models_inventario import Cargo
+from .models_inventario import Ubicacion
+
+def hide_deleted(form, *field_names):
+    """
+    A cada campo FK indicado le deja solo opciones eliminado=False.
+    Si el valor actual está eliminado, muestra un help_text.
+    """
+    for name in field_names:
+        if name not in form.fields:
+            continue
+        qs = getattr(form.fields[name], "queryset", None)
+        if qs is None:
+            continue
+        # Oculta eliminados en el combo
+        form.fields[name].queryset = qs.filter(eliminado=False)
+
+        # Si estás editando y el valor actual está eliminado, avisa
+        current_id = getattr(form.instance, f"{name}_id", None)
+        if current_id and qs.filter(pk=current_id, eliminado=True).exists():
+            form.fields[name].help_text = "El valor actual está eliminado. Debes reemplazarlo antes de guardar."
 
 def normalize_name(s: str) -> str:
     """
@@ -267,7 +290,8 @@ class EmpleadoForm(forms.ModelForm):
             "apellido_paterno": forms.TextInput(attrs={"class": "form-control"}),
             "apellido_materno": forms.TextInput(attrs={"class": "form-control"}),
             "estado_activo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
-            "cargo": forms.TextInput(attrs={"class": "form-control"}),
+            "cargo": forms.Select(attrs={'class': 'form-select'}),
+            'ubicacion': forms.Select(attrs={'class': 'form-select'}),  # Estilo para el campo 'Ubicación'
             "telefono": forms.TextInput(attrs={"class": "form-control"}),
             "id_empresa": forms.Select(attrs={"class": "form-select"}),
             "id_departamento": forms.Select(attrs={"class": "form-select"}),
@@ -275,6 +299,52 @@ class EmpleadoForm(forms.ModelForm):
             "correo": forms.EmailInput(attrs={"class": "form-control"}),
         }
 ################################################################################################################
+    # ⬇️ Orden deseado: colocamos 'ubicacion' justo después de 'cargo'
+    field_order = [
+        "rut", "nombre", "apellido_paterno", "apellido_materno",
+        "estado_activo", "cargo", "ubicacion",
+        "telefono", "id_empresa", "id_departamento", "rol", "correo",
+    ]
+
+    def __init__(self, *args, **kwargs):
+        # igual que hicimos con Ubicación: recibimos empresa_id si tu vista la pasa
+        empresa_id = kwargs.pop('empresa_id', None)
+        super().__init__(*args, **kwargs)
+
+        # 👇 Oculta eliminados en combos relevantes
+        hide_deleted(self, "ubicacion", "cargo", "id_departamento", "id_empresa")
+
+        # 1) armamos el queryset de cargos (por empresa y no eliminados)
+        qs = Cargo.objects.filter(eliminado=False)
+        if empresa_id:
+            qs = qs.filter(Q(id_empresa_id=empresa_id) | Q(id_empresa__isnull=True))
+
+        qs = qs.order_by('nombre_cargo')
+
+        # 2) sustituimos el campo 'cargo' por un ModelChoiceField
+        self.fields['cargo'] = forms.ModelChoiceField(
+            queryset=qs,
+            required=False,
+            empty_label="— Selecciona un cargo —",
+            widget=forms.Select(attrs={'class': 'form-select'})
+        )
+
+        # 3) preseleccionar: si el empleado ya tiene texto en cargo, intentamos matchear por nombre
+        actual = getattr(self.instance, 'cargo', None)
+        if actual:
+            m = qs.filter(nombre_cargo=actual).first()
+            if m:
+                self.initial['cargo'] = m.pk
+
+    # 4) muy importante: convertir el Cargo seleccionado a STRING antes de guardar en el modelo
+    def clean_cargo(self):
+        val = self.cleaned_data.get('cargo')
+        if val is None:
+            return None  # tu CharField acepta null=True
+        # si viene un objeto Cargo, devolvemos su nombre (string) para guardarlo en el CharField
+        if isinstance(val, Cargo):
+            return val.nombre_cargo
+        return val  # por si acaso ya es string
 ################################################################################################################
     def save(self, commit=True):
         """
@@ -404,3 +474,43 @@ class MarcaForm(forms.ModelForm):
                 })
 
         return cleaned
+
+
+class UbicacionForm(forms.ModelForm):
+    class Meta:
+        model = Ubicacion
+        fields = ["id_empresa", "nombre_ubicacion", "direccion"]
+        widgets = {
+            "id_empresa": forms.Select(attrs={"class": "form-select"}),
+            "nombre_ubicacion": forms.TextInput(attrs={"class": "form-control"}),
+            "direccion": forms.TextInput(attrs={"class": "form-control"}),
+        }
+
+    def clean_nombre_ubicacion(self):
+        # normaliza espacios
+        s = (self.cleaned_data.get("nombre_ubicacion") or "").strip()
+        return " ".join(s.split())
+
+    def clean(self):
+        cleaned = super().clean()
+        empresa = cleaned.get("id_empresa")
+        nombre  = cleaned.get("nombre_ubicacion") or ""
+        if not empresa or not nombre:
+            return cleaned
+
+        norm_in = normalize_name(nombre)
+
+        qs = Ubicacion.objects.filter(id_empresa=empresa, eliminado=False)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        # comparamos ignorando mayúsculas/tildes/espacios
+        for existente in qs.values_list("nombre_ubicacion", flat=True):
+            if normalize_name(existente) == norm_in:
+                raise ValidationError({
+                    "nombre_ubicacion": "Ya existe una ubicación con ese nombre en esta empresa."
+                })
+        return cleaned
+    
+
+

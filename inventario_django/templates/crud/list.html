@@ -56,10 +56,11 @@
     {% endif %}
 
     {% if view.crud_config.model_name == 'activo' %}
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoactivos_list' %}">Tipos de Activos</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">Atributos de Activos</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">Estados de Activos</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:condicionactivos_list' %}">Condiciones de Activos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipoactivos_list' %}">Tipos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:modelos_list' %}">Modelos</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">Atributos por tipo</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">Estados</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:condicionactivos_list' %}">Condición</a>
       <a href="{% url 'productos:historial_activos_list' %}" class="btn btn-info">Historial de Activos</a>
       <a href="{% url 'productos:exportar_activos_criticos_excel' %}" class="btn btn-outline-success btn-sm" title="Exportar solo activos críticos (Excel CSV)">Exportar críticos (Excel)</a>
 
@@ -464,19 +465,19 @@
             {% if can_create %}
               <a class="btn btn-xs btn-outline-primary"
                 href="{% url 'productos:mantencions_create' %}?id_activo={{ item.id_activo }}">
-                + Mantención
+                <i class="bi bi-gear me-1"></i></i><!--+ Mantención-->
               </a>
             {% endif %}
 
             {% if can_change %}
               <a class="btn btn-xs btn-warning" href="{% url 'productos:activos_update' item.id_activo %}">
-                <i class="bi bi-pencil-square me-1"></i>Editar
+                <i class="bi bi-pencil-square me-1"></i><!--Editar-->
               </a>
             {% endif %}
 
             {% if item.qr_code %}
               <a class="btn btn-xs btn-success" href="{% url 'productos:activos_qr' item.id_activo %}">
-                <i class="bi bi-qr-code me-1"></i>Ver QR
+                <i class="bi bi-qr-code me-1"></i><!--Ver QR-->
               </a>
             {% else %}
               <a class="btn btn-xs btn-warning" href="{% url 'productos:activos_update' item.id_activo %}">
@@ -484,12 +485,12 @@
               </a>
             {% endif %}
             <a class="btn btn-xs btn-info" href="{% url 'productos:activo_historial_list' item.id_activo %}">
-              <i class="bi bi-clock-history me-1"></i>Historial
+              <i class="bi bi-clock-history me-1"></i><!--Historial -->
             </a>
             {% if can_delete %}
               <a class="btn btn-xs btn-danger" href="{% url 'productos:activos_delete' item.id_activo %}"
                 onclick="return confirm('¿Eliminar el activo {{ item.id_activo }}?');">
-                <i class="bi bi-trash me-1"></i>Eliminar
+                <i class="bi bi-trash me-1"></i><!--Eliminar --> <!--Para que vuelva a decir eliminar debo descomentar la palabra eliminar-->
               </a>
             {% endif %}
 

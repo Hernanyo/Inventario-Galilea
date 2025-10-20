@@ -128,11 +128,30 @@
         {% endwith %}
       </a>
 
+
+
+
       <div class="ms-auto">
         {% if user.is_authenticated %}
+          <!-- Mostrar los botones SOLO si no estamos en la página principal -->
+
+          <!-- Agregar los botones de acción con las URL correctas -->
+          <div class="btn-group me-5">
+            <a class="btn btn-outline-light" href="{% url 'productos:empresas_list' %}">Empresas</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:ubicacions_list' %}">Ubicaciones</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:empleados_list' %}">Empleados</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:marcas_list' %}">Marcas</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:proveedors_list' %}">Proveedores</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:activos_list' %}">Activos</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:mantencions_list' %}">Mantenciones</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:facturas_list' %}">Facturas</a>
+            <a class="btn btn-outline-light" href="{% url 'productos:registros_list' %}">Registros de acciones</a>
+          </div>
+
+          
           {% with current=request.resolver_match.url_name %}
             <a
-              class="btn btn-outline-light btn-sm me-2 {% if current == 'home' %}active{% endif %}"
+              class="btn btn-outline-light btn-xs me-2 {% if current == 'home' %}active{% endif %}"
               href="{% url 'productos:home' %}"
             >Inicio</a>
           {% endwith %}
@@ -149,10 +168,12 @@
             </span>
           {% endwith %}
 
+
+
           <!-- IMPORTANTE: usa el logout de productos -->
           <form method="post" action="{% url 'productos:logout' %}" class="d-inline">
             {% csrf_token %}
-            <button class="btn btn-light btn-sm" type="submit">Salir</button>
+            <button class="btn btn-dark btn-xs" type="submit">Salir</button>
           </form>
 
         {% else %}

@@ -6,6 +6,10 @@ from .models_inventario import TipoActivo, AtributosActivo
 from django import forms
 from django.contrib import messages
 from django.urls import reverse
+from django.utils.http import urlencode 
+from django.contrib.auth.decorators import login_required
+from django.http import Http404
+from django.utils.http import urlencode
 
 
 class AttrForm(forms.ModelForm):
@@ -46,27 +50,26 @@ def atributosactivos_list(request):
 
 #2##################################################################################################24-09-2025
 
+@login_required
 def editar_atributos_por_tipo(request, tipo_id):
     """
     Permite editar los atributos de un tipo de activo específico.
     Solo los atributos de ese tipo se pueden editar o eliminar.
     """
     tipo = get_object_or_404(TipoActivo, pk=tipo_id)
-#1################################################################################################24-05-2025
+
     emp_id = request.session.get("empresa_id")
     if emp_id and tipo.id_empresa_id != emp_id:
         raise Http404("Tipo no pertenece a la empresa actual.")
-#2#################################################################################################24-05-2025 
-    # 👇 IMPORTANTE: definir aquí, fuera del if POST/GET
+
     FormSet = modelformset_factory(
         AtributosActivo,
         form=AttrForm,
-        extra=0,          # sin filas extra (las añades con el botón "+")
-        can_delete=True   # checkbox "Eliminar" en filas existentes
+        extra=0,
+        can_delete=True
     )
 
     qs = AtributosActivo.objects.filter(id_tipo_activo=tipo_id).order_by("atributo")
-    
 
     if request.method == "POST":
         formset = FormSet(request.POST, queryset=qs, prefix="attrs")
@@ -74,19 +77,27 @@ def editar_atributos_por_tipo(request, tipo_id):
             with transaction.atomic():
                 objs = formset.save(commit=False)
 
-                # asigna el tipo a los nuevos/actualizados
                 for obj in objs:
                     obj.id_tipo_activo_id = tipo_id
-                    obj.id_empresa_id = tipo.id_empresa_id  # Asegurar id_empresa
+                    obj.id_empresa_id = tipo.id_empresa_id
                     obj.save()
 
-                # elimina marcados
                 for obj in formset.deleted_objects:
                     obj.delete()
 
-            messages.success(request, "Atributos actualizados correctamente.")  # ✅ feedback
-            return redirect("productos:atributosactivos_list")
+            messages.success(request, "Atributos actualizados correctamente.")
 
+            # 👇 si apretaron "Guardar y seguir aquí", vuelve a esta misma vista
+            if "save_stay" in request.POST:
+                # preserva ?next=... si venía
+                next_url = request.GET.get("next") or request.POST.get("next")
+                url = reverse("productos:editar_atributos_por_tipo", kwargs={"tipo_id": tipo.pk})
+                if next_url:
+                    url = f"{url}?{urlencode({'next': next_url})}"
+                return redirect(url)
+
+            # Flujo normal: ir al listado
+            return redirect("productos:atributosactivos_list")
     else:
         formset = FormSet(queryset=qs, prefix="attrs")
 
@@ -94,7 +105,6 @@ def editar_atributos_por_tipo(request, tipo_id):
         "tipo": tipo,
         "formset": formset,
     })
-
 
 # Vista “ver” (solo lectura) para mostrar muchos atributos en su propia página.
 def ver_atributos_por_tipo(request, tipo_id):
@@ -134,5 +144,6 @@ def atributos_nuevo_wizard(request):
             edit_url = reverse("productos:editar_atributos_por_tipo", kwargs={"tipo_id": tipo_id})
             return redirect(f"{edit_url}?next={next_url}")
 
-    tipos = TipoActivo.objects.order_by("tipo_activo")
+    #tipos = TipoActivo.objects.order_by("tipo_activo")
+    tipos = tipos.order_by("tipo_activo")
     return render(request, "atributos/nuevo_selector_tipo.html", {"tipos": tipos})

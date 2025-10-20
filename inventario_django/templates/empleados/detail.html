@@ -16,9 +16,7 @@
           <dd class="col-sm-8">{{ empleado.rut }}</dd>
 
           <dt class="col-sm-4">Estado</dt>
-          <dd class="col-sm-8">
-            {% if empleado.estado_activo %}En actividad{% else %}Inactivo{% endif %}
-          </dd>
+          <dd class="col-sm-8">{% if empleado.estado_activo %}En actividad{% else %}Inactivo{% endif %}</dd>
 
           <dt class="col-sm-4">Cargo</dt>
           <dd class="col-sm-8">{{ empleado.cargo|default:"—" }}</dd>
@@ -34,6 +32,18 @@
 
           <dt class="col-sm-4">Departamento</dt>
           <dd class="col-sm-8">{{ empleado.id_departamento|default:"—" }}</dd>
+
+          <dt class="col-sm-4">Ubicación</dt>
+          <dd class="col-sm-8">
+            {% with u=empleado.ubicacion %}
+              {% if u %}
+                {{ u }}
+                {% if u.eliminado %}
+                  <span class="badge bg-warning text-dark ms-1">eliminada</span>
+                {% endif %}
+              {% else %}—{% endif %}
+            {% endwith %}
+          </dd>
 
           <dt class="col-sm-4">Usuario app</dt>
           <dd class="col-sm-8">{{ empleado.user|default:"—" }}</dd>

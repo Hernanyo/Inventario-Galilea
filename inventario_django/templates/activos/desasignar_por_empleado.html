@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Desasignación por empleado{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Desasignación por empleado</h1>
+<p class="text-muted">Empleados con activos asignados: <strong>{{ total|default:0 }}</strong></p>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Empleado</th>
+          <th>Empresa</th>
+          <th>Departamento</th>
+          <th class="text-center" style="width:120px">Activos</th>
+          <th class="text-right" style="width:160px">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in empleados %}
+          <tr>
+            <td>
+              <strong>{{ e }}</strong><br>
+              <small class="text-muted">{{ e.rut }}</small>
+            </td>
+            <td>{{ e.id_empresa|default:"—" }}</td>
+            <td>{{ e.id_departamento|default:"—" }}</td>
+            <td class="text-center"><span class="badge bg-primary">{{ e.n_activos }}</span></td>
+            <td class="text-right">
+              <button type="button"
+                      class="btn btn-sm btn-primary btn-open-modal"
+                      data-empleado="{{ e.id_empleado }}"
+                      data-nombre="{{ e }}">
+                Desasignar…
+              </button>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="text-center text-muted py-4">No hay empleados con activos asignados.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<a href="javascript:history.back()" class="btn btn-outline-secondary mt-3">Volver</a>
+
+{# ===== Modal ===== #}
+<div class="modal fade" id="modalDesasignar" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <form method="post" class="modal-content" id="formDesasignar">
+      {% csrf_token %}
+      <div class="modal-header">
+        <h5 class="modal-title">Desasignar activos de <span id="mEmpleado"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" id="tablaActivos">
+            <thead>
+              <tr>
+                <th style="width:28px">
+                  <input type="checkbox" id="mCheckAll">
+                </th>
+                <th>ID</th>
+                <th>Etiqueta</th>
+                <th>Nombre</th>
+                <th>Marca</th>
+                <th>Tipo</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody><!-- filas via JS --></tbody>
+          </table>
+        </div>
+        <div id="mVacio" class="text-center text-muted py-4" style="display:none">Sin activos asignados.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="mBtnDesasignar">Desasignar seleccionados</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  const modalEl = document.getElementById('modalDesasignar');
+  const modal = new bootstrap.Modal(modalEl);
+  const mEmpleado = document.getElementById('mEmpleado');
+  const mTBody = document.querySelector('#tablaActivos tbody');
+  const mVacio = document.getElementById('mVacio');
+  const mCheckAll = document.getElementById('mCheckAll');
+  const form = document.getElementById('formDesasignar');
+
+  // Abre modal y carga activos vía API
+  document.body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.btn-open-modal');
+    if (!btn) return;
+
+    const empleadoId = btn.dataset.empleado;
+    const nombre     = btn.dataset.nombre;
+    mEmpleado.textContent = nombre;
+
+    // acción del form de este empleado
+    form.action = "{% url 'productos:activos_desasignar_de_empleado' 99999 %}".replace("99999", empleadoId);
+
+    // limpia tabla
+    mTBody.innerHTML = "";
+    mVacio.style.display = 'none';
+    mCheckAll.checked = false;
+
+    try {
+      const resp = await fetch("{% url 'productos:api_activos_de_empleado' 99999 %}".replace("99999", empleadoId));
+      const data = await resp.json();
+
+      if (!data.items.length) {
+        mVacio.style.display = '';
+      } else {
+        data.items.forEach(a => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><input type="checkbox" name="activos" value="${a.id}" class="row-check"></td>
+            <td class="text-muted">${a.id}</td>
+            <td>${a.etiqueta || '—'}</td>
+            <td>${a.nombre}</td>
+            <td>${a.marca || '—'}</td>
+            <td>${a.tipo || '—'}</td>
+            <td>${a.estado || '—'}</td>
+          `;
+          mTBody.appendChild(tr);
+        });
+      }
+      modal.show();
+    } catch (err) {
+      alert("No se pudieron cargar los activos del empleado.");
+    }
+  });
+
+  // Marcar / desmarcar todos dentro del modal
+  mCheckAll.addEventListener('change', () => {
+    document.querySelectorAll('#tablaActivos .row-check').forEach(c => c.checked = mCheckAll.checked);
+  });
+
+  // Validación simple al enviar
+  form.addEventListener('submit', (ev) => {
+    const checks = Array.from(document.querySelectorAll('#tablaActivos .row-check'));
+    const anyChecked = checks.some(c => c.checked);
+    if (!anyChecked) {
+      ev.preventDefault();
+      alert('Selecciona al menos un activo.');
+      return;
+    }
+    if (!confirm('¿Confirmas la DESASIGNACIÓN masiva de los activos seleccionados?')) {
+      ev.preventDefault();
+    }
+  });
+})();
+</script>
+{% endblock %}

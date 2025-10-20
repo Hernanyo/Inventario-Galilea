@@ -13,6 +13,7 @@ from django.db import models
 from django.contrib.auth.models import User
 import json
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import RegexValidator
 
 
 
@@ -69,10 +70,47 @@ class Departamento(models.Model):
     def __str__(self):
         # Muestra el nombre y la empresa entre paréntesis
         return f"{self.nombre_departamento} ({self.id_empresa})"
+    
+# Define primero la clase Ubicacion
+class Ubicacion(models.Model):
+    """Tabla de ubicaciones asociadas a empleados."""
+    id_ubicacion = models.AutoField(primary_key=True, db_column="id_ubicacion")
+    id_empresa = models.ForeignKey('Empresa', on_delete=models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    nombre_ubicacion = models.CharField(max_length=255, verbose_name="Nombre de la Ubicación")
+    direccion = models.CharField(max_length=255, blank=True, null=True, verbose_name="Dirección")
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        managed = True
+        db_table = 'ubicacion'
+        verbose_name = "Ubicación"
+        verbose_name_plural = "Ubicaciones"  # Cambiar el nombre plural aquí
+
+    def __str__(self):
+        return self.nombre_ubicacion
+
+class Cargo(models.Model):
+    id_cargo = models.AutoField(primary_key=True, db_column="id_cargo")
+    id_empresa = models.ForeignKey('Empresa', on_delete=models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    nombre_cargo = models.CharField(max_length=255, verbose_name="Nombre del Cargo")
+    descripcion = models.TextField(blank=True, null=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        managed = True
+        db_table = 'cargo'
+        verbose_name = "Cargo"
+        verbose_name_plural = "Cargos"
+        ordering = ["nombre_cargo"]
+        unique_together = (('id_empresa', 'nombre_cargo'),)
+
+    def __str__(self):
+        return self.nombre_cargo
+
 
 
 class Empleado(models.Model):
-    """Empleado de la empresa, con rol y vínculo opcional a usuario de Django.
+    """Empleado de la empresa, con rol, ubicación y vínculo opcional a usuario de Django.
 
     - PK: `id_empleado`
     - Único: `rut`, `correo` (opcional)
@@ -101,6 +139,8 @@ class Empleado(models.Model):
     user = models.OneToOneField("auth.User",models.DO_NOTHING, db_column="user_id", blank=True, null=True, related_name="empleado",)
     correo = models.CharField(max_length=255, unique=True, blank=True, null=True)  # <-- NUEVO
     eliminado = models.BooleanField(default=False)
+    ubicacion = models.ForeignKey('Ubicacion', on_delete=models.SET_NULL, null=True, blank=True)  # Relación con Ubicación
+
 
 
     class Meta:
@@ -232,18 +272,41 @@ class TipoActivo(models.Model):
     #id_tipo_activo = models.AutoField(primary_key=True)
     id_tipo_activo = models.AutoField(primary_key=True, db_column="id_tipo_activo")
     tipo_activo = models.CharField(max_length=100)
+    estructura_etiqueta = models.CharField(max_length=10, verbose_name="Prefijo de etiqueta", help_text="Abreviación para etiquetas (ej: NBK, IMP, MON).", blank=True, null=True, validators=[RegexValidator(r'^[A-Za-z0-9]+$', 'Solo letras y números.')])
     id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
     eliminado = models.BooleanField(default=False)
 
     class Meta:
         managed = True
         db_table = 'tipo_activo'
-        unique_together = (('id_empresa', 'tipo_activo'),)
+        unique_together = (('id_empresa', 'tipo_activo'), ('id_empresa', 'estructura_etiqueta'), )
         verbose_name = "Tipo de activo"
         verbose_name_plural = "Tipos de activo"
+    
+    def save(self, *args, **kwargs):
+        if self.estructura_etiqueta:
+            self.estructura_etiqueta = self.estructura_etiqueta.strip().upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.tipo_activo
+
+class Modelo(models.Model):
+    """Catálogo de modelos de activos disponibles para inventariar."""
+    id_modelo = models.AutoField(primary_key=True, db_column="id_modelo")
+    nombre_modelo = models.CharField(max_length=100)
+    id_empresa = models.ForeignKey('Empresa', models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
+    id_tipo_activo = models.ForeignKey('TipoActivo', models.DO_NOTHING, db_column='id_tipo_activo', null=True, blank=True)
+    id_marca = models.ForeignKey('Marca', models.DO_NOTHING, db_column='id_marca', null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        managed = True
+        db_table = 'modelo'
+        unique_together = (('id_empresa', 'id_tipo_activo', 'nombre_modelo'),)
+
+    def __str__(self):
+        return self.nombre_modelo
 
 class Activo(models.Model):
     """Activo inventariable con asignación, estado, QR y clasificación de seguridad.
@@ -291,6 +354,7 @@ class Activo(models.Model):
     # en class Activo:
     id_condicion_activo = models.ForeignKey(CondicionActivo, models.DO_NOTHING, db_column='id_condicion_activo', blank=True, null=True, verbose_name="Condición")
     id_factura = models.ForeignKey('Factura', models.DO_NOTHING, db_column='id_factura', blank=True, null=True, verbose_name='Factura (folio)')
+    id_ubicacion = models.ForeignKey("Ubicacion", on_delete=models.SET_NULL, null=True, blank=True, db_column="id_ubicacion", related_name="activos")
 
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
@@ -366,6 +430,29 @@ class AtributosActivo(models.Model):
     ##
     ##
     ## Nueva clase atributos por tipo de activos
+
+class AtributoOpcionPorTipoActivo(models.Model):
+    id_opcion = models.AutoField(primary_key=True, db_column="id_opcion")
+
+    atributo_definicion = models.ForeignKey(
+        AtributosActivo,
+        on_delete=models.CASCADE,
+        db_column="id_atributo_activo",
+        related_name="opciones",
+    )
+    etiqueta_opcion = models.CharField(max_length=150)
+    orden = models.PositiveIntegerField(default=0)
+    habilitada = models.BooleanField(default=True)
+
+    class Meta:
+        managed = True
+        db_table = "atributo_opcion_por_tipo_activo"
+        unique_together = (("atributo_definicion", "etiqueta_opcion"),)
+        ordering = ["orden", "etiqueta_opcion"]
+
+    def __str__(self):
+        return self.etiqueta_opcion
+
 
 class AgregacionAtributosPorActivo(models.Model):
     """Valor concreto de un atributo dinámico para un activo.

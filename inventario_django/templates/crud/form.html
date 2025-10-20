@@ -94,10 +94,17 @@
 
               <script>
               (function(){
-                const tipoSelect = document.getElementById('id_id_tipo_activo'); // Django genera id_* del field
+                const tipoSelect = document.getElementById('id_id_tipo_activo');
                 const container  = document.getElementById('attrs-container');
-                  // 👇 toma el id del activo si estamos editando, o null si es nuevo
                 const ACTIVO_ID = {{ object.id_activo|default:"null" }};
+
+                function esc(s) {
+                  return (s ?? '').toString()
+                    .replace(/&/g,'&amp;')
+                    .replace(/</g,'&lt;')
+                    .replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;');
+                }
 
                 function renderEmpty(msg){
                   container.innerHTML = `<div class="text-muted small">${msg}</div>`;
@@ -112,11 +119,11 @@
                   {% if object %} qs.set("activo_id", "{{ object.id_activo }}"); {% endif %}
 
                   try {
-                    const res = await fetch(`${base}?${qs.toString()}`);
+                    const res = await fetch(`${base}?${qs.toString()}`, { credentials: 'same-origin' });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const data = await res.json();
 
-                    const items = (data.items || []);
+                    const items = data.items || [];
                     if (!items.length) { renderEmpty('Este tipo no tiene atributos configurados.'); return; }
 
                     for (const item of items) {
@@ -125,20 +132,46 @@
 
                       const col1 = document.createElement('div');
                       col1.className = 'col-12 col-md-4';
-                      col1.innerHTML = `<label class="form-label mb-1">${item.atributo}</label>`;
+                      col1.innerHTML = `<label class="form-label mb-1">${esc(item.atributo)}</label>`;
                       wrap.appendChild(col1);
 
                       const col2 = document.createElement('div');
                       col2.className = 'col-12 col-md-8';
-                      const defVal = (item.valor || '');
-                      col2.innerHTML = `
-                        <input type="text" class="form-control"
-                              name="attr_${item.id_atributo_activo}"
-                              placeholder="Valor"
-                              value="${defVal.replaceAll('"','&quot;')}">
-                      `;
-                      wrap.appendChild(col2);
 
+                      const name  = `attr_${item.id_atributo_activo}`;
+                      const valor = item.valor ?? '';
+
+                      // Si hay opciones => <select>. Si no, input texto.
+                      if (Array.isArray(item.opciones) && item.opciones.length) {
+                        const select = document.createElement('select');
+                        select.name = name;
+                        select.className = 'form-select';
+
+                        const optBlank = document.createElement('option');
+                        optBlank.value = '';
+                        optBlank.textContent = '— Selecciona —';
+                        select.appendChild(optBlank);
+
+                        for (const opt of item.opciones) {
+                          const o = document.createElement('option');
+                          o.value = opt;
+                          o.textContent = opt;
+                          if (valor && String(valor) === String(opt)) o.selected = true;
+                          select.appendChild(o);
+                        }
+
+                        col2.appendChild(select);
+                      } else {
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.name = name;
+                        input.className = 'form-control';
+                        input.placeholder = 'Valor';
+                        input.value = valor;
+                        col2.appendChild(input);
+                      }
+
+                      wrap.appendChild(col2);
                       container.appendChild(wrap);
                     }
                   } catch (err) {
@@ -148,12 +181,168 @@
                 }
 
                 if (tipoSelect) {
-                  if (tipoSelect.value) loadAttrs(tipoSelect.value);  // carga inicial (edición)
-                  tipoSelect.addEventListener('change', ev => loadAttrs(ev.target.value));
+                  if (tipoSelect.value) loadAttrs(tipoSelect.value);      // carga inicial (edición)
+                  tipoSelect.addEventListener('change', e => loadAttrs(e.target.value)); // cambios
                 }
               })();
               </script>
 
+
+              <script>
+              (function(){
+                const selTipo   = document.getElementById('id_id_tipo_activo');
+                const selModelo = document.getElementById('id_nombre_activo');
+                const selMarca  = document.getElementById('id_id_marca');
+
+                // Valores actuales del objeto (para la carga inicial)
+                const CURRENT_MODEL_ID   = "{{ form.initial.nombre_activo|default:'' }}";
+                const CURRENT_MODEL_NAME = "{{ object.nombre_activo|default:''|escapejs }}";
+                const CURRENT_BRAND_ID   = "{{ object.id_marca_id|default:'' }}";
+
+                function setDisabled(disabled) {
+                  if (selModelo) selModelo.disabled = !!disabled;
+                }
+
+                function repoblarModelos(items, selectedValue) {
+                  if (!selModelo) return;
+
+                  const current = selectedValue ?? selModelo.value ?? '';
+
+                  selModelo.innerHTML = '';
+                  const opt0 = document.createElement('option');
+                  opt0.value = '';
+                  opt0.textContent = '---------';
+                  selModelo.appendChild(opt0);
+
+                  (items || []).forEach(it => {
+                    const o = document.createElement('option');
+                    o.value = it.value;           // PK del Modelo
+                    o.textContent = it.label;     // nombre_modelo
+                    if (it.marca_id) o.dataset.marcaId = String(it.marca_id);
+                    if (current && String(current) === String(it.value)) o.selected = true;
+                    selModelo.appendChild(o);
+                  });
+
+                  setDisabled(!(items && items.length));
+
+                  // Si quedó algún modelo seleccionado, dispara 'change' para autocompletar marca
+                  if (selModelo.value) {
+                    selModelo.dispatchEvent(new Event('change'));
+                  }
+                }
+
+                async function loadModelos(tipoId, opts) {
+                  const { selectedValue=null, clearBrand=true } = (opts || {});
+
+                  if (!selModelo) return;
+                  repoblarModelos([], selectedValue);
+
+                  // Limpia marca SOLO si lo pedimos (en cambios de tipo). En carga inicial NO.
+                  if (clearBrand && selMarca) selMarca.value = '';
+
+                  if (!tipoId) return;
+
+                  const url = "{% url 'productos:api_modelos_por_tipo' %}?tipo_id=" + encodeURIComponent(tipoId);
+                  try {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const data = await res.json();
+
+                    // Si no tenemos PK para seleccionar, intenta casar por NOMBRE del modelo (robusto)
+                    let selected = selectedValue;
+                    if (!selected && CURRENT_MODEL_NAME) {
+                      const hit = (data.items || []).find(
+                        it => String(it.label).trim().toLowerCase() === CURRENT_MODEL_NAME.trim().toLowerCase()
+                      );
+                      if (hit) selected = hit.value;
+                    }
+
+                    repoblarModelos(data.items, selected);
+
+                    // Si aun así no hay modelo seleccionado pero tenemos marca en BD, restáurala
+                    if (!selModelo.value && CURRENT_BRAND_ID) {
+                      if (selMarca) {
+                        selMarca.value = CURRENT_BRAND_ID;
+                        selMarca.dispatchEvent(new Event('change'));
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Error cargando modelos:', err);
+                  }
+                }
+
+                // Autocompletar marca cuando cambie el modelo
+                if (selModelo && selMarca) {
+                  selModelo.addEventListener('change', () => {
+                    const optSel = selModelo.options[selModelo.selectedIndex];
+                    const marcaId = optSel?.dataset?.marcaId;
+                    if (marcaId) {
+                      selMarca.value = marcaId;
+                      selMarca.dispatchEvent(new Event('change'));
+                    }
+                  });
+                }
+
+                if (selTipo) {
+                  setDisabled(!selTipo.value);
+
+                  // CARGA INICIAL: usa el valor que vino del servidor si existe (PK) y NO limpies marca
+                  const initialModeloId = CURRENT_MODEL_ID || (selModelo ? selModelo.value : '');
+                  if (selTipo.value) {
+                    loadModelos(selTipo.value, { selectedValue: initialModeloId, clearBrand: false });
+                  }
+
+                  // CAMBIO DE TIPO: repuebla y sí limpia la marca
+                  selTipo.addEventListener('change', e => {
+                    loadModelos(e.target.value, { selectedValue: null, clearBrand: true });
+                  });
+                }
+              })();
+              </script>
+
+              <!-- AUTOCOMPLETAR ETIQUETA SEGÚN TIPO -->
+              <!-- AUTOCOMPLETAR ETIQUETA SEGÚN TIPO -->
+              <script>
+              (function () {
+                const selTipo = document.getElementById("id_id_tipo_activo");
+                const inputEtiqueta = document.getElementById("id_etiqueta");
+                if (!selTipo || !inputEtiqueta) return;
+
+                // force=false: respeta lo que ya hay (útil al cargar/editar)
+                // force=true: siempre sugiere (útil cuando el usuario cambia el tipo)
+                async function autocompletarEtiqueta(force = false) {
+                  const tipoId = selTipo.value;
+                  if (!tipoId) {
+                    // Si el tipo queda vacío, limpia la etiqueta sólo si fue autogenerada/vacía.
+                    if (force && !inputEtiqueta.value.trim()) inputEtiqueta.value = "";
+                    return;
+                  }
+
+                  // En carga inicial no pisamos si el usuario ya escribió algo.
+                  if (!force && inputEtiqueta.value.trim()) return;
+
+                  try {
+                    const url = "{% url 'productos:api_siguiente_etiqueta' %}?tipo_id=" + encodeURIComponent(tipoId);
+                    const res = await fetch(url, { credentials: "same-origin" });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data && data.next) {
+                      inputEtiqueta.value = data.next;
+                    }
+                  } catch (e) {
+                    console.warn("No se pudo sugerir etiqueta:", e);
+                  }
+                }
+
+                // Al cargar: sólo si el campo está vacío (por ejemplo, al crear)
+                if (selTipo.value && !inputEtiqueta.value.trim()) {
+                  autocompletarEtiqueta(false);
+                }
+
+                // Al cambiar el tipo: forzamos siempre la actualización
+                selTipo.addEventListener("change", () => autocompletarEtiqueta(true));
+              })();
+              </script>
 
             {% endif %}
 
@@ -191,11 +380,11 @@
       <div class="card shadow-sm">
         <div class="card-body">
           {% if view.crud_config.model_name == "activo" %}
-            <h2 class="h6 fw-semibold mb-3">Últimos Activos</h2>
+            <h2 class="h6 fw-semibold mb-3">Últimos Activos por Tipo de Activo</h2>
             {% if ultimos_activos %}
               <ul class="small mb-0">
                 {% for eq in ultimos_activos %}
-                  <li>{{ eq.nombre_activo }} <span class="text-muted">({{ eq.etiqueta }})</span></li>
+                  <li><strong>{{ eq.id_tipo_activo.tipo_activo|default:"—" }}</strong>:   {{ eq.nombre_activo }}<span class="text-muted">  <strong>({{ eq.etiqueta }})</strong></span></li>
                 {% endfor %}
               </ul>
             {% else %}

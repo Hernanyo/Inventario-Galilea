@@ -1,6 +1,6 @@
 # inventario_djanfo/productos/urls.py
 #from productos.models_inventario import CategoriaActivo
-from productos.crud import GenericList, view_class
+from productos.crud import GenericList, view_class, api_modelos_por_tipo, api_siguiente_etiqueta
 from django.urls import path, include
 from .views_atributos import atributos_nuevo_wizard
 from django.views.generic import RedirectView
@@ -401,7 +401,8 @@ class ActivosEnUsoList(view_class(Activo, build_config(Activo), GenericList)):
 urlpatterns += [
 #     path("activos/disponibles/lista/", ActivosDisponiblesList.as_view(), name="activos_disponibles_lista"),
      path("activos/en-uso/",           ActivosEnUsoList.as_view(),      name="activos_en_uso"),
-     path("activos/desasignar/", ActivosDesasignarView.as_view(), name="activos_desasignar"),
+     #######path("activos/desasignar/", ActivosDesasignarView.as_view(), name="activos_desasignar"),
+
 ]
 
 urlpatterns += [
@@ -546,4 +547,58 @@ urlpatterns += [
     path("activos/criticos/", ActivosCriticosList.as_view(), name="activos_criticos"),
     # Ya tienes el exportador:
     # path("activos/exportar/criticos-excel/", views.exportar_activos_criticos_excel, name="exportar_activos_criticos_excel"),
+]
+
+
+
+# productos/urls.py
+from .views import (
+    DesasignarPorEmpleadoView,
+    activos_de_empleado_json,
+    DesasignarEmpleadoPostView,
+)
+
+urlpatterns += [
+    # Pantalla que lista empleados con activos asignados
+    path("activos/desasignar/", DesasignarPorEmpleadoView.as_view(), name="activos_desasignar"),
+    # API (JSON) para cargar el modal con activos de un empleado
+    path("api/empleados/<int:empleado_id>/activos/", activos_de_empleado_json, name="api_activos_de_empleado",),
+    # POST que procesa la desasignación para ese empleado
+    path("activos/desasignar/empleado/<int:empleado_id>/", DesasignarEmpleadoPostView.as_view(), name="activos_desasignar_de_empleado",),
+]
+
+
+    ###################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# API: activos disponibles (filtrados por tipo) para la empresa actual
+from .views import api_activos_disponibles
+
+urlpatterns += [
+    path("api/activos/disponibles/", api_activos_disponibles, name="api_activos_disponibles"),
+]
+
+urlpatterns += [
+    path("api/modelos-por-tipo/", api_modelos_por_tipo, name="api_modelos_por_tipo"),
+]
+
+urlpatterns += [
+    path("api/etiqueta/siguiente/", api_siguiente_etiqueta, name="api_siguiente_etiqueta"),
+]
+
+# productos/urls.py (o donde tengas otras vistas custom)
+from productos.models_inventario import AtributoOpcionPorTipoActivo
+from productos.crud import build_config, view_class, GenericList
+
+op_cfg = build_config(AtributoOpcionPorTipoActivo)
+
+class AtributoOpcionList(view_class(AtributoOpcionPorTipoActivo, op_cfg, GenericList)):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        attr_id = self.request.GET.get("atributo")
+        if attr_id:
+            qs = qs.filter(atributo_definicion_id=attr_id)
+        return qs
+
+urlpatterns += [
+    path("atributoopcionportipoactivos/", AtributoOpcionList.as_view(),
+         name="atributoopcionportipoactivos_list"),
 ]

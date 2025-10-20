@@ -21,7 +21,7 @@
 
           <div class="list-group list-group-flush sidebar-list">
             {% for m in menu %}
-              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos'%}
+              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos'%}
 
                 {% with path=request.path %}
                 <a href="/{{ m.slug }}/"
@@ -29,12 +29,14 @@
                   <span>
                     <i class="
                       {% if m.slug == 'empresas' %}bi-buildings
+                      {% elif m.slug == 'ubicacions' %}bi-geo-alt
                       {% elif m.slug == 'empleados' %}bi-people
                       {% elif m.slug == 'marcas' %}bi-tags
                       {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
                       {% elif m.slug == 'activos' %}bi-pc-display
                       {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
                       {% elif m.slug == 'facturas' %}bi-receipt
+                      {% elif m.slug == 'registros' %}bi-journal-text
                       {% else %}bi-folder
                       {% endif %} me-2"></i>
                     {{ m.name }}
