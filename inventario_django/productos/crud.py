@@ -342,31 +342,49 @@ def _build_adv_fields_from_list_display(model, list_display):
     return out
 
 
-def _adv_choices_for_fk_fields(request, model, adv_fields):
+def _adv_choices_for_fk_fields(request, model, adv_fields, base_qs):
     """
-    Para campos 'fk' arma choices [{value: pk, label: str(obj)}] con scope por empresa si aplica.
+    Para campos FK, arma choices [{value, label}] SOLO con los IDs que aparecen
+    en el queryset de la lista (base_qs), aplicando scope por empresa y excluyendo
+    eliminados cuando el modelo relacionado tenga ese campo.
     """
     emp_id = request.session.get("empresa_id")
-    choices = {}
+    out = {}
+
+    if base_qs is None:
+        base_qs = model.objects.none()
+
     for af in adv_fields:
         if af["type"] != "fk":
             continue
-        f = model._meta.get_field(af["name"])  # ForeignKey
-        rel = f.remote_field.model
-        qs = rel.objects.all()
-        # Si el relacionado tiene id_empresa, filtra
-        if hasattr(rel, "id_empresa_id") and emp_id:
-            qs = qs.filter(id_empresa_id=emp_id)
-        # orden legible si existe
-        for cand in ("nombre", "descripcion", "razon_social", "tipo_activo", "marca", "modelo"):
+
+        f = model._meta.get_field(af["name"])       # el FK en el modelo listado
+        rel = f.remote_field.model                   # modelo relacionado
+
+        # IDs distintos del FK que realmente aparecen en la lista actual
+        ids = base_qs.values_list(f"{f.name}_id", flat=True).distinct()
+
+        rqs = rel.objects.filter(pk__in=ids)
+
+        # scope por empresa si aplica (id_empresa/empresa/o colgando de Activo)
+        rqs = _scope_by_empresa(rqs, rel, emp_id)
+
+        # oculta eliminados si existe el campo
+        if _has_field(rel, "eliminado"):
+            rqs = rqs.filter(eliminado=False)
+
+        # orden legible si hay campos típicos
+        for cand in ("nombre", "nombre_ubicacion", "tipo", "tipo_activo",
+                     "razon_social", "nombre_marca", "folio", "modelo"):
             try:
                 rel._meta.get_field(cand)
-                qs = qs.order_by(cand)
+                rqs = rqs.order_by(cand)
                 break
             except Exception:
                 continue
-        choices[af["name"]] = [{"value": obj.pk, "label": str(obj)} for obj in qs[:500]]
-    return choices
+
+        out[af["name"]] = [{"value": str(o.pk), "label": str(o)} for o in rqs]
+    return out
 
 
 def _apply_advanced_filter(qs, model, field_name, raw_value):
@@ -690,7 +708,11 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["adv_fields"] = adv_fields
         ctx["f"] = (self.request.GET.get("f") or "").strip()
         ctx["fv"] = (self.request.GET.get("fv") or "").strip()
-        adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields)
+
+        base_qs = self.object_list
+        adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields, base_qs)
+
+
         ctx["adv_choices_json"] = json.dumps(adv_choices, ensure_ascii=False)
         ctx["adv_fields_json"] = json.dumps(adv_fields, ensure_ascii=False)
 
@@ -716,16 +738,16 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["can_delete"] = can_delete
 
         ###########################################################################################################
-        # === NUEVO: datos del filtro avanzado (no rompe si no se usa) ===
-        adv_fields = _build_adv_fields_from_list_display(self.model, self.crud_config.list_display)
-        ctx["adv_fields"] = adv_fields
-        ctx["f"] = (self.request.GET.get("f") or "").strip()
-        ctx["fv"] = (self.request.GET.get("fv") or "").strip()
+        ## === NUEVO: datos del filtro avanzado (no rompe si no se usa) ===
+        #adv_fields = _build_adv_fields_from_list_display(self.model, self.crud_config.list_display)
+        #ctx["adv_fields"] = adv_fields
+        #ctx["f"] = (self.request.GET.get("f") or "").strip()
+        #ctx["fv"] = (self.request.GET.get("fv") or "").strip()
         # choices para FKs (en JSON para usar desde JS si quieres)
-        adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields)
-        ctx["adv_choices_json"] = json.dumps(adv_choices, ensure_ascii=False)
-        
-        ctx["adv_fields_json"] = json.dumps(adv_fields, ensure_ascii=False)
+        #adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields)
+        #ctx["adv_choices_json"] = json.dumps(adv_choices, ensure_ascii=False)
+        #
+        #ctx["adv_fields_json"] = json.dumps(adv_fields, ensure_ascii=False)
         
         #############################################################################################################
 
@@ -1450,16 +1472,17 @@ class ActivoForm(forms.ModelForm):
             "disponibilidad",
         ]
         widgets = {
-            "id_empresa": forms.Select(attrs={"class": "form-select"}),
-            "id_departamento": forms.Select(attrs={"class": "form-select"}),
-            "id_tipo_activo": forms.Select(attrs={"class": "form-select"}),
-            "nombre_activo": forms.Select(attrs={"class": "form-select"}),  # se reemplaza en __init__
-            "id_marca": forms.Select(attrs={"class": "form-select"}),
-            "id_estado_activo": forms.Select(attrs={"class": "form-select"}),
-            "id_ubicacion": forms.Select(attrs={"class": "form-select"}),
-            "id_empleado": forms.Select(attrs={"class": "form-select"}),
-            "id_proveedor": forms.Select(attrs={"class": "form-select"}),
-            "id_factura": forms.Select(attrs={"class": "form-select"}),
+            "id_empresa": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_departamento": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_tipo_activo": forms.Select(attrs={"class": "form-select searchable"}),
+            "nombre_activo": forms.Select(attrs={"class": "form-select searchable"}),  # se reemplaza en __init__
+            "id_marca": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_estado_activo": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_ubicacion": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_condicion_activo": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_empleado": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_proveedor": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_factura": forms.Select(attrs={"class": "form-select searchable"}),
             "etiqueta": forms.TextInput(attrs={"class": "form-control"}),
             "numero_serie": forms.TextInput(attrs={"class": "form-control"}),
             "observaciones": forms.Textarea(attrs={"class": "form-control", "rows": 3}),

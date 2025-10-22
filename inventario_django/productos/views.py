@@ -27,6 +27,8 @@ from .models_inventario import Activo, EstadoActivo, Empleado, HistorialActivos
 from django.shortcuts import render
 from .crud import ActivoForm
 from .models_inventario import Modelo
+from .models_inventario import Activo, DocumentoActivo, TipoDocumentoActivo
+
 
 from .models_inventario import (
     Activo, EstadoActivo, Empleado, HistorialActivos
@@ -1390,5 +1392,61 @@ def mi_vista(request):
 
     form = ActivoForm(request.POST or None, emp_id=emp_id)  # Pasa el emp_id al formulario
     return render(request, 'form.html', {'form': form})
+    ##################>>>>>>>>>>>>>>>>>>>>>>>>>>##########################
+
+# productos/views.py
+
+@login_required
+def documentos_activo_upload(request, activo_id: int):
+    activo = get_object_or_404(Activo, pk=activo_id)
+
+    # scope empresa
+    emp_id = request.session.get("empresa_id")
+    if emp_id and activo.id_empresa_id != emp_id:
+        return HttpResponseForbidden("No permitido para esta empresa.")
+
+    # tipos disponibles (por empresa)
+    tipos = TipoDocumentoActivo.objects.filter(
+        id_empresa_id=emp_id or activo.id_empresa_id, eliminado=False
+    ).order_by("nombre")
+
+    # si no hay tipos, puedes crearlos con el CRUD o sembrar aquí 2 básicos
+    if not tipos.exists():
+        for name in ("Asignación de activo", "Venta de activo"):
+            TipoDocumentoActivo.objects.create(id_empresa_id=emp_id or activo.id_empresa_id, nombre=name)
+        tipos = TipoDocumentoActivo.objects.filter(
+            id_empresa_id=emp_id or activo.id_empresa_id, eliminado=False
+        ).order_by("nombre")
+
+    if request.method == "POST":
+        tipo_id = request.POST.get("tipo")
+        files = request.FILES.getlist("archivos")  # ← múltiples
+        if not tipo_id or not files:
+            messages.error(request, "Selecciona un tipo y al menos un archivo.")
+            return redirect(request.path)
+
+        tipo = get_object_or_404(TipoDocumentoActivo, pk=tipo_id, eliminado=False)
+
+        for f in files:
+            DocumentoActivo.objects.create(
+                id_empresa_id=emp_id or activo.id_empresa_id,
+                id_activo=activo,
+                tipo=tipo,
+                archivo=f,
+            )
+
+        messages.success(request, f"Se subieron {len(files)} documento(s).")
+        next_url = request.POST.get("next") or reverse("productos:activos_list")
+        return redirect(next_url)
+
+    # GET: muestra también los ya subidos
+    docs = DocumentoActivo.objects.filter(
+        id_activo=activo, eliminado=False
+    ).select_related("tipo").order_by("-id_documento")
+
+    next_url = request.GET.get("next") or reverse("productos:activos_list")
+    ctx = {"activo": activo, "tipos": tipos, "docs": docs, "next_url": next_url}
+    return render(request, "activos/documentos_upload.html", ctx)
+
 
 

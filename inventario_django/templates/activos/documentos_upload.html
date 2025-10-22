@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Documentos del Activo{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h4>Documentos – {{ activo.nombre_activo }} ({{ activo.etiqueta }})</h4>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ next_url }}">Volver</a>
+  </div>
+
+  <form method="post" enctype="multipart/form-data" class="card shadow-sm mb-4">
+    {% csrf_token %}
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Tipo de documento</label>
+          <select name="tipo" class="form-select" required>
+            <option value="" selected disabled>Selecciona un tipo…</option>
+            {% for t in tipos %}
+              <option value="{{ t.id_tipo_documento }}">{{ t.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Archivos</label>
+          <input type="file" name="archivos" class="form-control" multiple required>
+          <div class="form-text">Puedes seleccionar varios a la vez.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <button class="btn btn-primary" type="submit">Subir</button>
+    </div>
+  </form>
+
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>Archivos Adjuntos</strong></div>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Tipo</th>
+            <th>Archivo</th>
+            <th>Fecha</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in docs %}
+            <tr>
+              <td>{{ d.id_documento }}</td>
+              <td>{{ d.tipo.nombre }}</td>
+              <td>
+                {% if d.archivo %}
+                  <a href="{{ d.archivo.url }}" target="_blank">
+                    {{ d.archivo.name|slice:"-60:" }}
+                  </a>
+                {% endif %}
+              </td>
+              <td>{{ d.creado_en|date:"Y-m-d H:i" }}</td>
+              <td class="text-end">
+                <!-- Enlace al delete genérico (borrado lógico) si quieres -->
+                <a class="btn btn-outline-danger btn-sm"
+                   href="{% url 'productos:documentoactivos_delete' d.id_documento %}?next={{ request.get_full_path|urlencode }}">
+                  <i class="bi bi-trash"></i>
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="text-muted">Sin documentos aún.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

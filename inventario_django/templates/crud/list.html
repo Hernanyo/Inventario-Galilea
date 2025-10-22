@@ -33,26 +33,16 @@
     </a>
 
     {% if view.crud_config.model_name == 'factura' %}
-      <a class="btn btn-secondary btn-sm"
-         href="{% url 'productos:detallefacturas_list' %}">
-        Detalle Facturas
-      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:detallefacturas_list' %}">Detalle Facturas</a>
     {% endif %}
 
     {% if view.crud_config.model_name == 'empresa' %}
-      <a class="btn btn-secondary btn-sm"
-         href="{% url 'productos:departamentos_list' %}">
-        Departamentos
-      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:departamentos_list' %}">Departamentos</a>
     {% endif %}
 
     {% if view.crud_config.model_name == 'activo' %}
-      <a class="btn btn-success btn-sm" href="{% url 'productos:activos_disponibles' %}">
-        Asignación masiva
-      </a>
-      <a class="btn btn-primary btn-sm" href="{% url 'productos:activos_desasignar' %}">
-        Desasignación masiva
-      </a>
+      <a class="btn btn-success btn-sm" href="{% url 'productos:activos_disponibles' %}">Asignación</a>
+      <a class="btn btn-primary btn-sm" href="{% url 'productos:activos_desasignar' %}">Desasignación</a>
     {% endif %}
 
     {% if view.crud_config.model_name == 'activo' %}
@@ -61,24 +51,28 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">Atributos por tipo</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">Estados</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:condicionactivos_list' %}">Condición</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipodocumentoactivos_list' %}">Tipos de documento</a>
+      
       <a href="{% url 'productos:historial_activos_list' %}" class="btn btn-info">Historial de Activos</a>
       <a href="{% url 'productos:exportar_activos_criticos_excel' %}" class="btn btn-outline-success btn-sm" title="Exportar solo activos críticos (Excel CSV)">Exportar críticos (Excel)</a>
-
     {% endif %}
 
+
+    {% if view.crud_config.model_name == 'tipodocumentoactivo' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:documentoactivos_list' %}">Documentos de activo</a>
+    {% endif %}
+
+
     {% if view.crud_config.model_name == 'mantencion' %}
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">
-        Estados de mantención
-      </a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipomantencions_list' %}">
-        Tipos de mantención
-      </a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:prioridadmantencions_list' %}">
-        Prioridades de mantención
-      </a>
-      <a class="btn btn-info btn-sm" href="{% url 'productos:historial_mantenciones_list' %}">
-        Historial de mantenciones
-      </a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadomantencions_list' %}">Estados de mantención</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipomantencions_list' %}">Tipos de mantención</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:prioridadmantencions_list' %}">Prioridades de mantención</a>
+      <a class="btn btn-info btn-sm" href="{% url 'productos:historial_mantenciones_list' %}">Historial de mantenciones</a>
+    {% endif %}
+
+    {% if view.crud_config.model_name == 'atributosactivo' %}
+      {# NUEVO: listado de “Atributo Opción por tipo Activo” #}
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributoopcionportipoactivos_list' %}">Atributo Opción por tipo Activo</a>  
     {% endif %}
 
 
@@ -113,7 +107,7 @@
       <div class="row row-cols-1 row-cols-md-auto g-2 align-items-end">
         <div class="col">
           <label for="adv_f" class="form-label mb-0">Filtrar por</label>
-          <select id="adv_f" name="f" class="form-select">
+          <select id="adv_f" name="f" class="form-select no-tomselect">
             {% for fld in adv_fields %}
               <option value="{{ fld.name }}" {% if fld.name == f %}selected{% endif %}>
                 {{ fld.label|default:fld.name|title }}
@@ -130,7 +124,7 @@
 
         <div class="col" id="adv_val_select" style="display:none">
           <label class="form-label mb-0">Valor</label>
-          <select id="adv_fv_select" name="fv" class="form-select"></select>
+          <select id="adv_fv_select" name="fv" class="form-select no-tomselect"></select>
         </div>
 
         <div class="col">
@@ -462,6 +456,17 @@
         <td class="text-right">
           {% if view.crud_config.model_name == 'activo' %}
               <!-- 👇 NUEVO: crea mantención para este activo -->
+
+            {# ➜ BOTÓN DOCUMENTOS EN ACCIONES (SOLO PARA ACTIVOS) #}
+            <a class="btn btn-xs btn-outline-secondary"
+              href="{% url 'productos:activos_documentos' item.id_activo %}?next={{ request.get_full_path|urlencode }}"
+              title="Documentos">
+              <i class="bi bi-paperclip me-1"></i><!--Documentos-->
+              {# opcional: badge con cantidad; usa el related_name='documentos' #}
+              {% with n=item.documentos.all|length %}
+                {% if n %}<span class="badge bg-secondary">{{ n }}</span>{% endif %}
+              {% endwith %}
+            </a>
             {% if can_create %}
               <a class="btn btn-xs btn-outline-primary"
                 href="{% url 'productos:mantencions_create' %}?id_activo={{ item.id_activo }}">
@@ -780,9 +785,9 @@ updateDateTime();
         let choices = [];
         if (t === 'bool') {
           choices = [
-            {value: 'true', label: 'True'},
-            {value: 'false', label: 'False'},
-          ];
+              {value: 'True', label: 'True'},
+              {value: 'False', label: 'False'},
+            ];
         } else {
           choices = (advChoices[field] || []);
         }

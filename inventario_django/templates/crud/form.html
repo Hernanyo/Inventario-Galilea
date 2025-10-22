@@ -70,8 +70,122 @@
               {% endif %}
             </div>
           {% else %}
-            {{ form.as_p }}
+            {# Render personalizado tanto para EMPLEADO como para ACTIVO #}
+            {% if view.crud_config.model_name == "empleado" or view.crud_config.model_name == "activo" %}
+              {% for field in form %}
+
+                {# CARGO (solo empleado) #}
+                {% if field.name == "cargo" or field.name == "id_cargo" %}
+                  <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    <div class="input-group">
+                      {{ field }}
+                      <a class="btn btn-outline-primary"
+                        href="{% url 'productos:cargos_create' %}"
+                        target="_blank" rel="noopener" title="Crear nuevo cargo">
+                        <i class="bi bi-plus-lg"></i>
+                      </a>
+                    </div>
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+
+                {# UBICACIÓN #}
+                {% elif field.name == "id_ubicacion" or field.name == "ubicacion" %}
+                  <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    <div class="input-group">
+                      {{ field }}
+                      <a class="btn btn-outline-primary"
+                        href="{% url 'productos:ubicacions_create' %}?next={{ request.get_full_path|urlencode }}"
+                        target="_blank" rel="noopener" title="Crear nueva ubicación">
+                        <i class="bi bi-plus-lg"></i>
+                      </a>
+                    </div>
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+
+                {# ESTADO ACTIVO #}
+                {% elif field.name == "id_estado_activo"%}
+                  <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    <div class="input-group">
+                      {{ field }}
+                      <a class="btn btn-outline-primary"
+                        href="{% url 'productos:estadoactivos_create' %}?next={{ request.get_full_path|urlencode }}"
+                        target="_blank" rel="noopener" title="Crear nuevo estado">
+                        <i class="bi bi-plus-lg"></i>
+                      </a>
+                    </div>
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+
+                {# CONDICIÓN (URL correcta: condicionactivos_create) #}
+                {% elif field.name == "id_condicion_activo" or field.name == "condicion" or field.name == "id_condicion" %}
+                  <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    <div class="input-group">
+                      {{ field }}
+                      <a class="btn btn-outline-primary"
+                        href="{% url 'productos:condicionactivos_create' %}?next={{ request.get_full_path|urlencode }}"
+                        target="_blank" rel="noopener" title="Crear nueva condición">
+                        <i class="bi bi-plus-lg"></i>
+                      </a>
+                    </div>
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+
+                {# PROVEEDOR #}
+                {% elif field.name == "id_proveedor" or field.name == "proveedor" %}
+                  <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    <div class="input-group">
+                      {{ field }}
+                      <a class="btn btn-outline-primary"
+                        href="{% url 'productos:proveedors_create' %}?next={{ request.get_full_path|urlencode }}"
+                        target="_blank" rel="noopener" title="Crear nuevo proveedor">
+                        <i class="bi bi-plus-lg"></i>
+                      </a>
+                    </div>
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+
+                {# MARCA (opcional) #}
+                {% elif field.name == "id_marca" or field.name == "marca" %}
+                  <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    <div class="input-group">
+                      {{ field }}
+                      <a class="btn btn-outline-primary"
+                        href="{% url 'productos:marcas_create' %}?next={{ request.get_full_path|urlencode }}"
+                        target="_blank" rel="noopener" title="Crear nueva marca">
+                        <i class="bi bi-plus-lg"></i>
+                      </a>
+                    </div>
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+
+                {# Resto de campos #}
+                {% else %}
+                  <div class="mb-3">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {{ field.errors }}
+                    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                  </div>
+                {% endif %}
+
+              {% endfor %}
+            {% else %}
+              {{ form.as_p }}
+            {% endif %}
           {% endif %}
+
 
 
               {# Solo para Factura: muestra botón "Ver factura" cuando estás editando y ya hay archivo #}

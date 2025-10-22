@@ -602,3 +602,12 @@ urlpatterns += [
     path("atributoopcionportipoactivos/", AtributoOpcionList.as_view(),
          name="atributoopcionportipoactivos_list"),
 ]
+
+from django.urls import path
+from .views import documentos_activo_upload
+
+urlpatterns += [
+    path("activos/<int:activo_id>/documentos/", documentos_activo_upload, name="activos_documentos"),
+]
+
+

@@ -9,6 +9,8 @@ from .models_inventario import Empleado
 from .utils import sync_user_groups_for_empleado, crear_usuario_y_enviar_correo
 from threading import local
 from django.db.models.signals import pre_save, post_save
+from .models_inventario import Marca, TipoActivo, Proveedor, Empresa, Departamento
+
 
 from .models_inventario import Activo, HistorialActivos
 
@@ -192,17 +194,39 @@ def activo_post_save(sender, instance: Activo, created: bool, **kwargs):
     # Otros campos relevantes (para comentario)
     changes = []
 
+    # Reemplaza tu add_change por esta versión
+    def _short(v):
+        s = "" if v is None else str(v)
+        return s[:80]
+
     def add_change(label, old, new):
-        if (old or "") != (new or ""):
-            changes.append(f"{label}: '{(old or '')[:80]}' → '{(new or '')[:80]}'")
+        old_s, new_s = _short(old), _short(new)
+        if old_s != new_s:
+            changes.append(f"{label}: '{old_s}' → '{new_s}'")
+    def _fk_label(model_cls, pk):
+        if not pk:
+            return ""
+        obj = model_cls.objects.filter(pk=pk).first()
+        return str(obj) if obj else str(pk)
 
     add_change("Nombre", getattr(prev, "nombre_activo", None), getattr(instance, "nombre_activo", None))
     add_change("Etiqueta", getattr(prev, "etiqueta", None), getattr(instance, "etiqueta", None))
-    add_change("Marca", getattr(prev, "id_marca_id", None), getattr(instance, "id_marca_id", None))
-    add_change("Tipo", getattr(prev, "id_tipo_activo_id", None), getattr(instance, "id_tipo_activo_id", None))
-    add_change("Proveedor", getattr(prev, "id_proveedor_id", None), getattr(instance, "id_proveedor_id", None))
-    add_change("Empresa", getattr(prev, "id_empresa_id", None), getattr(instance, "id_empresa_id", None))
-    add_change("Departamento", getattr(prev, "id_departamento_id", None), getattr(instance, "id_departamento_id", None))
+    # ↓ usa etiquetas legibles para FKs
+    add_change("Marca",
+            _fk_label(Marca, getattr(prev, "id_marca_id", None)),
+            _fk_label(Marca, getattr(instance, "id_marca_id", None)))
+    add_change("Tipo",
+           _fk_label(TipoActivo, getattr(prev, "id_tipo_activo_id", None)),
+           _fk_label(TipoActivo, getattr(instance, "id_tipo_activo_id", None)))
+    add_change("Proveedor",
+           _fk_label(Proveedor, getattr(prev, "id_proveedor_id", None)),
+           _fk_label(Proveedor, getattr(instance, "id_proveedor_id", None)))
+    add_change("Empresa",
+           _fk_label(Empresa, getattr(prev, "id_empresa_id", None)),
+           _fk_label(Empresa, getattr(instance, "id_empresa_id", None)))
+    add_change("Departamento",
+           _fk_label(Departamento, getattr(prev, "id_departamento_id", None)),
+           _fk_label(Departamento, getattr(instance, "id_departamento_id", None)))
 
     otros_cambios = bool(changes)
 

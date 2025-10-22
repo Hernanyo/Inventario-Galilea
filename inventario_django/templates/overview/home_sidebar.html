@@ -21,7 +21,7 @@
 
           <div class="list-group list-group-flush sidebar-list">
             {% for m in menu %}
-              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos'%}
+              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos' and m.slug != 'atributoopcionportipoactivos' and m.slug != 'documentoactivos' and m.slug != 'tipodocumentoactivos'%}
 
                 {% with path=request.path %}
                 <a href="/{{ m.slug }}/"
@@ -124,7 +124,7 @@
     <div class="col-md-2">
       <div class="card h-100 shadow-sm">
         <div class="card-body text-center kpi-body">
-          <h6 class="text-muted">Mantenciones pendientes</h6>
+          <h6 class="text-muted">Mantenciones por completar</h6>
           <div class="display-6">{{ mantenciones_pendientes|default:0 }}</div>
           <small class="text-muted">tareas</small>
         </div>

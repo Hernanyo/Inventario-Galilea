@@ -14,7 +14,10 @@ from django.contrib.auth.models import User
 import json
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.validators import RegexValidator
-
+# imports útiles al inicio del archivo
+import os
+from uuid import uuid4
+from django.utils.text import slugify
 
 
 
@@ -390,9 +393,9 @@ class Activo(models.Model):
         verbose_name="Activo"
         verbose_name_plural="Activos"
 
+
     def __str__(self):
-        # Nombre + marca + tipo para que sea fácil identificarlo
-        return f"{self.nombre_activo} - {self.id_marca} / {self.id_tipo_activo}"
+        return f"{self.etiqueta or '—'} · ID: {self.id_activo} [{self.nombre_activo}]"
 
 
 class AtributosActivo(models.Model):
@@ -1063,3 +1066,61 @@ class Registro(models.Model):
 #    def __str__(self):
 #        modelo = self.content_type.model if self.content_type_id else "obj"
 #        return f"[{self.fecha:%Y-%m-%d %H:%M}] {self.tipo} · {modelo}#{self.object_id}"
+
+
+# --- Documentos por Activo ----------------------------------------------------
+
+from django.db import models
+
+class TipoDocumentoActivo(models.Model):
+    id_tipo_documento = models.AutoField(primary_key=True)
+    id_empresa = models.ForeignKey(
+        'Empresa', on_delete=models.CASCADE, db_column='id_empresa',
+        null=True, blank=True
+    )
+    nombre = models.CharField(max_length=120)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'inventario.tipo_documento_activo'
+        verbose_name = 'Tipo de documento de activo'
+        verbose_name_plural = 'Tipos de documento de activo'
+        unique_together = (('id_empresa', 'nombre'),)
+
+    def __str__(self):
+        return self.nombre
+
+
+def documento_activo_upload_to(instance, filename: str) -> str:
+    # /media/activos/<id>/docs/<archivo>
+    return f"activos/{instance.id_activo_id}/docs/{filename}"
+
+
+class DocumentoActivo(models.Model):
+    id_documento = models.AutoField(primary_key=True)
+    id_empresa = models.ForeignKey(
+        'Empresa', on_delete=models.CASCADE, db_column='id_empresa',
+        null=True, blank=True
+    )
+    id_activo = models.ForeignKey(
+        'Activo', on_delete=models.CASCADE, db_column='id_activo',
+        related_name='documentos'
+    )
+    tipo = models.ForeignKey(
+        'TipoDocumentoActivo', on_delete=models.PROTECT,
+        db_column='id_tipo_documento'
+    )
+    archivo = models.FileField(upload_to=documento_activo_upload_to)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'inventario.documento_activo'
+        verbose_name = 'Documento de activo'
+        verbose_name_plural = 'Documentos de activo'
+        indexes = [
+            models.Index(fields=['id_activo', 'eliminado']),
+        ]
+
+    def __str__(self):
+        return f"{self.tipo} · {self.archivo.name if self.archivo else '(sin archivo)'}"
