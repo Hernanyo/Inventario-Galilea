@@ -18,6 +18,13 @@ from django.core.validators import RegexValidator
 import os
 from uuid import uuid4
 from django.utils.text import slugify
+# --- Planes de Mantención ----------------------------------------------------
+from decimal import Decimal
+from datetime import date, timedelta
+from django.utils import timezone
+from django.db import models
+from django.core.exceptions import ValidationError
+
 
 
 
@@ -354,7 +361,7 @@ class Activo(models.Model):
     clasificacion = models.CharField(max_length=20, choices=[('confidencial', 'Confidencial'),('uso_interno', 'Uso Interno'), ('publico', 'Público'),],blank=True, null=True,)
     eliminado = models.BooleanField(default=False)
     numero_serie = models.CharField(max_length=120, blank=True, null=True, db_index=True, help_text="Número de serie del activo (si aplica).")
-    # en class Activo:
+
     id_condicion_activo = models.ForeignKey(CondicionActivo, models.DO_NOTHING, db_column='id_condicion_activo', blank=True, null=True, verbose_name="Condición")
     id_factura = models.ForeignKey('Factura', models.DO_NOTHING, db_column='id_factura', blank=True, null=True, verbose_name='Factura (folio)')
     id_ubicacion = models.ForeignKey("Ubicacion", on_delete=models.SET_NULL, null=True, blank=True, db_column="id_ubicacion", related_name="activos")
@@ -384,6 +391,27 @@ class Activo(models.Model):
         if is_new and self.etiqueta and not self.qr_code:
             generar_qr(self)
             super().save(update_fields=["qr_code"])
+
+
+
+    # models_inventario.py (dentro de class Activo)
+    def estado_planes(self):
+        mapa = {"ok": 0, "warning": 1, "overdue": 2}
+        estados = [p.estado_calculado() for p in self.planes.filter(eliminado=False)]
+        if not estados:
+            return "—"
+        return max(estados, key=lambda s: mapa.get(s, -1))
+
+    def estado_planes_badge(self):
+        st = self.estado_planes()
+        badges = {
+            "ok": '<span class="badge bg-success">OK</span>',
+            "warning": '<span class="badge bg-warning text-dark">Pronto</span>',
+            "overdue": '<span class="badge bg-danger">Vencido</span>',
+            "—": '<span class="text-muted">—</span>',
+        }
+        return badges.get(st, st)
+    estado_planes_badge.short_description = "Mantención"
 
 
 
@@ -1124,3 +1152,247 @@ class DocumentoActivo(models.Model):
 
     def __str__(self):
         return f"{self.tipo} · {self.archivo.name if self.archivo else '(sin archivo)'}"
+
+
+
+    #############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><
+class TipoMedicionActivo(models.Model):
+    id_tipo_medicion = models.AutoField(primary_key=True, db_column="id_tipo_medicion")
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column="id_empresa", null=True, blank=True)
+    nombre = models.CharField(max_length=100)
+    codigo = models.CharField(max_length=30, help_text="ej: dias, km, horas")
+    unidad = models.CharField(max_length=30, help_text="ej: días, km, h")
+    es_tiempo = models.BooleanField(default=False)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "tipo_medicion_activo"
+        verbose_name = "Tipo de medición"
+        verbose_name_plural = "Tipos de medición"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["id_empresa", "codigo"], name="uq_tipomedicion_empresa_codigo"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.unidad})"
+
+
+class MedicionActivo(models.Model):
+    id_medicion = models.AutoField(primary_key=True, db_column="id_medicion")
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column="id_empresa", null=True, blank=True)
+    id_activo = models.ForeignKey("Activo", models.DO_NOTHING, db_column="id_activo", related_name="mediciones")
+    tipo_medicion = models.ForeignKey(TipoMedicionActivo, models.DO_NOTHING, db_column="id_tipo_medicion")
+    # uno de estos dos se usa:
+    valor_numerico = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    valor_fecha = models.DateField(null=True, blank=True)
+    fecha_registro = models.DateTimeField(default=timezone.now)
+    observacion = models.CharField(max_length=250, blank=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "medicion_activo"
+        verbose_name = "Medición"
+        verbose_name_plural = "Mediciones"
+        ordering = ["-fecha_registro"]
+
+    def __str__(self):
+        v = self.valor_numerico if self.valor_numerico is not None else self.valor_fecha
+        return f"{self.id_activo} · {self.tipo_medicion.codigo} = {v}"
+    
+    def clean(self):
+        if self.tipo_medicion and self.tipo_medicion.es_tiempo:
+            if not self.valor_fecha:
+                raise ValidationError("Para mediciones de tiempo debes completar 'valor_fecha'.")
+            # Normaliza
+            self.valor_numerico = None
+        else:
+            if self.valor_numerico is None:
+                raise ValidationError("Debes completar 'valor_numerico' (km, horas, etc.).")
+            self.valor_fecha = None
+
+
+class PlanMantencion(models.Model):
+    id_plan = models.AutoField(primary_key=True, db_column="id_plan")
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column="id_empresa", null=True, blank=True)
+    nombre = models.CharField(max_length=150)
+    id_tipo_activo = models.ForeignKey("TipoActivo", models.DO_NOTHING, db_column="id_tipo_activo")
+    tipo_medicion = models.ForeignKey(TipoMedicionActivo, models.DO_NOTHING, db_column="id_tipo_medicion")
+    # intervalo: usa UNO de los dos según es_tiempo
+    intervalo_dias = models.PositiveIntegerField(null=True, blank=True)
+    intervalo_valor = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    prealerta_pct = models.PositiveIntegerField(default=10)  # 10% del intervalo
+    descripcion = models.TextField(blank=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "plan_mantencion"
+        verbose_name = "Plan de mantención"
+        verbose_name_plural = "Planes de mantención"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["id_empresa", "id_tipo_activo", "nombre"],
+                name="uq_plan_empresa_tipo_nombre"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.nombre} · {self.id_tipo_activo}"
+
+    # Helpers mínimos
+    def intervalo(self) -> Decimal | int:
+        return self.intervalo_dias if self.tipo_medicion.es_tiempo else self.intervalo_valor or Decimal("0")
+
+    def umbral_prealerta(self) -> Decimal:
+        """Devuelve el valor en unidades del punto de prealerta (p.ej., 9000km si intervalo=10000 y 10%)."""
+        i = Decimal(self.intervalo() or 0)
+        return i * (Decimal("1.0") - Decimal(self.prealerta_pct) / Decimal("100.0"))
+    
+    def clean(self):
+        # solo uno de los dos intervalos, según el tipo de medición
+        if self.tipo_medicion and self.tipo_medicion.es_tiempo:
+            if not self.intervalo_dias:
+                raise ValidationError("Debes indicar 'intervalo_dias' para planes por tiempo.")
+            self.intervalo_valor = None
+        else:
+            if not self.intervalo_valor:
+                raise ValidationError("Debes indicar 'intervalo_valor' para planes por medición numérica (km, horas, etc.).")
+            self.intervalo_dias = None
+
+
+class PlanMantencionTarea(models.Model):
+    id_tarea = models.AutoField(primary_key=True, db_column="id_tarea")
+    id_plan = models.ForeignKey(PlanMantencion, models.DO_NOTHING, db_column="id_plan", related_name="tareas")
+    orden = models.PositiveIntegerField(default=1)
+    descripcion = models.CharField(max_length=300)
+    obligatorio = models.BooleanField(default=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "plan_mantencion_tarea"
+        verbose_name = "Tarea de plan"
+        verbose_name_plural = "Tareas del plan"
+        ordering = ["orden", "id_tarea"]
+
+    def __str__(self):
+        return f"[{self.id_plan.nombre}] {self.descripcion}"
+
+
+class PlanMantencionActivo(models.Model):
+    id_plan_mantencion_activo = models.AutoField(primary_key=True, db_column="id_plan_mantencion_activo")
+    id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column="id_empresa", null=True, blank=True)
+    id_plan = models.ForeignKey(PlanMantencion, models.DO_NOTHING, db_column="id_plan", related_name="aplicaciones")
+    id_activo = models.ForeignKey("Activo", models.DO_NOTHING, db_column="id_activo", related_name="planes")
+
+    # Base del ciclo actual (cuándo/desde qué valor empezamos a contar)
+    base_fecha = models.DateField(null=True, blank=True)
+    base_valor = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Última medición conocida (denormalizado para cálculo rápido)
+    ultima_medicion_fecha = models.DateField(null=True, blank=True)
+    ultima_medicion_valor = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Próximo vencimiento (opcionalmente pre-calculado)
+    proximo_vencimiento_fecha = models.DateField(null=True, blank=True)
+    proximo_vencimiento_valor = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Estado simple: ok / warning / overdue (puedes calcularlo on the fly)
+    estado = models.CharField(max_length=12, blank=True, choices=[("ok", "Ok"), ("warning", "Advertencia"), ("overdue", "Vencido")], default="ok")
+
+    fecha_inicio = models.DateField(default=date.today)
+    observacion = models.CharField(max_length=250, blank=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "plan_mantencion_activo"
+        verbose_name = "Plan aplicado a Activo"
+        verbose_name_plural = "Planes aplicados a Activos"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["id_plan", "id_activo"],
+                name="uq_plan_activo_unico"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.id_plan.nombre} → {self.id_activo}"
+
+    # ---------------- Cálculo “on the fly” ----------------
+    def _base(self):
+        """Devuelve (base_fecha, base_valor) usando base_* o fecha_inicio/0 como fallback."""
+        bf = self.base_fecha or self.fecha_inicio
+        bv = self.base_valor or Decimal("0")
+        return bf, bv
+
+    def _actual(self):
+        """Devuelve la lectura actual: para tiempo = hoy; para numérico = última medición."""
+        if self.id_plan.tipo_medicion.es_tiempo:
+            return date.today()
+        # numérico
+        if self.ultima_medicion_valor is not None:
+            return Decimal(self.ultima_medicion_valor)
+        # si no tenemos denormalizado, intentamos buscar la última medición
+        m = (self.id_activo.mediciones
+             .filter(eliminado=False, tipo_medicion=self.id_plan.tipo_medicion)
+             .order_by("-fecha_registro")
+             .first())
+        return Decimal(m.valor_numerico) if m and m.valor_numerico is not None else None
+
+    def progreso_ratio(self) -> Decimal:
+        """
+        0.0 = recién comienza el ciclo; 1.0 = alcanzó el intervalo; >1.0 = vencido.
+        """
+        intervalo = Decimal(self.id_plan.intervalo() or 0)
+        if intervalo <= 0:
+            return Decimal("0")
+
+        if self.id_plan.tipo_medicion.es_tiempo:
+            base_fecha, _ = self._base()
+            dias = Decimal((date.today() - base_fecha).days)
+            return dias / Decimal(int(intervalo))
+        else:
+            _, base_valor = self._base()
+            actual = self._actual()
+            if actual is None:
+                return Decimal("0")
+            return (Decimal(actual) - Decimal(base_valor)) / Decimal(intervalo)
+
+    def estado_calculado(self) -> str:
+        """Devuelve ok / warning / overdue según progreso y prealerta."""
+        r = self.progreso_ratio()
+        if r >= Decimal("1"):
+            return "overdue"
+        # prealerta
+        pre = Decimal("1") - (Decimal(self.id_plan.prealerta_pct) / Decimal("100"))
+        return "warning" if r >= pre else "ok"
+
+    def proximo_vencimiento(self):
+        """
+        Calcula la fecha/valor de vencimiento teórico del ciclo actual.
+        (No persiste; lo puedes guardar en los campos *_vencimiento si quieres).
+        """
+        intervalo = self.id_plan.intervalo()
+        if self.id_plan.tipo_medicion.es_tiempo:
+            base_fecha, _ = self._base()
+            return (base_fecha + timedelta(days=int(intervalo))), None
+        else:
+            _, base_valor = self._base()
+            return None, (Decimal(base_valor) + Decimal(intervalo))
+
+    # Helpers útiles para refrescar campos denormalizados (puedes llamar desde signals o tareas)
+    def refrescar_estado_y_vencimiento(self, persist=True):
+        est = self.estado_calculado()
+        prox_fech, prox_val = self.proximo_vencimiento()
+        self.estado = est
+        self.proximo_vencimiento_fecha = prox_fech
+        self.proximo_vencimiento_valor = prox_val
+        if persist:
+            self.save(update_fields=["estado", "proximo_vencimiento_fecha", "proximo_vencimiento_valor"])
+        return est
+    
+    @property
+    def vencimiento_estimado(self):
+        """Compat alias (código viejo): devuelve el próximo vencimiento."""
+        # Si el plan es de tiempo, vendrá por fecha; si es numerico (km/horas), por valor.
+        return self.proximo_vencimiento_fecha or self.proximo_vencimiento_valor

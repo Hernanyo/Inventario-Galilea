@@ -839,6 +839,18 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         except (TypeError, ValueError):
             pass
         return kwargs
+    
+    def get_initial(self):
+        initial = super().get_initial()
+        # Permite ?plan=ID y/o ?activo=ID
+        if self.model.__name__ == "PlanMantencionActivo":
+            pid = self.request.GET.get("plan")
+            aid = self.request.GET.get("activo")
+            if pid:
+                initial["id_plan"] = pid
+            if aid:
+                initial["id_activo"] = aid
+        return initial
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1069,11 +1081,9 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 #            except Exception:
 #                # nunca romper el guardado por el historial
 #                pass
+#        messages.success(self.request, "Guardado correctamente.")
+#        return resp
 ###################################################################################2509
-
-        messages.success(self.request, "Guardado correctamente.")
-        return resp
-
 
 class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
     """Update genérico con soporte de archivos y lógica de negocio.
@@ -1347,7 +1357,7 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                     qs = qs.filter(id_empresa_id=emp_id)
                 else:
                     qs = qs.filter(id_activo__id_empresa_id=emp_id)
-            ctx["side_title"] = "Últimas mantencionesSS"
+            ctx["side_title"] = "Últimas mantenciones"
             ctx["side_items"] = qs.select_related("id_activo").order_by("-id_mantencion")[:15]
 
         elif self.model.__name__ == "Empresa":
@@ -2339,6 +2349,12 @@ for _cfg in CRUD_CONFIGS:
         except ValueError:
             if "id_condicion_activo" not in cols:
                 cols.append("id_condicion_activo")
+        _cfg.list_display = cols
+
+    if _cfg.model._meta.model_name == "activo":
+        cols = list(_cfg.list_display)
+        if "estado_planes_badge" not in cols:
+            cols.insert(2, "estado_planes_badge")  # ponla donde te acomode
         _cfg.list_display = cols
 
 

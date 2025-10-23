@@ -26,6 +26,12 @@ from django.utils import timezone
 from .models_inventario import Activo, HistorialActivos
 
 
+from decimal import Decimal
+from datetime import date
+from .models_inventario import (Activo, MedicionActivo, PlanMantencion, PlanMantencionActivo)
+
+
+
 def _as_str(obj):
     """
     Convierte un objeto en un string, retornando una cadena vacía si es None.
@@ -454,18 +460,20 @@ IGNORED_SENDERS = {
 
 
 def _coerce_value(v):
-    # simplificador: convierte datetimes y objetos a valores serializables
+    # fechas/horas
     if isinstance(v, (datetime.datetime, datetime.date, datetime.time)):
         return v.isoformat()
-    # ForeignKeys vienen como ids si usamos model_to_dict, pero por si acaso:
+    # Decimals -> float (o str si prefieres no perder formato exacto)
+    if isinstance(v, Decimal):
+        return float(v)
+    # FKs como ids
     if hasattr(v, 'pk'):
         return v.pk
-    # Evita objetos no serializables (Groups, Users, etc.)
     if isinstance(v, (list, tuple)):
         return [_coerce_value(x) for x in v]
     if isinstance(v, dict):
         return {k: _coerce_value(x) for k, x in v.items()}
-    return v  # str/int/bool/None
+    return v
 
 def _safe_snapshot(instance):
     data = model_to_dict(instance)
@@ -652,5 +660,117 @@ def audit_post_delete_all(sender, instance, **kwargs):
     except Exception as e:
         print("[AUDIT][post_delete] error:", e)
 
-###################################################################################################################
-###################################################################################################################
+    ###################################################################################################################>>>>>>>>>>>>>>
+    ###################################################################################################################>>>>>>>>>>>>>>
+# productos/signals.py
+def _aplicar_planes_a_activo(activo: Activo):
+    """Crea (si faltan) PlanMantencionActivo para todos los planes del tipo de ese activo."""
+    if not getattr(activo, "id_tipo_activo_id", None):
+        return
+    planes = (PlanMantencion.objects
+              .filter(id_tipo_activo_id=activo.id_tipo_activo_id, eliminado=False))
+    if getattr(activo, "id_empresa_id", None):
+        planes = planes.filter(id_empresa_id=activo.id_empresa_id)
+
+    ultimas = {m.tipo_medicion_id: m
+               for m in activo.mediciones.filter(eliminado=False)
+                                         .order_by("tipo_medicion_id", "-fecha_registro")}
+
+    for p in planes:
+        obj, created = PlanMantencionActivo.objects.get_or_create(
+            id_plan=p, id_activo=activo,
+            defaults={
+                "id_empresa_id": getattr(activo, "id_empresa_id", None),
+                "base_fecha": date.today() if p.tipo_medicion.es_tiempo else None,
+                "base_valor": (Decimal(ultimas.get(p.tipo_medicion_id).valor_numerico)
+                               if (not p.tipo_medicion.es_tiempo and ultimas.get(p.tipo_medicion_id)
+                                   and ultimas.get(p.tipo_medicion_id).valor_numerico is not None)
+                               else None)
+            }
+        )
+        # <<< ANTES: obj.refrescar_estado_y_vencimiento(persist=True)
+        _recalcular_pma_y_guardar_sin_signal(obj)
+
+@receiver(post_save, sender=Activo)
+def activo_post_save_aplicar_planes(sender, instance: Activo, created, **kwargs):
+    # al crear un activo, aplica los planes del tipo
+    if created:
+        _aplicar_planes_a_activo(instance)
+
+@receiver(post_save, sender=PlanMantencion)
+def plan_post_save(sender, instance: PlanMantencion, created, **kwargs):
+    # si se crea un plan, intenta aplicarlo a los activos de ese tipo (misma empresa)
+    if created:
+        activos = Activo.objects.filter(
+            id_tipo_activo_id=instance.id_tipo_activo_id,
+            eliminado=False
+        )
+        if instance.id_empresa_id:
+            activos = activos.filter(id_empresa_id=instance.id_empresa_id)
+        for a in activos:
+            _aplicar_planes_a_activo(a)
+
+@receiver(post_save, sender=MedicionActivo)
+def medicion_post_save(sender, instance: MedicionActivo, created, **kwargs):
+    """Cuando guardas una medición, actualiza los PlanMantencionActivo del activo que usen ese tipo de medición."""
+    pmas = PlanMantencionActivo.objects.filter(
+        id_activo=instance.id_activo,
+        id_plan__tipo_medicion_id=instance.tipo_medicion_id,
+        eliminado=False
+    )
+
+    for pma in pmas:
+        if instance.tipo_medicion.es_tiempo:
+            PlanMantencionActivo.objects.filter(pk=pma.pk).update(
+                ultima_medicion_fecha=instance.valor_fecha,
+                ultima_medicion_valor=None
+            )
+            pma.ultima_medicion_fecha = instance.valor_fecha
+            pma.ultima_medicion_valor = None
+        else:
+            PlanMantencionActivo.objects.filter(pk=pma.pk).update(
+                ultima_medicion_valor=instance.valor_numerico,
+                ultima_medicion_fecha=None
+            )
+            pma.ultima_medicion_valor = instance.valor_numerico
+            pma.ultima_medicion_fecha = None
+
+        _recalcular_pma_y_guardar_sin_signal(pma)
+
+
+
+#@receiver(post_save, sender=PlanMantencionActivo)
+#def pma_post_save(sender, instance: PlanMantencionActivo, created, **kwargs):
+#    # si ya estoy recalculando por un save interno, no reentrar
+#    if getattr(instance, "_recalc_running", False):
+#        return
+#    instance._recalc_running = True
+#    try:
+#        # recalcula y guarda internamente lo necesario
+#        instance.refrescar_estado_y_vencimiento(persist=True)
+#    finally:
+#        instance._recalc_running = False
+
+# === Helper central para recalcular sin disparar signals ===
+# === Helper central para recalcular sin disparar signals ===
+def _recalcular_pma_y_guardar_sin_signal(pma: PlanMantencionActivo):
+    """
+    Recalcula `estado` y `proximo_vencimiento_*` y los persiste con `.update()`
+    para NO disparar de nuevo post_save (evita recursión).
+    """
+    # 1) Calcular estado y próximo vencimiento usando los métodos del modelo
+    est = pma.estado_calculado()
+    prox_fecha, prox_valor = pma.proximo_vencimiento()
+
+    # 2) Persistir sin disparar signals
+    PlanMantencionActivo.objects.filter(pk=pma.pk).update(
+        estado=est,
+        proximo_vencimiento_fecha=prox_fecha,
+        proximo_vencimiento_valor=prox_valor,
+    )
+
+    # 3) Reflejar en memoria por si reusamos la instancia
+    pma.estado = est
+    pma.proximo_vencimiento_fecha = prox_fecha
+    pma.proximo_vencimiento_valor = prox_valor
+    return est, (prox_fecha or prox_valor)
