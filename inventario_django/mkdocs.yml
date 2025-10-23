@@ -111,6 +111,7 @@ nav:
       - Visión General: architecture/overview.md
       - Modelo de Datos: architecture/data-model.md
       - Flujo: architecture/flows.md
+      - Mantenciones: architecture/mantenciones.md
       - Seguridad: architecture/security.md
 
   # (Quita por ahora: no tienes esos .md)
