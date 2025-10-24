@@ -24,6 +24,7 @@ from datetime import date, timedelta
 from django.utils import timezone
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.utils.safestring import mark_safe
 
 
 
@@ -402,16 +403,34 @@ class Activo(models.Model):
             return "—"
         return max(estados, key=lambda s: mapa.get(s, -1))
 
+    #def estado_planes_badge(self):
+    #    st = self.estado_planes()
+    #    badges = {
+    #        "ok": '<span class="badge bg-success">OK</span>',
+    #        "warning": '<span class="badge bg-warning text-dark">Pronto</span>',
+    #        "overdue": '<span class="badge bg-danger">Vencido</span>',
+    #        "—": '<span class="text-muted">—</span>',
+    #    }
+    #    return mark_safe(badges.get(st, st))
+    #estado_planes_badge.short_description = "Mantención"
+
     def estado_planes_badge(self):
-        st = self.estado_planes()
-        badges = {
-            "ok": '<span class="badge bg-success">OK</span>',
-            "warning": '<span class="badge bg-warning text-dark">Pronto</span>',
-            "overdue": '<span class="badge bg-danger">Vencido</span>',
-            "—": '<span class="text-muted">—</span>',
-        }
-        return badges.get(st, st)
-    estado_planes_badge.short_description = "Mantención"
+        st = self.estado_planes()  # ok / warning / overdue / —
+        # Colores (Bootstrap-ish)
+        color = {
+            "ok":      "#198754",  # verde
+            "warning": "#FFC107",  # amarillo
+            "overdue": "#DC3545",  # rojo
+            "—":       "#ADB5BD",  # gris
+        }.get(st, "#ADB5BD")
+
+        html = (
+            f'<span title="{st}" aria-label="{st}" '
+            'style="display:inline-block; width:10px; height:10px; '
+            'border-radius:50%; vertical-align:middle; '
+            f'background:{color}; box-shadow:0 0 6px {color};"></span>'
+        )
+        return mark_safe(html)
 
 
 
@@ -1317,6 +1336,38 @@ class PlanMantencionActivo(models.Model):
 
     def __str__(self):
         return f"{self.id_plan.nombre} → {self.id_activo}"
+    
+
+    def estado_planes(self):
+        mapa = {"ok": 0, "warning": 1, "overdue": 2}
+        
+        # Obtiene los planes asociados al activo de este plan
+        planes = PlanMantencionActivo.objects.filter(id_activo=self.id_activo, eliminado=False)
+        
+        estados = [p.estado_calculado() for p in planes]
+        
+        if not estados:
+            return "—"
+        
+        return max(estados, key=lambda s: mapa.get(s, -1))
+
+    def estado_planes_badge(self):
+        st = self.estado_planes()  # ok / warning / overdue / —
+        # Colores (Bootstrap-ish)
+        color = {
+            "ok":      "#198754",  # verde
+            "warning": "#FFC107",  # amarillo
+            "overdue": "#DC3545",  # rojo
+            "—":       "#ADB5BD",  # gris
+        }.get(st, "#ADB5BD")
+
+        html = (
+            f'<span title="{st}" aria-label="{st}" '
+            'style="display:inline-block; width:10px; height:10px; '
+            'border-radius:50%; vertical-align:middle; '
+            f'background:{color}; box-shadow:0 0 6px {color};"></span>'
+        )
+        return mark_safe(html)
 
     # ---------------- Cálculo “on the fly” ----------------
     def _base(self):

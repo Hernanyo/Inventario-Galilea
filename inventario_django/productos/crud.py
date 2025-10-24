@@ -2327,7 +2327,34 @@ for _cfg in CRUD_CONFIGS:
             # Fallback por si no hubiera 'fecha'
             _cfg.ordering = (f"-{_cfg.model._meta.pk.name}",)
 
+    if _cfg.model._meta.model_name == "activo":
+        cols = list(_cfg.list_display)
+        # Inserta estado_planes_badge en el lugar deseado (por ejemplo, después de "nombre_activo")
+        if "estado_planes_badge" not in cols:
+            cols.insert(2, "estado_planes_badge")  # o en el lugar que desees
+        _cfg.list_display = cols
 
+    if _cfg.model._meta.model_name == "planmantencionactivo":
+        cols = list(_cfg.list_display)
+        # Inserta estado_planes_badge en el lugar deseado (por ejemplo, después de "nombre_activo")
+        if "estado_planes_badge" not in cols:
+            cols.insert(7, "estado_planes_badge")  # o en el lugar que desees
+        _cfg.list_display = cols
+    
+    if _cfg.model._meta.model_name == "planmantencionactivo":
+        cols = list(_cfg.list_display)
+        
+        # Excluir la columna 'estado' si existe en el list_display
+        if "estado" in cols:
+            cols.remove("estado")
+
+        # Asegúrate de que 'estado_planes_badge' esté en el lugar correcto
+        if "estado_planes_badge" not in cols:
+            cols.append("estado_planes_badge")
+
+        _cfg.list_display = cols
+
+        
     if _cfg.model._meta.model_name == "activo":
         cols = list(_cfg.get_list_display())
         # Inserta 'id_factura' después de 'id_proveedor' si existe

@@ -239,7 +239,7 @@
           <tr><td colspan="11" class="text-center">No hay registros.</td></tr>
         {% endfor %}
       </tbody>
-
+      
     {% elif view.crud_config.slug == 'historial_mantenciones' %}
       <thead>
         <tr>
@@ -285,6 +285,12 @@
                 <a href="?q={{ q }}&o={{ col }}">Obs.</a>
               </th>
 
+            {% elif view.crud_config.model_name == 'activo' and col == 'estado_planes_badge' %}
+              <th class="text-center">Mant.</th>
+
+            {% elif view.crud_config.model_name == 'planmantencionactivo' and col == 'estado_planes_badge' %}
+              <th class="text-center">Manten.</th>
+
             {# ➜ NUEVO: título corto para la columna de factura #}
             {% elif view.crud_config.model_name == 'activo' and col == 'id_factura' %}
               <th><a href="?q={{ q }}&o={{ col }}">Factura</a></th>
@@ -315,6 +321,13 @@
               Ver
             </button>
           </td>
+        {% elif view.crud_config.model_name == 'activo' and col == 'estado_planes_badge' %}
+          <td class="text-center">{{ item|attr:col|safe }}</td>
+
+        {% elif view.crud_config.model_name == 'planmantencionactivo' and col == 'estado_planes_badge' %}
+          <td class="text-center">{{ item|attr:col|safe }}</td>
+
+
         {% elif view.crud_config.model_name == 'empleado' and col == 'estado_activo' %}
           <td>
             <span class="badge {% if item.estado_activo %}bg-success{% else %}bg-secondary{% endif %}">
