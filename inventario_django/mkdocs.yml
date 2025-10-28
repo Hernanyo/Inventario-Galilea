@@ -110,6 +110,7 @@ nav:
   - Arquitectura:
       - Visión General: architecture/overview.md
       - Modelo de Datos: architecture/data-model.md
+      - CRUD Genérico: architecture/crud_generico.md
       - Flujo: architecture/flows.md
       - Mantenciones: architecture/mantenciones.md
       - Seguridad: architecture/security.md
