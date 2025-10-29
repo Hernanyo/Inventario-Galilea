@@ -1426,7 +1426,7 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 
         emp_id = self.request.session.get("empresa_id")
         
-        ### Hola
+        ### Hola hola
 #######################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         if self.model.__name__ == "Activo":
             base = Activo.objects.all()
