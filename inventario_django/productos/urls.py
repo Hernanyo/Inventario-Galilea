@@ -610,4 +610,27 @@ urlpatterns += [
     path("activos/<int:activo_id>/documentos/", documentos_activo_upload, name="activos_documentos"),
 ]
 
+urlpatterns += [
+    # ... tus rutas existentes ...
+    path("pma/<int:pma_id>/vigente/", views.pma_hacer_vigente, name="pma_hacer_vigente"),
+    path("plan/<int:plan_id>/toggle-habilitado/", views.plan_toggle_habilitado, name="plan_toggle_habilitado"),
+]
 
+urlpatterns += [
+    path(
+        "planmantencions/<int:pk>/toggle/",
+        views.planmantencion_toggle,
+        name="planmantencion_toggle",
+    ),
+
+    # Hacer vigente un PlanMantencionActivo
+    path(
+        "planmantencionactivos/<int:pk>/hacer-vigente/",
+        views.planmantencionactivo_hacer_vigente,
+        name="planmantencionactivo_hacer_vigente",
+    ),
+
+    path('planmantencionactivo/<int:pk>/quitar-vigencia/',
+         views.planmantencionactivo_quitar_vigencia,
+         name='planmantencionactivo_quitar_vigencia'),
+]

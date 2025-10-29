@@ -29,6 +29,11 @@ from .models_inventario import Activo, HistorialActivos
 from decimal import Decimal
 from datetime import date
 from .models_inventario import (Activo, MedicionActivo, PlanMantencion, PlanMantencionActivo)
+from django.db.models import Q
+from decimal import Decimal
+from datetime import date
+
+
 
 
 
@@ -667,16 +672,25 @@ def _aplicar_planes_a_activo(activo: Activo):
     """Crea (si faltan) PlanMantencionActivo para todos los planes del tipo de ese activo."""
     if not getattr(activo, "id_tipo_activo_id", None):
         return
+    
     planes = (PlanMantencion.objects
-              .filter(id_tipo_activo_id=activo.id_tipo_activo_id, eliminado=False))
+              .filter(eliminado=False, habilitado= True, id_tipo_activo_id=activo.id_tipo_activo_id,)
+              .filter(Q(aplica_a_todos_modelos=True) | 
+                      Q(id_modelo_id=getattr(activo, "id_modelo_id", None))))
+    
     if getattr(activo, "id_empresa_id", None):
         planes = planes.filter(id_empresa_id=activo.id_empresa_id)
 
+    # última medición por tipo (para base_valor)
     ultimas = {m.tipo_medicion_id: m
                for m in activo.mediciones.filter(eliminado=False)
                                          .order_by("tipo_medicion_id", "-fecha_registro")}
 
     for p in planes:
+        # NUEVO: si el plan exige modelo y este activo no lo cumple, saltar
+        if p.id_modelo_id and getattr(activo, "id_modelo_id", None) != p.id_modelo_id:
+            continue
+
         obj, created = PlanMantencionActivo.objects.get_or_create(
             id_plan=p, id_activo=activo,
             defaults={
@@ -685,7 +699,12 @@ def _aplicar_planes_a_activo(activo: Activo):
                 "base_valor": (Decimal(ultimas.get(p.tipo_medicion_id).valor_numerico)
                                if (not p.tipo_medicion.es_tiempo and ultimas.get(p.tipo_medicion_id)
                                    and ultimas.get(p.tipo_medicion_id).valor_numerico is not None)
-                               else None)
+                               else None
+                ),
+                # 👇 Regla: si el activo NO tiene vigente, este nace vigente; si ya tiene uno, nace en False.
+                "es_vigente": not PlanMantencionActivo.objects.filter(
+                    id_activo=activo, es_vigente=True, eliminado=False
+                    ).exists()
             }
         )
         # <<< ANTES: obj.refrescar_estado_y_vencimiento(persist=True)
@@ -697,18 +716,22 @@ def activo_post_save_aplicar_planes(sender, instance: Activo, created, **kwargs)
     if created:
         _aplicar_planes_a_activo(instance)
 
-@receiver(post_save, sender=PlanMantencion)
-def plan_post_save(sender, instance: PlanMantencion, created, **kwargs):
-    # si se crea un plan, intenta aplicarlo a los activos de ese tipo (misma empresa)
-    if created:
-        activos = Activo.objects.filter(
-            id_tipo_activo_id=instance.id_tipo_activo_id,
-            eliminado=False
-        )
-        if instance.id_empresa_id:
-            activos = activos.filter(id_empresa_id=instance.id_empresa_id)
-        for a in activos:
-            _aplicar_planes_a_activo(a)
+#@receiver(post_save, sender=PlanMantencion)
+#def plan_post_save(sender, instance: PlanMantencion, created, **kwargs):
+#    # si se crea un plan, intenta aplicarlo a los activos de ese tipo (misma empresa)
+#    if created:
+#        activos = Activo.objects.filter(
+#            id_tipo_activo_id=instance.id_tipo_activo_id,
+#            eliminado=False
+#        )
+#        if instance.id_empresa_id:
+#            activos = activos.filter(id_empresa_id=instance.id_empresa_id)
+#        # NUEVO: si el plan está restringido a modelo, aplicar solo a esos activos
+#        if instance.id_modelo_id:
+#            activos = activos.filter(id_modelo_id=instance.id_modelo_id)          3
+#
+#        for a in activos:
+#            _aplicar_planes_a_activo(a)
 
 @receiver(post_save, sender=MedicionActivo)
 def medicion_post_save(sender, instance: MedicionActivo, created, **kwargs):
@@ -774,3 +797,22 @@ def _recalcular_pma_y_guardar_sin_signal(pma: PlanMantencionActivo):
     pma.proximo_vencimiento_fecha = prox_fecha
     pma.proximo_vencimiento_valor = prox_valor
     return est, (prox_fecha or prox_valor)
+
+    ################################>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<#################
+@receiver(pre_save, sender=PlanMantencionActivo)
+def _solo_un_vigente_por_activo(sender, instance: PlanMantencionActivo, **kwargs):
+    """Si marcamos uno como vigente, apaga los otros del mismo activo."""
+    if not instance.pk:
+        # en creaciones: si viene es_vigente=True, apagamos los demás antes de insertar
+        if instance.es_vigente:
+            PlanMantencionActivo.objects.filter(
+                id_activo=instance.id_activo, es_vigente=True
+            ).update(es_vigente=False)
+        return
+
+    # en ediciones
+    prev = sender.objects.filter(pk=instance.pk).only("es_vigente").first()
+    if prev and (not prev.es_vigente and instance.es_vigente):
+        PlanMantencionActivo.objects.filter(
+            id_activo=instance.id_activo, es_vigente=True
+        ).exclude(pk=instance.pk).update(es_vigente=False)

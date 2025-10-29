@@ -78,6 +78,13 @@ from .models_inventario import (
     AtributoOpcionPorTipoActivo,   # 👈 importa el nuevo modelo
 )
 
+# --- Acciones rápidas sobre Planes y PMA ---
+
+from django.shortcuts import get_object_or_404, redirect
+from django.http import HttpResponseForbidden
+
+from .models_inventario import PlanMantencion, PlanMantencionActivo
+
 # modelos opcionales (según tu app)
 try:
     from .models_inventario import (
@@ -1131,7 +1138,15 @@ def activo_detail(request, pk: int):
     mapa_clasif = {"confidencial": "Confidencial", "uso_interno": "Uso interno", "publico": "Público"}
     clasif_legible = mapa_clasif.get((activo.clasificacion or "").lower(), activo.clasificacion or "")
 
-    ctx = {"activo": activo, "attrs": attrs, "clasif_legible": clasif_legible}
+        # === Planes de mantención de este activo (para la tabla del detalle) ===
+    planes = (
+        PlanMantencionActivo.objects
+        .filter(id_activo=activo, eliminado=False)
+        .select_related("id_plan")
+        .order_by("-es_vigente", "pk")
+    )
+
+    ctx = {"activo": activo, "attrs": attrs, "clasif_legible": clasif_legible, "planes": planes,}
     return render(request, "activos/detail.html", ctx)
 
 
@@ -1448,5 +1463,93 @@ def documentos_activo_upload(request, activo_id: int):
     ctx = {"activo": activo, "tipos": tipos, "docs": docs, "next_url": next_url}
     return render(request, "activos/documentos_upload.html", ctx)
 
+@login_required
+@require_POST
+def pma_hacer_vigente(request, pma_id: int):
+    """
+    Marca un PlanMantencionActivo como 'vigente' y apaga los demás del mismo activo
+    (la señal pre_save ya hace el apagado de los otros).
+    """
+    pma = get_object_or_404(PlanMantencionActivo, pk=pma_id, eliminado=False)
+
+    emp_id = request.session.get("empresa_id")
+    if emp_id and getattr(pma, "id_empresa_id", None) != emp_id:
+        return HttpResponseForbidden("No permitido para esta empresa.")
+
+    if not pma.es_vigente:
+        pma.es_vigente = True
+        pma.save(update_fields=["es_vigente"])
+        messages.success(request, "Plan marcado como vigente para este activo.")
+    else:
+        messages.info(request, "Este plan ya está vigente para el activo.")
+
+    return redirect(request.META.get("HTTP_REFERER", "/"))
+
+@login_required
+@require_POST
+def plan_toggle_habilitado(request, plan_id: int):
+    """
+    Habilita/Deshabilita un PlanMantencion (no toca los PMA ya creados).
+    Si está deshabilitado, no se aplicará a nuevos activos.
+    """
+    plan = get_object_or_404(PlanMantencion, pk=plan_id, eliminado=False)
+
+    emp_id = request.session.get("empresa_id")
+    if emp_id and getattr(plan, "id_empresa_id", None) != emp_id:
+        return HttpResponseForbidden("No permitido para esta empresa.")
+
+    plan.habilitado = not plan.habilitado
+    plan.save(update_fields=["habilitado"])
+    messages.success(request, "Plan habilitado." if plan.habilitado else "Plan deshabilitado.")
+    return redirect(request.META.get("HTTP_REFERER", "/"))
+
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+
+from .models_inventario import PlanMantencion, PlanMantencionActivo
+@require_POST
+@login_required
+def planmantencion_toggle(request, pk):
+    obj = get_object_or_404(PlanMantencion, pk=pk)
+    obj.habilitado = not obj.habilitado
+    obj.save(update_fields=["habilitado"])
+    messages.success(
+        request,
+        f"Plan «{getattr(obj, 'nombre', obj.pk)}» "
+        f"{'habilitado' if obj.habilitado else 'deshabilitado'}."
+    )
+    return redirect(request.POST.get("next") or request.META.get("HTTP_REFERER") or "/")
+
+
+def _label_activo(activo):
+    # usa etiqueta si existe; si no, usa id_activo; si no, el FK numérico
+    return getattr(activo, 'etiqueta', None) or getattr(activo, 'id_activo', None) or activo.pk
+
+
+@require_POST
+@login_required
+def planmantencionactivo_hacer_vigente(request, pk):
+    pma = get_object_or_404(PlanMantencionActivo, pk=pk)
+    # regla: 1 solo vigente por activo → apaga los demás del mismo activo
+    (PlanMantencionActivo.objects
+        .filter(id_activo=pma.id_activo, es_vigente=True)
+        .exclude(pk=pma.pk)
+        .update(es_vigente=False))
+    pma.es_vigente = True
+    pma.save(update_fields=['es_vigente'])
+    label = _label_activo(pma.id_activo)
+    messages.success(request, f"Plan marcado como vigente para el activo {label}.")
+    return redirect(request.POST.get('next') or reverse('productos:planmantencionactivos_list'))
+
+@require_POST
+def planmantencionactivo_quitar_vigencia(request, pk):
+    pma = get_object_or_404(PlanMantencionActivo, pk=pk)
+    pma.es_vigente = False
+    pma.save(update_fields=['es_vigente'])
+    label = _label_activo(pma.id_activo)
+    messages.info(request, f"Plan dejado como NO vigente para el activo {label}.")
+    return redirect(request.POST.get('next') or reverse('productos:planmantencionactivos_list'))
 
 

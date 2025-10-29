@@ -88,6 +88,81 @@
   </div>
 </div>
 
+{# === PLANES DE MANTENCIÓN DEL ACTIVO === #}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">Planes de mantención</span>
+    <a href="{% url 'productos:planmantencionactivos_list' %}?q={{ activo.id_activo }}"
+       class="btn btn-sm btn-outline-secondary">
+      Ver en lista
+    </a>
+  </div>
+
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th style="width:80px">ID</th>
+          <th>Plan</th>
+          <th style="width:120px">Base Fecha</th>
+          <th style="width:150px">Últ. Medición</th>
+          <th style="width:160px">Próx. Vencimiento</th>
+          <th style="width:110px">Estado</th>
+          <th class="text-end" style="width:170px">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in planes %}
+          <tr class="{% if p.es_vigente %}table-success{% endif %}">
+            <td>{{ p.pk }}</td>
+            <td>{{ p.id_plan }}</td>
+            <td>{{ p.base_fecha|date:"Y-m-d"|default:"—" }}</td>
+            <td>{{ p.ultima_medicion_fecha|date:"Y-m-d"|default:"—" }}</td>
+            <td>{{ p.proximo_vencimiento_fecha|date:"Y-m-d"|default:"—" }}</td>
+            <td>
+              {% if p.es_vigente %}
+                <span class="badge bg-success">Vigente</span>
+              {% else %}
+                <span class="badge bg-secondary">No vigente</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              {% if p.es_vigente %}
+                <form method="post"
+                      action="{% url 'productos:planmantencionactivo_quitar_vigencia' p.pk %}"
+                      style="display:inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button class="btn btn-xs btn-outline-secondary" type="submit">
+                    Quitar vigencia
+                  </button>
+                </form>
+              {% else %}
+                <form method="post"
+                      action="{% url 'productos:planmantencionactivo_hacer_vigente' p.pk %}"
+                      style="display:inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button class="btn btn-xs btn-primary" type="submit">
+                    Hacer vigente
+                  </button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7" class="text-center text-muted py-3">
+              Este activo no tiene planes asignados.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
 <div class="mt-3">
   <a class="btn btn-primary btn-sm" href="{% url 'productos:activos_update' activo.pk %}">Editar</a>
   <a class="btn btn-outline-secondary btn-sm" href="{% url 'productos:activos_list' %}">Volver</a>

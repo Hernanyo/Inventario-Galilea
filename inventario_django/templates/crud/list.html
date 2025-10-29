@@ -585,6 +585,62 @@
                 data-comentario="{{ item.comentario|default_if_none:''|escapejs }}">
               Comentario
             </button>
+          {% elif view.crud_config.model_name == 'planmantencion' %}
+            {% if can_change %}
+              <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                <i class="bi bi-pencil-square me-1"></i>Editar
+              </a>
+            {% endif %}
+            {% if can_delete %}
+              <a class="btn btn-xs btn-danger"
+                href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                onclick="return confirm('¿Eliminar este registro?');">
+                <i class="bi bi-trash me-1"></i>Eliminar
+              </a>
+            {% endif %}
+            <form method="post"
+                  action="{% url 'productos:planmantencion_toggle' item.pk %}"
+                  style="display:inline">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button class="btn btn-xs btn-outline-secondary" type="submit">
+                {% if item.habilitado %}Deshabilitar{% else %}Habilitar{% endif %}
+              </button>
+            </form>
+
+          {% elif view.crud_config.model_name == 'planmantencionactivo' %}
+            {% if can_change %}
+              <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">
+                <i class="bi bi-pencil-square me-1"></i>Editar
+              </a>
+            {% endif %}
+            {% if can_delete %}
+              <a class="btn btn-xs btn-danger"
+                href="{% url 'productos:'|add:view.crud_config.slug|add:'_delete' item.pk %}"
+                onclick="return confirm('¿Eliminar este registro?');">
+                <i class="bi bi-trash me-1"></i>Eliminar
+              </a>
+            {% endif %}
+            {% if not item.es_vigente %}
+              <form method="post"
+                    action="{% url 'productos:planmantencionactivo_hacer_vigente' item.pk %}"
+                    style="display:inline">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="btn btn-xs btn-primary" type="submit">Hacer vigente</button>
+              </form>
+            {% else %}
+              <form method="post"
+                    action="{% url 'productos:planmantencionactivo_quitar_vigencia' item.pk %}"
+                    style="display:inline">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="btn btn-xs btn-outline-secondary" type="submit">Quitar vigencia</button>
+              </form>
+            {% endif %}
+
+
+          
           {% else %}
               {% if can_change %}
                 <a class="btn btn-xs btn-warning" href="{% url 'productos:'|add:view.crud_config.slug|add:'_update' item.pk %}">

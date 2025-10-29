@@ -25,6 +25,7 @@ from django.utils import timezone
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.safestring import mark_safe
+from django.db.models import Q
 
 
 
@@ -394,13 +395,45 @@ class Activo(models.Model):
             super().save(update_fields=["qr_code"])
 
 
+    def _pma_vigente(self):
+        return (self.planmantencionactivo_set
+                    .filter(eliminado=False, es_vigente=True)
+                    .select_related("id_plan")
+                    .order_by("-pk")
+                    .first())
+
+    def _pma_cualquiera(self):
+        return self.planmantencionactivo_set.filter(eliminado=False).exists()
 
     # models_inventario.py (dentro de class Activo)
     def estado_planes(self):
-        mapa = {"ok": 0, "warning": 1, "overdue": 2}
-        estados = [p.estado_calculado() for p in self.planes.filter(eliminado=False)]
-        if not estados:
+        """
+        Estados:
+        - "—"        : sin planes asociados
+        - "standby"  : tiene planes, pero ninguno vigente
+        - "ok"       : plan vigente en plazo
+        - "warning"  : <10% del plazo/valor restante
+        - "overdue"  : vencido
+        """
+        # Usa tu related_name correcto
+        qs = self.planes.filter(eliminado=False)
+
+        # 1) Sin planes
+        if not qs.exists():
             return "—"
+
+        # 2) Tiene planes, pero ninguno vigente
+        vigentes = [p for p in qs if getattr(p, "es_vigente", False)]
+        if not vigentes:
+            return "standby"
+
+        # 3) Con plan(es) vigente(s): calcula severidad con tu lógica existente
+        #    (tu p.estado_calculado() ya retorna "ok" / "warning" / "overdue")
+        mapa = {"ok": 0, "warning": 1, "overdue": 2}
+        estados = [p.estado_calculado() for p in vigentes]
+        if not estados:
+            # Por seguridad: si por alguna razón no hay estado calculable
+            return "ok"
         return max(estados, key=lambda s: mapa.get(s, -1))
 
     #def estado_planes_badge(self):
@@ -415,15 +448,16 @@ class Activo(models.Model):
     #estado_planes_badge.short_description = "Mantención"
 
     def estado_planes_badge(self):
-        st = self.estado_planes()  # ok / warning / overdue / —
-        # Colores (Bootstrap-ish)
+        st = self.estado_planes()  # ok / warning / overdue / standby / —
         color = {
             "ok":      "#198754",  # verde
             "warning": "#FFC107",  # amarillo
             "overdue": "#DC3545",  # rojo
-            "—":       "#ADB5BD",  # gris
-        }.get(st, "#ADB5BD")
+            "standby": "#BC8f8f",  # azul: tiene planes, ninguno vigente
+            "—":       "#ADB5BD",  # gris: sin planes
+        }.get(st, "#30A8B1")
 
+        from django.utils.safestring import mark_safe
         html = (
             f'<span title="{st}" aria-label="{st}" '
             'style="display:inline-block; width:10px; height:10px; '
@@ -431,6 +465,8 @@ class Activo(models.Model):
             f'background:{color}; box-shadow:0 0 6px {color};"></span>'
         )
         return mark_safe(html)
+        
+
 
 
 
@@ -1238,6 +1274,12 @@ class PlanMantencion(models.Model):
     nombre = models.CharField(max_length=150)
     id_tipo_activo = models.ForeignKey("TipoActivo", models.DO_NOTHING, db_column="id_tipo_activo")
     tipo_medicion = models.ForeignKey(TipoMedicionActivo, models.DO_NOTHING, db_column="id_tipo_medicion")
+        # NUEVO: plan puede acotarse a un MODELO específico (opcional)
+    id_modelo = models.ForeignKey("Modelo", models.DO_NOTHING, db_column="id_modelo", null=True, blank=True, help_text="(Opcional) Restringe este plan a un modelo específico.")
+    aplica_a_todos_modelos = models.BooleanField(default=True)
+    habilitado = models.BooleanField(default=True)  # activar/desactivar plan
+
+
     # intervalo: usa UNO de los dos según es_tiempo
     intervalo_dias = models.PositiveIntegerField(null=True, blank=True)
     intervalo_valor = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
@@ -1278,7 +1320,12 @@ class PlanMantencion(models.Model):
             if not self.intervalo_valor:
                 raise ValidationError("Debes indicar 'intervalo_valor' para planes por medición numérica (km, horas, etc.).")
             self.intervalo_dias = None
-
+        
+            # NUEVO: coherencia tipo/modelo
+        if self.id_modelo and self.id_modelo.id_tipo_activo_id != self.id_tipo_activo_id:
+            raise ValidationError("El modelo seleccionado no pertenece al mismo Tipo de Activo del plan.")
+        if not self.aplica_a_todos_modelos and not self.id_modelo_id:
+            raise ValidationError("Si no aplicas a todos los modelos, debes elegir un modelo.")
 
 class PlanMantencionTarea(models.Model):
     id_tarea = models.AutoField(primary_key=True, db_column="id_tarea")
@@ -1303,6 +1350,7 @@ class PlanMantencionActivo(models.Model):
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column="id_empresa", null=True, blank=True)
     id_plan = models.ForeignKey(PlanMantencion, models.DO_NOTHING, db_column="id_plan", related_name="aplicaciones")
     id_activo = models.ForeignKey("Activo", models.DO_NOTHING, db_column="id_activo", related_name="planes")
+    es_vigente = models.BooleanField(default=False)
 
     # Base del ciclo actual (cuándo/desde qué valor empezamos a contar)
     base_fecha = models.DateField(null=True, blank=True)
@@ -1331,36 +1379,45 @@ class PlanMantencionActivo(models.Model):
             models.UniqueConstraint(
                 fields=["id_plan", "id_activo"],
                 name="uq_plan_activo_unico"
-            )
+            ),
+            # “candado”: a lo más 1 vigente por activo
+            models.UniqueConstraint(
+                fields=["id_activo"],
+                condition=Q(es_vigente=True),
+                name="uq_un_vigente_por_activo",
+            ),
         ]
 
     def __str__(self):
         return f"{self.id_plan.nombre} → {self.id_activo}"
     
+    def _estado_para_badge(self) -> str:
+        # Si no es vigente, mostramos "standby" (como en Activo cuando hay planes sin vigente)
+        if not getattr(self, "es_vigente", False):
+            return "standby"
+        # Si es vigente, usa tu cálculo actual (no el campo persistido)
+        return self.estado_calculado()
 
-    def estado_planes(self):
-        mapa = {"ok": 0, "warning": 1, "overdue": 2}
-        
-        # Obtiene los planes asociados al activo de este plan
-        planes = PlanMantencionActivo.objects.filter(id_activo=self.id_activo, eliminado=False)
-        
-        estados = [p.estado_calculado() for p in planes]
-        
-        if not estados:
-            return "—"
-        
-        return max(estados, key=lambda s: mapa.get(s, -1))
+    def estado_badge(self):
+        """
+        Dot de color para este plan (misma idea/estilo que en Activo.estado_planes_badge):
+        - standby  : tiene plan, pero NO vigente
+        - ok       : dentro de plazo
+        - warning  : en prealerta
+        - overdue  : vencido
+        """
+        st = self._estado_para_badge()
 
-    def estado_planes_badge(self):
-        st = self.estado_planes()  # ok / warning / overdue / —
-        # Colores (Bootstrap-ish)
+        # mismos colores que en Activo
         color = {
             "ok":      "#198754",  # verde
             "warning": "#FFC107",  # amarillo
             "overdue": "#DC3545",  # rojo
-            "—":       "#ADB5BD",  # gris
-        }.get(st, "#ADB5BD")
+            "standby": "#BC8f8f",  # “en espera” (no vigente)
+            "—":       "#ADB5BD",  # gris (no aplica, por compat.)
+        }.get(st, "#30A8B1")
 
+        from django.utils.safestring import mark_safe
         html = (
             f'<span title="{st}" aria-label="{st}" '
             'style="display:inline-block; width:10px; height:10px; '
@@ -1368,6 +1425,8 @@ class PlanMantencionActivo(models.Model):
             f'background:{color}; box-shadow:0 0 6px {color};"></span>'
         )
         return mark_safe(html)
+
+    estado_badge.short_description = "Manten."
 
     # ---------------- Cálculo “on the fly” ----------------
     def _base(self):

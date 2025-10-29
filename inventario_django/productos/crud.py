@@ -796,18 +796,18 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         emp_id = self.request.session.get("empresa_id")
         if not emp_id:
             return form
-
         for field in form.fields.values():
             qs = getattr(field, "queryset", None)
             if qs is None:
                 continue
-
+        
             mdl = qs.model
 
             # Si el combo es Empresa -> filtra por pk
             if mdl._meta.model_name == "empresa":
                 field.queryset = mdl.objects.filter(pk=emp_id)
                 continue
+            
 
             # Si el modelo del combo TIENE FK id_empresa -> filtra por esa FK
             if _model_has_empresa_fk(mdl):
@@ -818,6 +818,13 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                 if exists:
                     field.queryset = qs.filter(id_empresa=emp_id)
 
+        # dentro de GenericCreate.get_form(...) después de construir form
+        if self.model.__name__ == "PlanMantencion":
+            form.fields["hacer_vigente"] = forms.BooleanField(
+                required=False,
+                initial=False,
+                label="Marcar como plan vigente en los activos afectados"
+            )
             # Si no, lo dejamos tal cual
         return form
 
@@ -844,6 +851,17 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         initial = super().get_initial()
         # Permite ?plan=ID y/o ?activo=ID
         if self.model.__name__ == "PlanMantencionActivo":
+            columnas = [
+        ("Id Plan Mantencion Activo", "id_plan_mantencion_activo"),
+        ("Id Empresa", "id_empresa"),
+        ("Id Plan", "id_plan"),
+        ("Id Activo", "id_activo"),
+        ("Manten.", "estado_badge", "__safe__"),  # <<< usar HTML seguro (como en Activo)
+        ("Es Vigente", "es_vigente"),
+        ("Base Fecha", "base_fecha"),
+        ("Ultima Medicion Fecha", "ultima_medicion_fecha"),
+        ("Proximo Vencimiento Fecha", "proximo_vencimiento_fecha"),
+    ]
             pid = self.request.GET.get("plan")
             aid = self.request.GET.get("activo")
             if pid:
@@ -1038,6 +1056,90 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
     
     def form_valid(self, form):
         resp = super().form_valid(form)
+    #######################################################################################################29/10
+        # ===== PlanMantencion: aplicar a Activos y manejar "vigente" (solo con los campos del plan) =====
+        if self.model.__name__ == "PlanMantencion":
+            plan = self.object
+            hacer_vigente = bool(form.cleaned_data.get("hacer_vigente", False))
+
+            from django.db import transaction
+            from .models_inventario import Activo, PlanMantencionActivo as PMA, Modelo
+
+            emp_id = self.request.session.get("empresa_id")
+            activos = Activo.objects.all()
+            if emp_id:
+                activos = activos.filter(id_empresa_id=emp_id)
+            if _has_field(Activo, "eliminado"):
+                activos = activos.filter(eliminado=False)
+
+            # --- filtrar por tipo del plan (obligatorio en tu UI)
+            tipo_id = getattr(plan, "id_tipo_activo_id", None)
+            if tipo_id:
+                activos = activos.filter(id_tipo_activo_id=tipo_id)
+            else:
+                # si por alguna razón no hay tipo, no aplicamos
+                messages.info(self.request, "El plan no tiene Tipo de activo; no se aplicó a ningún activo.")
+                return resp
+
+            # --- filtrar por modelo del plan cuando corresponda
+            #    (si el plan tiene id_modelo -> restringe a ese nombre; si no, respeta 'aplica a todos')
+            modelo_id = getattr(plan, "id_modelo_id", None)
+            aplica_todos = bool(
+                getattr(plan, "aplica_todos_modelos",  # nombre más probable
+                    getattr(plan, "aplica_a_todos_modelos",
+                        getattr(plan, "aplica_todos", True)))
+            )
+
+            if modelo_id:
+                m = Modelo.objects.filter(pk=modelo_id).only("nombre_modelo").first()
+                if m:
+                    activos = activos.filter(nombre_activo__iexact=m.nombre_modelo)
+                else:
+                    activos = Activo.objects.none()
+            elif not aplica_todos:
+                # Si explícitamente NO aplica a todos y no se eligió modelo, no tocamos nada.
+                messages.info(self.request, "Plan creado sin modelo y con 'aplica a todos' desmarcado: no se aplicó a activos.")
+                return resp
+
+            creados = 0
+            marcados = 0
+            total = activos.count()
+
+            with transaction.atomic():
+                for a in activos:
+                    pma, created = PMA.objects.get_or_create(
+                        id_activo=a,
+                        id_plan=plan,
+                        defaults={"eliminado": False}
+                    )
+                    if created:
+                        creados += 1
+                    else:
+                        # reactivar si estaba eliminado
+                        if getattr(pma, "eliminado", False):
+                            pma.eliminado = False
+
+                    if hacer_vigente:
+                        (PMA.objects
+                            .filter(id_activo=a, eliminado=False)
+                            .exclude(pk=pma.pk)
+                            .update(es_vigente=False))
+                        if not getattr(pma, "es_vigente", False):
+                            pma.es_vigente = True
+                            marcados += 1
+
+                    pma.save()
+
+            # mensaje específico del plan
+            msg = f"Plan aplicado a {total} activo(s). Creados/activados {creados}."
+            if hacer_vigente:
+                msg += f" {marcados} marcado(s) como vigente."
+            messages.success(self.request, msg)
+        else:
+            # mensaje genérico solo para el resto de modelos
+            messages.success(self.request, "Guardado correctamente.")
+        #######################################################################################################29/10
+
 
         if self.model.__name__ == "Empleado" and form.instance.correo:
             crear_usuario_y_enviar_correo(form.instance)
@@ -1154,9 +1256,17 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                 exists, _ = _empresa_field_info(mdl)
                 if exists:
                     field.queryset = qs.filter(id_empresa=emp_id)
-
+            # Si no, lo dejamos tal cual
+                
+        if self.model.__name__ == "PlanMantencion":
+            form.fields["hacer_vigente"] = forms.BooleanField(
+                required=False,
+                initial=False,
+                label="Marcar como plan vigente en los activos afectados"
+            )
             # Si no, lo dejamos tal cual
         return form
+
 
     def get_success_url(self):
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
@@ -2338,7 +2448,7 @@ for _cfg in CRUD_CONFIGS:
         cols = list(_cfg.list_display)
         # Inserta estado_planes_badge en el lugar deseado (por ejemplo, después de "nombre_activo")
         if "estado_planes_badge" not in cols:
-            cols.insert(7, "estado_planes_badge")  # o en el lugar que desees
+            cols.insert(7, "estado_badge")  # o en el lugar que desees
         _cfg.list_display = cols
     
     if _cfg.model._meta.model_name == "planmantencionactivo":
@@ -2349,8 +2459,8 @@ for _cfg in CRUD_CONFIGS:
             cols.remove("estado")
 
         # Asegúrate de que 'estado_planes_badge' esté en el lugar correcto
-        if "estado_planes_badge" not in cols:
-            cols.append("estado_planes_badge")
+        if "estado_badge" not in cols:
+            cols.append("estado_badge")
 
         _cfg.list_display = cols
 
