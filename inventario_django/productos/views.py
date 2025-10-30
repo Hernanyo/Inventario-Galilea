@@ -1553,3 +1553,4 @@ def planmantencionactivo_quitar_vigencia(request, pk):
     return redirect(request.POST.get('next') or reverse('productos:planmantencionactivos_list'))
 
 
+

@@ -1,4 +1,4 @@
-# productos/crud.py
+# productos/crud.py parte 1
 #from .models_inventario import CategoriaActivo
 
 """CRUD genérico para la app `productos`.
@@ -197,9 +197,7 @@ class CrudConfig:
     def model_name(self):
         # útil en templates para decidir botones especiales
         return self.model._meta.model_name
-    
-#################################################################################################################
-#################################################################################################################    
+     
     def get_list_display(self):
         """Columnas de lista filtradas.
 
@@ -207,8 +205,6 @@ class CrudConfig:
         """
         # Excluye 'eliminado' de la lista de columnas a mostrar
         return [field for field in self.list_display if field != "eliminado"]
-#################################################################################################################
-#################################################################################################################
 
 def infer_text_fields(m: Type[Model]) -> List[str]:
     names = [
@@ -274,9 +270,6 @@ def build_config(m: Type[Model]) -> CrudConfig:
         ordering=(m._meta.pk.name,),
     )
 
-
-#####################################################
-#####################################################
 # ---------- Filtro avanzado (helpers seguros) ----------
 
 def _field_kind(model, field_name):
@@ -449,8 +442,7 @@ def _apply_advanced_filter(qs, model, field_name, raw_value):
 
     # other -> no filtra
     return qs
-#####################################################
-#####################################################
+
 # ---------- Vistas y helpers ----------
 
 def qr_print_view(request, pk):
@@ -460,8 +452,7 @@ def qr_print_view(request, pk):
         "back_url": reverse_lazy("productos:activos_list")
     }
     return render(request, "activos/qr_print.html", context)
-######################################################################################################################################
-######################################################################################################################################
+
 from django.core.exceptions import FieldDoesNotExist
 
 def _has_field(model, name: str) -> bool:
@@ -533,9 +524,6 @@ def _scope_by_empresa(qs, model, emp_id):
         return qs.filter(id_activo__id_empresa_id=emp_id)
 
     return qs
-
-######################################################################################################################################
-######################################################################################################################################
 class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
     """Lista genérica con búsqueda, orden y **filtro avanzado**.
 
@@ -558,7 +546,6 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
     action_perm = "view"
     crud_config: CrudConfig
 
-#111111111111111111111111111##########################################################################################################
     def get_queryset(self):
         """Construye el queryset aplicando:
         scope por empresa, exclusión de `eliminado`,
@@ -688,7 +675,6 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         # Alcance por empresa (u otros)
         #return self.scope_queryset(qs)
         return qs
-##2222222222222222222222222222222#########################################################################################################
 
     def get_context_data(self, **kwargs):
         """Agrega metadatos del filtro avanzado, permisos y bloques laterales
@@ -737,19 +723,7 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["can_change"] = can_change
         ctx["can_delete"] = can_delete
 
-        ###########################################################################################################
-        ## === NUEVO: datos del filtro avanzado (no rompe si no se usa) ===
-        #adv_fields = _build_adv_fields_from_list_display(self.model, self.crud_config.list_display)
-        #ctx["adv_fields"] = adv_fields
-        #ctx["f"] = (self.request.GET.get("f") or "").strip()
-        #ctx["fv"] = (self.request.GET.get("fv") or "").strip()
-        # choices para FKs (en JSON para usar desde JS si quieres)
-        #adv_choices = _adv_choices_for_fk_fields(self.request, self.model, adv_fields)
-        #ctx["adv_choices_json"] = json.dumps(adv_choices, ensure_ascii=False)
-        #
-        #ctx["adv_fields_json"] = json.dumps(adv_fields, ensure_ascii=False)
-        
-        #############################################################################################################
+ 
 
         if self.model._meta.model_name == "atributosactivo":
             from .models_inventario import TipoActivo
@@ -774,6 +748,11 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
     crud_config: CrudConfig
 
     def get_form_class(self):
+    ################################################################>>>>>>>>>>>>>>>>>
+        if self.model.__name__ == "PlanMantencionActivo":
+            from productos.forms import PlanMantencionActivoForm
+            return PlanMantencionActivoForm
+    ################################################################>>>>>>>>>>>>>>>>>
         if self.model.__name__ == "Activo":
             return ActivoForm
         if self.model.__name__ == "Mantencion":
@@ -877,7 +856,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         ctx["cfg"] = self.crud_config
 
         emp_id = self.request.session.get("empresa_id")  # ⬅️ añade esto
-#1#############################################################################################24-09-2025
+
                 # Filtrar los tipos de activo por la empresa activa
         if self.model.__name__ == "Activo":
             from .models_inventario import TipoActivo
@@ -885,9 +864,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)  # Aquí se filtra por empresa activa
             ctx["tipos_activo"] = qs.order_by("tipo_activo")
-#2#############################################################################################24-09-2025
 
-    ##############################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         if self.model.__name__ == "Activo":
             base = Activo.objects.all()
             if emp_id:
@@ -970,10 +947,10 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             ctx["side_title"] = "Últimos proveedores"
             ctx["side_items"] = qs.order_by("-id_proveedor")[:15]  # ⬅️ usa qs
 
-        elif self.model.__name__ == "Factura":
-            from .models_inventario import Factura as F
-            ctx["side_title"] = "Últimas facturas"
-            ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
+#        elif self.model.__name__ == "Factura":
+#            from .models_inventario import Factura as F
+#            ctx["side_title"] = "Últimas facturas"
+#            ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
 
         elif self.model.__name__ == "Departamento":
             from .models_inventario import Departamento as D
@@ -989,7 +966,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
             ctx["side_title"] = "Últimas facturas"
-            ctx["side_items"] = qs.order_by("-id_factura")[:5]  # Los últimos 5 registros
+            ctx["side_items"] = qs.order_by("-id_factura")[:15]  # Los últimos 5 registros
 
         elif self.model.__name__ == "EstadoActivo":
             from .models_inventario import EstadoActivo
@@ -1058,86 +1035,20 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         resp = super().form_valid(form)
     #######################################################################################################29/10
         # ===== PlanMantencion: aplicar a Activos y manejar "vigente" (solo con los campos del plan) =====
+        # ===== PlanMantencion: aplicar a Activos y manejar "vigente" =====
         if self.model.__name__ == "PlanMantencion":
             plan = self.object
             hacer_vigente = bool(form.cleaned_data.get("hacer_vigente", False))
+            total, creados, vigentes = _aplicar_plan_a_activos(self.request, plan, hacer_vigente)
 
-            from django.db import transaction
-            from .models_inventario import Activo, PlanMantencionActivo as PMA, Modelo
-
-            emp_id = self.request.session.get("empresa_id")
-            activos = Activo.objects.all()
-            if emp_id:
-                activos = activos.filter(id_empresa_id=emp_id)
-            if _has_field(Activo, "eliminado"):
-                activos = activos.filter(eliminado=False)
-
-            # --- filtrar por tipo del plan (obligatorio en tu UI)
-            tipo_id = getattr(plan, "id_tipo_activo_id", None)
-            if tipo_id:
-                activos = activos.filter(id_tipo_activo_id=tipo_id)
-            else:
-                # si por alguna razón no hay tipo, no aplicamos
-                messages.info(self.request, "El plan no tiene Tipo de activo; no se aplicó a ningún activo.")
-                return resp
-
-            # --- filtrar por modelo del plan cuando corresponda
-            #    (si el plan tiene id_modelo -> restringe a ese nombre; si no, respeta 'aplica a todos')
-            modelo_id = getattr(plan, "id_modelo_id", None)
-            aplica_todos = bool(
-                getattr(plan, "aplica_todos_modelos",  # nombre más probable
-                    getattr(plan, "aplica_a_todos_modelos",
-                        getattr(plan, "aplica_todos", True)))
-            )
-
-            if modelo_id:
-                m = Modelo.objects.filter(pk=modelo_id).only("nombre_modelo").first()
-                if m:
-                    activos = activos.filter(nombre_activo__iexact=m.nombre_modelo)
-                else:
-                    activos = Activo.objects.none()
-            elif not aplica_todos:
-                # Si explícitamente NO aplica a todos y no se eligió modelo, no tocamos nada.
-                messages.info(self.request, "Plan creado sin modelo y con 'aplica a todos' desmarcado: no se aplicó a activos.")
-                return resp
-
-            creados = 0
-            marcados = 0
-            total = activos.count()
-
-            with transaction.atomic():
-                for a in activos:
-                    pma, created = PMA.objects.get_or_create(
-                        id_activo=a,
-                        id_plan=plan,
-                        defaults={"eliminado": False}
-                    )
-                    if created:
-                        creados += 1
-                    else:
-                        # reactivar si estaba eliminado
-                        if getattr(pma, "eliminado", False):
-                            pma.eliminado = False
-
-                    if hacer_vigente:
-                        (PMA.objects
-                            .filter(id_activo=a, eliminado=False)
-                            .exclude(pk=pma.pk)
-                            .update(es_vigente=False))
-                        if not getattr(pma, "es_vigente", False):
-                            pma.es_vigente = True
-                            marcados += 1
-
-                    pma.save()
-
-            # mensaje específico del plan
             msg = f"Plan aplicado a {total} activo(s). Creados/activados {creados}."
             if hacer_vigente:
-                msg += f" {marcados} marcado(s) como vigente."
+                msg += f" {vigentes} marcado(s) como vigente."
             messages.success(self.request, msg)
-        else:
-            # mensaje genérico solo para el resto de modelos
-            messages.success(self.request, "Guardado correctamente.")
+
+            # Evita el mensaje genérico de más abajo y cualquier lógica ajena a PlanMantencion
+            return resp
+
         #######################################################################################################29/10
 
 
@@ -1160,31 +1071,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return resp
 
 ###################################################################################2509
-#        # >>> NUEVO: historial “a la segura” al CREAR activo desde CRUD
-#        if self.model.__name__ == "Activo":
-#            try:
-#                from .models_inventario import HistorialActivos
-#                e = self.object
-#                usuario_empleado = getattr(self.request.user, "empleado", None)
-#                HistorialActivos.objects.create(
-#                    activo=e,
-#                    etiqueta=e.etiqueta,
-#                    nombre_activo=e.nombre_activo,
-#                    modelo=None,  # si no usas modelo en Activo
-#                    tipo_activo=getattr(e, "id_tipo_activo", None),
-#                    accion="CREACION",
-#                    usuario=usuario_empleado,
-#                    id_empresa=getattr(e, "id_empresa", None),
-#                    departamento=getattr(e, "id_departamento", None),
-#                    estado_nuevo=getattr(e, "id_estado_activo", None),
-#                    responsable_actual=getattr(e, "id_empleado", None),
-#                    comentario="Creado desde CRUD",
-#                )
-#            except Exception:
-#                # nunca romper el guardado por el historial
-#                pass
-#        messages.success(self.request, "Guardado correctamente.")
-#        return resp
+
 ###################################################################################2509
 
 class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
@@ -1204,8 +1091,10 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
     
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        if self.model.__name__ in ("Mantencion", "Activo"):
+        if self.model.__name__ in ("Mantencion", "Activo", "PlanMantencionActivo"):
             kwargs["request"] = self.request
+#        if self.model.__name__ in ("Mantencion", "Activo"):
+#            kwargs["request"] = self.request
         # MUY IMPORTANTE: pasar archivos
         if self.request.method in ("POST", "PUT", "PATCH"):
             kwargs["data"] = self.request.POST
@@ -1213,6 +1102,11 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return kwargs
 
     def get_form_class(self):
+    ################################################################>>>>>>>>>>>>>>>>>
+        if self.model.__name__ == "PlanMantencionActivo":
+            from productos.forms import PlanMantencionActivoForm
+            return PlanMantencionActivoForm
+    ################################################################>>>>>>>>>>>>>>>>>
         if self.model.__name__ == "Activo":
             return ActivoForm
         if self.model.__name__ == "Mantencion":     # ← y esto
@@ -1272,6 +1166,19 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
     def form_valid(self, form):
+        resp = super().form_valid(form)   # <-- define resp aquí
+    ###############################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>30/10
+        if self.model.__name__ == "PlanMantencion":
+            plan = self.object
+            hacer_vigente = bool(form.cleaned_data.get("hacer_vigente", False))
+            total, creados, vigentes = _aplicar_plan_a_activos(self.request, plan, hacer_vigente)
+
+            msg = f"Plan aplicado a {total} activo(s). Creados/activados {creados}."
+            if hacer_vigente:
+                msg += f" {vigentes} marcado(s) como vigente."
+            messages.success(self.request, msg)
+            return resp
+    ###############################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>30/10
         ###########################################################################################2509
         # >>> NUEVO: snapshot ANTES de guardar, solo para Activo
         prev_emp_id = prev_estado_id = None
@@ -1294,8 +1201,6 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 
         if self.model.__name__ == "Activo":
             form.instance._usuario_actual = getattr(self.request.user, "empleado", None)
-
-        resp = super().form_valid(form)
 
         # === HEREDAR UBICACIÓN DEL EMPLEADO EN UPDATE (sin pisar selección manual) ===
         if self.model.__name__ == "Activo":
@@ -1511,7 +1416,6 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             ctx["side_title"] = "Últimas facturas"
             ctx["side_items"] = F.objects.order_by("-id_factura")[:15]
 
-#1#######################################################################################################################24-09-2025########
         elif self.model.__name__ == "AtributosActivo":  # Aquí se aplica el filtro solo para AtributosActivo
             from .models_inventario import TipoActivo
             qs = TipoActivo.objects.all()
@@ -1520,32 +1424,7 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             ctx["tipos_activo"] = qs.order_by("tipo_activo")
         return ctx
 
-#2#######################################################################################################################24-09-2025########   
-#    def form_valid(self, form):
-#        
-#        was_new_user_linked = False
-#        if self.model.__name__ == "Empleado":
-#            old = self.model.objects.get(pk=self.object.pk)  # antes del save
-#            resp = super().form_valid(form)
-#            obj = self.object
-#
-#            # si no tenía user y ahora sí hay correo → crear user y mandar link
-#            if not old.user_id and obj.correo:
-#                crear_usuario_y_enviar_correo(obj)
-#                was_new_user_linked = True
-#
-#            # si ya tiene user pero cambió el correo → reflejar en auth_user.email
-#            if old.correo != obj.correo and obj.user_id:
-#                from django.contrib.auth.models import User
-#                u = User.objects.filter(pk=obj.user_id).first()
-#               if u and u.email != obj.correo:
-#                    u.email = obj.correo
-#                    u.save(update_fields=["email"])
-#            return resp
-#        else:
-#            return super().form_valid(form)
-
-    
+# productos/crud.py parte 2
 from django import forms
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -1831,8 +1710,6 @@ class ActivoForm(forms.ModelForm):
                                 )
         return activo
 
-
-
 class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     """Delete genérico con **borrado lógico** si el modelo tiene `eliminado`.
 
@@ -1890,41 +1767,7 @@ class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     
 from django.db import connection
 
-#def log_mantencion_event(user, mantencion_obj, accion: str, detalle: str = ""):
-#    """
-#    Inserta una 'foto' del estado de la mantención en historial_mantenciones_log usando Django ORM.
-#    """
-#    # nombre visible: Full Name > nombre del Empleado vinculado > username
-#    if getattr(user, "is_authenticated", False):
-#        display_name = (user.get_full_name() or "").strip() or (str(getattr(user, "empleado", "")) or user.get_username())
-#    else:
-#        display_name = None
-#    
-#    # Obtener los datos de la mantención (activo, tipo, prioridad, etc.)
-#    activo = mantencion_obj.id_activo
-#    tipo_mantencion = mantencion_obj.id_tipo_mantencion.nombre if mantencion_obj.id_tipo_mantencion else None
-#    prioridad = mantencion_obj.id_prioridad.nombre if mantencion_obj.id_prioridad else None
-#    estado_actual = mantencion_obj.id_estado_mantencion.tipo if mantencion_obj.id_estado_mantencion else None#
 
-    # Crear un nuevo registro en HistorialMantencionesLog usando Django ORM
-#    historial_log = HistorialMantencionesLog.objects.create(
-#        id_mantencion=mantencion_obj.id_mantencion,
-#        fecha_evento=timezone.now(),  # Utiliza la hora actual
-#        accion=accion,
-#        detalle=detalle,
-#        usuario_app_username=display_name,
-#        id_activo=activo.id_activo if activo else None,
-#        etiqueta=activo.etiqueta if activo else None,
-#        activo_nombre=activo.nombre_activo if activo else None,
-#        tipo_mantencion=tipo_mantencion,
-#        prioridad=prioridad,
-#        estado_actual=estado_actual,
-#        responsable_nombre=mantencion_obj.responsable_nombre,  # Esto puede requerir más lógica
-#        solicitante_nombre=mantencion_obj.solicitante_nombre,  # Lo mismo aquí
-#        descripcion=mantencion_obj.descripcion,
-#    )
-    
-#    return historial_log           03/10/2025
 from django.utils import timezone
 
 def log_mantencion_event(request_user, mantencion_obj, accion: str, detalle: str = ""):
@@ -2032,9 +1875,6 @@ def registro_comentar(request, pk):
     reg.save(update_fields=["comentario"])
     messages.success(request, "Comentario actualizado.")
     return redirect(request.POST.get("next") or request.META.get("HTTP_REFERER") or "/")
-
-######################################################################################################################
-##################################################################################################
 # ---------- Export CSV ----------
 
 # crud.py
@@ -2173,10 +2013,6 @@ def export_csv_view(model: Type[Model], cfg: "CrudConfig"):
         return resp
 
     return view
-
-############################################################################################################################
-######################################################################################################################################
-
 # ---------- Registro automático de modelos y URL patterns ----------
 
 def discover_producto_models() -> List[Type[Model]]:
@@ -2216,8 +2052,6 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
         if cfg.slug == "historial_mantenciones":
             ListCls.action_perm = None
 
-######################################################################################################################
-######################################################################################################################
         # Añadir restricción para el modelo 'registro'
         if m._meta.model_name == "registro":  # Asegúrate de que el model_name es "registro"
             ListCls.action_perm = None  # Desactivar las acciones de editar y eliminar para Registro
@@ -2231,9 +2065,6 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
             patterns.append(
                 path(f"{cfg.slug}/<int:pk>/comentar/", registro_comentar, name=f"{cfg.slug}_comentar")
             )
-
-######################################################################################################################
-######################################################################################################################
         # ----------------------------------------------------
 
 
@@ -2445,12 +2276,7 @@ for _cfg in CRUD_CONFIGS:
             cols.insert(2, "estado_planes_badge")  # o en el lugar que desees
         _cfg.list_display = cols
 
-    if _cfg.model._meta.model_name == "planmantencionactivo":
-        cols = list(_cfg.list_display)
-        # Inserta estado_planes_badge en el lugar deseado (por ejemplo, después de "nombre_activo")
-        if "estado_planes_badge" not in cols:
-            cols.insert(7, "estado_badge")  # o en el lugar que desees
-        _cfg.list_display = cols
+
     
     if _cfg.model._meta.model_name == "planmantencionactivo":
         cols = list(_cfg.list_display)
@@ -2458,11 +2284,9 @@ for _cfg in CRUD_CONFIGS:
         # Excluir la columna 'estado' si existe en el list_display
         if "estado" in cols:
             cols.remove("estado")
-
         # Asegúrate de que 'estado_planes_badge' esté en el lugar correcto
         if "estado_badge" not in cols:
-            cols.append("estado_badge")
-
+            cols.insert(7, "estado_badge")
         _cfg.list_display = cols
 
         
@@ -2564,13 +2388,6 @@ for _cfg in CRUD_CONFIGS:
         if "etiqueta" not in cols:
             cols.insert(1, "etiqueta")
 
-        # Si tienes 'responsable_anterior_fk' y prefieres mostrar el string legible:
-        # (quítalo si tu modelo no lo tiene)
-        # try:
-        #     cols[cols.index("responsable_anterior_fk")] = "responsable_anterior"
-        # except ValueError:
-        #     pass
-
         _cfg.list_display = cols
 
         # Búsqueda por los campos denormalizados (foto)
@@ -2664,4 +2481,111 @@ def api_siguiente_etiqueta(request):
 
     #############################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # ...
+def _aplicar_plan_a_activos(request, plan, hacer_vigente: bool):
+    """
+    Aplica `plan` a los Activos de la empresa (filtrando por tipo y, si corresponde, por modelo).
+    Si `hacer_vigente` es True, baja otros planes del activo, marca este como vigente,
+    y recalcula/persiste la próxima mantención usando la lógica central del modelo.
+    Devuelve (total_activos_filtrados, creados_o_activados, marcados_vigentes).
+    """
+    from .models_inventario import Activo, PlanMantencionActivo as PMA, Modelo
 
+    def _save_fields_if_exist(obj, fields):
+        # Guarda solo los campos que existan en el modelo (evita crashear por nombres distintos)
+        cand = []
+        for f in fields:
+            try:
+                obj.__class__._meta.get_field(f)
+                cand.append(f)
+            except Exception:
+                pass
+        if cand:
+            obj.save(update_fields=tuple(dict.fromkeys(cand)))
+        else:
+            obj.save()
+
+    emp_id = request.session.get("empresa_id")
+    activos = Activo.objects.all()
+    if emp_id:
+        activos = activos.filter(id_empresa_id=emp_id)
+    if _has_field(Activo, "eliminado"):
+        activos = activos.filter(eliminado=False)
+
+    # Tipo obligatorio
+    tipo_id = getattr(plan, "id_tipo_activo_id", None)
+    if not tipo_id:
+        messages.info(request, "El plan no tiene Tipo de activo; no se aplicó a ningún activo.")
+        return (0, 0, 0)
+    activos = activos.filter(id_tipo_activo_id=tipo_id)
+
+    # ¿Restringe por modelo?
+    aplica_todos = bool(
+        getattr(plan, "aplica_a_todos_modelos",
+            getattr(plan, "aplica_todos_modelos",
+                getattr(plan, "aplica_todos", True)))
+    )
+    modelo_id = getattr(plan, "id_modelo_id", None)
+
+    if not aplica_todos and modelo_id:
+        m = Modelo.objects.filter(pk=modelo_id).only("nombre_modelo").first()
+        activos = activos.filter(nombre_activo__iexact=m.nombre_modelo) if m else Activo.objects.none()
+    elif not aplica_todos and not modelo_id:
+        messages.info(request, "Plan sin modelo y con 'aplica a todos' desmarcado: no se aplicó a ningún activo.")
+        return (0, 0, 0)
+
+    total = activos.count()
+    creados_activados = 0
+    marcados_vigente = 0
+
+    # Heurística segura: si el plan es por tiempo y falta base_fecha, la inicializamos.
+    es_tiempo = bool(getattr(getattr(plan, "tipo_medicion", None), "es_tiempo", False))
+
+    from django.db import transaction
+    from django.utils import timezone
+
+    with transaction.atomic():
+        for a in activos:
+            pma, created = PMA.objects.get_or_create(
+                id_activo=a,
+                id_plan=plan,
+                defaults={"eliminado": False}
+            )
+            # Reactivar si estaba eliminado
+            if not created and getattr(pma, "eliminado", False):
+                pma.eliminado = False
+                created = True  # lo contamos como "activado"
+
+            # Inicializar base_fecha solo si corresponde y no existe
+            if es_tiempo and not getattr(pma, "base_fecha", None):
+                # Usa fecha de inicio si existe, si no, hoy
+                setattr(pma, "base_fecha", getattr(plan, "fecha_inicio", None) or timezone.now().date())
+
+            # Manejo de vigente
+            if hacer_vigente:
+                (PMA.objects
+                    .filter(id_activo=a, eliminado=False)
+                    .exclude(pk=pma.pk)
+                    .update(es_vigente=False))
+                if not getattr(pma, "es_vigente", False):
+                    pma.es_vigente = True
+                    marcados_vigente += 1
+
+            # Recalcular próxima mantención con la lógica del modelo (si existe)
+            if hasattr(pma, "refrescar_estado_y_vencimiento"):
+                try:
+                    pma.refrescar_estado_y_vencimiento(persist=False)  # calcula en memoria
+                except Exception:
+                    # no abortar por un error de cálculo
+                    pass
+
+            # Persistir cambios (incluye posibles campos denormalizados)
+            _save_fields_if_exist(pma, [
+                "eliminado", "es_vigente", "base_fecha",
+                "proximo_vencimiento_fecha", "proximo_vencimiento_valor", "estado",
+                # agrega aquí otros campos que tu método setee, si aplica
+            ])
+
+            if created:
+                creados_activados += 1
+
+    return (total, creados_activados, marcados_vigente)

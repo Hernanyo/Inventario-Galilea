@@ -1506,3 +1506,4 @@ class PlanMantencionActivo(models.Model):
         """Compat alias (código viejo): devuelve el próximo vencimiento."""
         # Si el plan es de tiempo, vendrá por fecha; si es numerico (km/horas), por valor.
         return self.proximo_vencimiento_fecha or self.proximo_vencimiento_valor
+    

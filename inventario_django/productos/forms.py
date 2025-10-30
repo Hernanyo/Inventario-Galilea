@@ -17,6 +17,13 @@ from django import forms
 from django.db.models import Q
 from .models_inventario import Cargo
 from .models_inventario import Ubicacion
+from datetime import timedelta
+from dateutil.relativedelta import relativedelta
+from django import forms
+from django.utils import timezone
+from .models_inventario import PlanMantencionActivo as PMA
+
+
 
 def hide_deleted(form, *field_names):
     """
@@ -513,5 +520,112 @@ class UbicacionForm(forms.ModelForm):
         return cleaned
     
 
+# productos/forms.py
+
+
+
+
+from .models_inventario import (
+    PlanMantencionActivo, PlanMantencion, Activo, Empresa
+)
+
+class PlanMantencionActivoForm(forms.ModelForm):
+    hacer_vigente = forms.BooleanField(
+        required=False, initial=False, label="Marcar como plan vigente"
+    )
+
+    class Meta:
+        model = PlanMantencionActivo
+        fields = [
+            "id_empresa", "id_plan", "id_activo",
+            "base_fecha", "base_valor",
+            "ultima_medicion_fecha", "ultima_medicion_valor",
+            "proximo_vencimiento_fecha", "proximo_vencimiento_valor",
+            "estado",
+        ]
+        widgets = {
+            "id_empresa": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_plan":    forms.Select(attrs={"class": "form-select searchable"}),
+            "id_activo":  forms.Select(attrs={"class": "form-select searchable"}),
+
+            "base_fecha":            forms.DateInput(format="%Y-%m-%d", attrs={"type":"date","class":"form-control"}),
+            "base_valor":            forms.NumberInput(attrs={"class":"form-control"}),
+            "ultima_medicion_fecha": forms.DateInput(format="%Y-%m-%d", attrs={"type":"date","class":"form-control"}),
+            "ultima_medicion_valor": forms.NumberInput(attrs={"class":"form-control"}),
+
+            # visibles pero no editables (los calcula el modelo)
+            "proximo_vencimiento_fecha": forms.DateInput(format="%Y-%m-%d", attrs={"type":"date","class":"form-control","readonly":"readonly"}),
+            "proximo_vencimiento_valor": forms.NumberInput(attrs={"class":"form-control","readonly":"readonly"}),
+            "estado": forms.Select(attrs={"class":"form-select"}),
+        }
+
+    def __init__(self, *args, request=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.request = request
+
+        # Evita edición de calculados
+        for n in ("proximo_vencimiento_fecha","proximo_vencimiento_valor","estado"):
+            if n in self.fields:
+                self.fields[n].disabled = True
+
+        # Scope por empresa
+        emp_id = request.session.get("empresa_id") if request else None
+        if emp_id:
+            self.fields["id_empresa"].queryset = Empresa.objects.filter(pk=emp_id)
+            self.fields["id_plan"].queryset    = PlanMantencion.objects.filter(id_empresa_id=emp_id)
+            self.fields["id_activo"].queryset  = Activo.objects.filter(id_empresa_id=emp_id, eliminado=False)
+
+        hide_deleted(self, "id_plan", "id_activo")
+
+        # Prefills suaves (sin usar plan.fecha_inicio, porque no existe)
+        inst = self.instance
+        if inst and inst.pk:
+            # Si no hay proximo_* persistido, lo mostramos “estimado” para la UI
+            if not inst.proximo_vencimiento_fecha and not inst.proximo_vencimiento_valor:
+                prox_f, prox_v = inst.proximo_vencimiento()  # <-- del modelo
+                if prox_f:
+                    self.initial["proximo_vencimiento_fecha"] = prox_f
+                if prox_v is not None:
+                    self.initial["proximo_vencimiento_valor"] = prox_v
+            # Estado calculado para mostrar
+            try:
+                self.initial["estado"] = inst.estado_calculado()
+            except Exception:
+                pass
+        else:
+            # Creación: si quieres mostrar algo en base_fecha, usa hoy (el modelo ya
+            # tiene fecha_inicio= today como fallback internamente).
+            self.initial.setdefault("base_fecha", timezone.now().date())
+
+    def clean(self):
+        cleaned = super().clean()
+        # Si es un plan por tiempo y no mandan base/última, anclamos en HOY (el modelo
+        # igual cae a fecha_inicio, que por default es hoy en PlanMantencionActivo)
+        plan = cleaned.get("id_plan") or getattr(self.instance, "id_plan", None)
+        es_tiempo = bool(getattr(getattr(plan, "tipo_medicion", None), "es_tiempo", False))
+        if es_tiempo and not cleaned.get("base_fecha") and not cleaned.get("ultima_medicion_fecha"):
+            cleaned["base_fecha"] = timezone.now().date()
+        return cleaned
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+
+        # Marcar vigente si se pidió
+        if self.cleaned_data.get("hacer_vigente"):
+            obj.es_vigente = True
+
+        if commit:
+            obj.save()
+
+            # Mantener unicidad de vigente por activo
+            if obj.es_vigente:
+                type(obj).objects.filter(
+                    id_activo=obj.id_activo, eliminado=False
+                ).exclude(pk=obj.pk).update(es_vigente=False)
+
+            # ⬇️ Cálculo oficial: lo hace el modelo
+            obj.refrescar_estado_y_vencimiento(persist=True)
+
+        return obj
 
 
