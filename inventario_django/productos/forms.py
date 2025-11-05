@@ -627,5 +627,3 @@ class PlanMantencionActivoForm(forms.ModelForm):
             obj.refrescar_estado_y_vencimiento(persist=True)
 
         return obj
-
-

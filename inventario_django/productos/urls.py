@@ -634,3 +634,13 @@ urlpatterns += [
          views.planmantencionactivo_quitar_vigencia,
          name='planmantencionactivo_quitar_vigencia'),
 ]
+
+    ################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>04/11
+urlpatterns += [
+    # Otras rutas...
+    path('mantencion-realizada/<int:pk>/', views.mantencion_realizada, name='mantencion_realizada'),
+]
+
+urlpatterns += [
+    path("tareas-plan/<int:aplicacion_id>/", views.tareas_plan, name="tareas_plan"),
+]

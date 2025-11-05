@@ -484,6 +484,7 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                 )
                 return redirect(request.path)
 
+
             historiales, activos_a_actualizar = [], []
             for e in qs:
                 prev_emp_id    = e.id_empleado_id
@@ -494,6 +495,36 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                 )
                 if not changed:
                     continue
+    ############################################################################################>>>>>>>>>>>>
+    ############################################################################################>>>>>>>>>>>>04/11
+                # Primero actualizamos los planes de mantenimiento asociados al activo
+                planes = PlanMantencionActivo.objects.filter(id_activo=e)
+
+                # Desactivar el plan vigente
+                for plan in planes.filter(es_vigente=True):
+                    plan.es_vigente = False
+                    plan.save()
+
+                # Ahora marcamos el plan preventivo como vigente (si existe)
+                plan_preventivo = planes.filter(id_plan__nombre__icontains="preventiva").first()
+                if plan_preventivo:
+                    plan_preventivo.es_vigente = True
+                    plan_preventivo.base_fecha = ahora  # Asignar la fecha actual como la fecha base
+                    # Calcular y asignar la próxima fecha de vencimiento (esto lo haces similar al botón "Mantención realizada")
+                    plan_preventivo.proximo_vencimiento_fecha = plan_preventivo.base_fecha + timedelta(days=plan_preventivo.id_plan.intervalo_dias)
+                    plan_preventivo.save()
+                else:
+                    # Si no hay plan preventivo, marcar el primer plan como vigente
+                    first_plan = planes.first()
+                    if first_plan:
+                        first_plan.es_vigente = True
+                        # Asignar la fecha base y calcular el próximo vencimiento
+                        first_plan.base_fecha = ahora
+                        first_plan.proximo_vencimiento_fecha = first_plan.base_fecha + timedelta(days=first_plan.id_plan.intervalo_dias)
+                        first_plan.save()
+        ############################################################################################>>>>>>>>>>>>
+    ############################################################################################>>>>>>>>>>>>
+
 
                 historiales.append(HistorialActivos(
                     activo=e,
@@ -1552,5 +1583,73 @@ def planmantencionactivo_quitar_vigencia(request, pk):
     messages.info(request, f"Plan dejado como NO vigente para el activo {label}.")
     return redirect(request.POST.get('next') or reverse('productos:planmantencionactivos_list'))
 
+    #########################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>04/11
 
+from django.shortcuts import render, redirect
+from django.http import Http404
+from django.utils import timezone
+from .models_inventario import PlanMantencionActivo, TipoMedicionActivo
+from datetime import timedelta
+from decimal import Decimal
 
+def mantencion_realizada(request, pk):
+    try:
+        plan = PlanMantencionActivo.objects.get(pk=pk)
+        tipo_medicion = plan.id_plan.tipo_medicion
+        print(f"Recuperado plan {plan.id_plan.nombre} para el activo {plan.id_activo.nombre_activo} [{plan.id_activo.id_activo}]")
+        
+        if plan.id_plan.tipo_medicion.codigo == "Km":
+            # Obtiene la última medición de kilómetros
+            ultima_medicion_valor = plan.ultima_medicion_valor or Decimal(0)
+            # Suma 10,000 kilómetros a la última medición
+            nuevo_valor = ultima_medicion_valor + Decimal(10000)
+            # Actualiza el valor de la última medición
+            plan.ultima_medicion_valor = nuevo_valor
+            # Calcula el próximo vencimiento (sumamos 10,000 km)
+            plan.proximo_vencimiento_valor = nuevo_valor
+            # Guardamos los cambios
+            plan.save()
+
+        # Verificar que tipo de medición sea Día
+        if tipo_medicion.codigo == "Día":
+            print("Aplicando plan por días")
+            # Actualizar la base_fecha a la fecha actual
+            plan.base_fecha = timezone.now().date()
+            # Calcular el próximo vencimiento
+            plan.proximo_vencimiento_fecha = plan.base_fecha + timedelta(days=plan.id_plan.intervalo_dias)
+            # Guardar los cambios
+            plan.save()
+
+            print(f"Base fecha actualizada a {plan.base_fecha}")
+            print(f"Próximo vencimiento actualizado a {plan.proximo_vencimiento_fecha}")
+
+        plan.refresh_from_db()  # Recargar el plan desde la base de datos
+        print(f"Valores después del save: Base Fecha: {plan.base_fecha}, Base Valor: {plan.base_valor}")
+
+        return redirect('productos:planmantencionactivos_list')  # Ajusta esta URL según corresponda
+
+    except PlanMantencionActivo.DoesNotExist:
+        raise Http404("Plan no encontrado")
+
+##############################################$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$#################04/11
+# views.py
+from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.decorators import login_required
+
+from .models_inventario import (
+    PlanMantencionActivo,
+    PlanMantencionTarea,
+)
+
+@login_required
+def tareas_plan(request, aplicacion_id: int):
+    """Devuelve solo el fragmento HTML con las tareas del plan (sin layout)."""
+    aplicacion = get_object_or_404(PlanMantencionActivo, pk=aplicacion_id)
+    plan = aplicacion.id_plan
+    tareas = (PlanMantencionTarea.objects
+              .filter(id_plan=plan, eliminado=False)
+              .order_by("orden", "id_tarea"))
+    return render(request, "activos/tareas_plan.html", {
+        "plan": plan,
+        "tareas": tareas,
+    })

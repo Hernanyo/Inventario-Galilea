@@ -1,0 +1,43 @@
+<div class="mb-2">
+  <div class="fw-semibold">
+    Tareas del plan: <span class="text-primary">{{ plan.nombre }}</span>
+  </div>
+  <div class="text-muted small">
+    Tipo de activo: {{ plan.id_tipo_activo }}{% if plan.id_modelo %} · Modelo: {{ plan.id_modelo }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th style="width: 70px;">#</th>
+          <th>Descripción</th>
+          <th style="width: 120px;">Obligatoria</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tareas %}
+          <tr>
+            <td>{{ t.orden }}</td>
+            <td>{{ t.descripcion }}</td>
+            <td>
+              {% if t.obligatorio %}
+                <span class="badge bg-primary">Sí</span>
+              {% else %}
+                <span class="badge bg-secondary">No</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="3" class="text-center text-muted py-3">
+              Este plan no tiene tareas configuradas.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -816,3 +816,5 @@ def _solo_un_vigente_por_activo(sender, instance: PlanMantencionActivo, **kwargs
         PlanMantencionActivo.objects.filter(
             id_activo=instance.id_activo, es_vigente=True
         ).exclude(pk=instance.pk).update(es_vigente=False)
+
+        

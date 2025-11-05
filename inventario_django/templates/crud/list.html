@@ -639,6 +639,14 @@
               </form>
             {% endif %}
             
+            <!-- Creo que en este espacio debería ir el boton que queremos 04/11-->
+              <!-- Botón de Acción: Mantención Realizada -->
+              <form action="{% url 'productos:mantencion_realizada' item.pk %}" method="post" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-success">
+                  Mantención Realizada
+                </button>
+              </form>
 
 
           
