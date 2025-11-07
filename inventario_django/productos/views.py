@@ -349,6 +349,39 @@ def mantencion_editar(request, pk):
 
     return render(request, 'mantenciones/editar.html', {'form': form, 'mantencion': mant})
 
+#############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><07/11
+def _activar_plan_vigente_y_recalcular(pma, ahora):
+    """
+    Marca un PMA como vigente y recalcula vencimientos según su tipo de medición.
+    Tolera 'intervalo_dias' = None y tipos por kilómetros.
+    """
+    pma.es_vigente = True
+    pma.base_fecha = ahora.date()  # siempre dejamos “base” consistente para planes por tiempo
+    pma.base_valor = None
+
+    plan = pma.id_plan
+    tipo = getattr(plan, "tipo_medicion", None)
+
+    # Default: sin fecha calculable
+    pma.proximo_vencimiento_fecha = None
+    pma.proximo_vencimiento_valor = None
+
+    # Si es por tiempo (Días) y el intervalo es válido
+    if getattr(tipo, "es_tiempo", False) or (getattr(tipo, "codigo", "") in ("Día", "Dia", "Dias", "Días")):
+        dias = getattr(plan, "intervalo_dias", None)
+        if isinstance(dias, int) and dias > 0:
+            pma.proximo_vencimiento_fecha = pma.base_fecha + timedelta(days=dias)
+
+    # Si es por kilómetros
+    if getattr(tipo, "codigo", "").lower() in ("km", "kilometros", "kilómetros"):
+        # No inventamos fecha; solo dejamos ready el valor. Si necesitas regla, ajusta aquí.
+        ultimo = pma.ultima_medicion_valor or 0
+        pma.proximo_vencimiento_valor = ultimo + (plan.intervalo_valor or 0)
+
+    pma.save()
+
+#############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><07/11
+
 class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
     """Vista para mostrar activos disponibles para asignación.
 
@@ -498,30 +531,19 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
     ############################################################################################>>>>>>>>>>>>
     ############################################################################################>>>>>>>>>>>>04/11
                 # Primero actualizamos los planes de mantenimiento asociados al activo
-                planes = PlanMantencionActivo.objects.filter(id_activo=e)
+                # --- Actualizar PMAs del activo (sin reventar por intervalo_dias = None) ---
+                planes = PlanMantencionActivo.objects.filter(id_activo=e, eliminado=False)
 
-                # Desactivar el plan vigente
-                for plan in planes.filter(es_vigente=True):
-                    plan.es_vigente = False
-                    plan.save()
+                # Apagar vigentes actuales
+                planes.filter(es_vigente=True).update(es_vigente=False)
 
-                # Ahora marcamos el plan preventivo como vigente (si existe)
+                # Elegir candidato a vigente
                 plan_preventivo = planes.filter(id_plan__nombre__icontains="preventiva").first()
-                if plan_preventivo:
-                    plan_preventivo.es_vigente = True
-                    plan_preventivo.base_fecha = ahora  # Asignar la fecha actual como la fecha base
-                    # Calcular y asignar la próxima fecha de vencimiento (esto lo haces similar al botón "Mantención realizada")
-                    plan_preventivo.proximo_vencimiento_fecha = plan_preventivo.base_fecha + timedelta(days=plan_preventivo.id_plan.intervalo_dias)
-                    plan_preventivo.save()
-                else:
-                    # Si no hay plan preventivo, marcar el primer plan como vigente
-                    first_plan = planes.first()
-                    if first_plan:
-                        first_plan.es_vigente = True
-                        # Asignar la fecha base y calcular el próximo vencimiento
-                        first_plan.base_fecha = ahora
-                        first_plan.proximo_vencimiento_fecha = first_plan.base_fecha + timedelta(days=first_plan.id_plan.intervalo_dias)
-                        first_plan.save()
+                pma_objetivo = plan_preventivo or planes.first()
+
+                if pma_objetivo:
+                    _activar_plan_vigente_y_recalcular(pma_objetivo, ahora)
+
         ############################################################################################>>>>>>>>>>>>
     ############################################################################################>>>>>>>>>>>>
 
@@ -1653,3 +1675,257 @@ def tareas_plan(request, aplicacion_id: int):
         "plan": plan,
         "tareas": tareas,
     })
+
+############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>############>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>05/11
+############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>############>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>05/11
+############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>############>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>05/11
+
+# productos/views.py
+# productos/views.py
+from django.http import JsonResponse
+from django.db.models import Count
+
+from .models_inventario import Activo, TipoActivo, Ubicacion, Modelo   # usa el módulo correcto
+from .mixins import scope_qs_by_empresa                     # si no existe, quita esta línea
+
+
+def overview_data(request):
+    # QS base (incluye FKs para no pegar consultas extras)
+    qs = Activo.objects.select_related(
+        "id_tipo_activo", "id_ubicacion", "id_marca", "id_empleado", "id_condicion_activo"
+    )
+
+    # Filtrar por empresa (si tienes helper)
+    try:
+        qs = scope_qs_by_empresa(request, qs)
+    except Exception:
+        pass
+
+    # Filtros GET (?tipos=..&ubicaciones=..)
+    tipos = request.GET.getlist("tipos")
+    ubic  = request.GET.getlist("ubicaciones")
+    cargos = request.GET.getlist("cargos")
+    condiciones = request.GET.getlist("condiciones")
+
+    if tipos:
+        qs = qs.filter(id_tipo_activo__in=[int(x) for x in tipos if x.isdigit()])
+    if ubic:
+        qs = qs.filter(id_ubicacion__in=[int(x) for x in ubic if x.isdigit()])
+    if cargos:
+        qs = qs.filter(id_empleado__cargo__in=cargos)
+    if condiciones:
+        qs = qs.filter(id_condicion_activo__in=[int(x) for x in condiciones if x.isdigit()])
+    # Filtros: Tipos
+    tipos_qs = (
+        qs.values("id_tipo_activo", "id_tipo_activo__tipo_activo")
+          .annotate(count=Count("id_activo"))
+          .order_by("id_tipo_activo__tipo_activo")
+    )
+    tipos_data = [
+        {"id": r["id_tipo_activo"], "nombre": r["id_tipo_activo__tipo_activo"], "count": r["count"]}
+        for r in tipos_qs
+    ]
+
+    # Filtros: Ubicaciones
+    ubic_qs = (
+        qs.values("id_ubicacion", "id_ubicacion__nombre_ubicacion")
+          .annotate(count=Count("id_activo"))
+          .order_by("id_ubicacion__nombre_ubicacion")
+    )
+    ubic_data = [
+        {"id": r["id_ubicacion"], "nombre": r["id_ubicacion__nombre_ubicacion"], "count": r["count"]}
+        for r in ubic_qs
+    ]
+
+    # Filtros: Cargos
+    # NEW: filtro/contador por cargos (va por empleado.id_cargo)
+    from django.db.models.functions import NullIf
+
+    cargos_qs = (
+        qs.exclude(id_empleado__cargo__isnull=True)
+        .exclude(id_empleado__cargo__exact="")
+        .values("id_empleado__cargo")
+        .annotate(count=Count("id_activo"))
+        .order_by("id_empleado__cargo")
+    )
+
+    cargos_data = [
+        {
+            "id": r["id_empleado__cargo"],          # usamos el nombre del cargo como ID del filtro
+            "nombre": r["id_empleado__cargo"],      # etiqueta a mostrar
+            "count": r["count"],
+        }
+        for r in cargos_qs
+    ]
+    # Filtros: Cargos
+    cond_qs = (
+        qs.values("id_condicion_activo", "id_condicion_activo__descripcion")
+        .annotate(count=Count("id_activo"))
+        .order_by("id_condicion_activo__descripcion")
+    )
+    condiciones_data = [
+        {
+            "id": r["id_condicion_activo"],
+            "nombre": r["id_condicion_activo__descripcion"] or "—",
+            "count": r["count"],
+        }
+        for r in cond_qs
+    ]
+
+    cond_group = (
+        qs.values("id_condicion_activo__descripcion")
+        .annotate(c=Count("id_activo"))
+        .order_by("-c", "id_condicion_activo__descripcion")
+    )
+
+    cond_chart = {
+        "labels": [r["id_condicion_activo__descripcion"] or "—" for r in cond_group],
+        "data":   [r["c"] for r in cond_group],
+    }
+
+
+
+
+    # Gráficos
+    top = (
+        qs.values("id_marca__nombre_marca")
+          .annotate(c=Count("id_activo"))
+          .order_by("-c")
+    )
+    modelos = {
+        "labels": [r["id_marca__nombre_marca"] or "—" for r in top],
+        "data":   [r["c"] for r in top],
+    }
+
+     # --- NUEVO: Ubicación por tipo seleccionado ---
+    qs_loc = qs
+    if tipos:
+        ids_tipos = [int(x) for x in tipos if x.isdigit()]
+        qs_loc = qs.filter(id_tipo_activo__in=ids_tipos)
+
+    loc = (
+        qs_loc.values("id_ubicacion__nombre_ubicacion")
+              .annotate(c=Count("id_activo"))
+              .order_by("-c", "id_ubicacion__nombre_ubicacion")
+    )
+    tipo_ubic = {
+        "labels": [r["id_ubicacion__nombre_ubicacion"] or "—" for r in loc],
+        "data":   [r["c"] for r in loc],
+    }
+
+    # Tabla inferior + Empleado
+    lista_qs = (
+        qs.order_by("-id_activo")
+          .values(
+              "id_activo",
+              "etiqueta",
+              "nombre_activo",
+              "id_tipo_activo__tipo_activo",
+              "id_ubicacion__nombre_ubicacion",
+              "id_empleado__nombre",
+              "id_empleado__apellido_paterno",
+              "id_empleado__apellido_materno",
+              "id_condicion_activo__descripcion",
+          )
+    )
+
+    lista = []
+    for r in lista_qs:
+        nom = r.pop("id_empleado__nombre", None)
+        ap1 = r.pop("id_empleado__apellido_paterno", None)
+        ap2 = r.pop("id_empleado__apellido_materno", None)
+        empleado = " ".join([x for x in [nom, ap1, ap2] if x]) or None
+
+        lista.append({
+            "id_activo": r["id_activo"],
+            "etiqueta": r["etiqueta"],
+            "nombre_activo": r["nombre_activo"],
+            "condicion": r["id_condicion_activo__descripcion"],
+            "id_tipo_activo__tipo_activo": r["id_tipo_activo__tipo_activo"],
+            "id_ubicacion__nombre_ubicacion": r["id_ubicacion__nombre_ubicacion"],
+            "empleado": empleado,    # <-- aquí va el nombre completo
+        })
+
+    return JsonResponse({
+        "tipos": tipos_data,
+        "ubicaciones": ubic_data,
+        "cargos": cargos_data,
+        "condiciones": condiciones_data,  # ← NUEVO
+        "modelos": modelos,
+        "tipo_ubic": tipo_ubic,   # <-- NUEVO
+        "lista": lista,
+        "total": qs.count(),
+        "cond_chart": cond_chart,
+    })
+
+##################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>06/11
+# productos/views.py
+# productos/views.py
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_GET, require_POST
+from django.contrib.auth.decorators import login_required
+from .models_inventario import PlanMantencionActivo, PlanMantencionTarea, Registro, TipoRegistro
+from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType  # <--
+
+@require_GET
+@login_required
+def pma_checklist(request, pma_id: int):
+    pma = (PlanMantencionActivo.objects
+           .select_related("id_plan", "id_activo")
+           .filter(pk=pma_id, eliminado=False)
+           .first())
+    if not pma:
+        return HttpResponseBadRequest("PMA no encontrado")
+    tareas = (PlanMantencionTarea.objects
+              .filter(id_plan=pma.id_plan, eliminado=False)
+              .order_by("orden", "id_tarea")
+              .values("id_tarea", "descripcion", "obligatorio"))
+    return JsonResponse({
+        "plan": pma.id_plan.nombre,
+        "activo": str(pma.id_activo),
+        "tareas": list(tareas),
+    })
+
+@require_POST
+@login_required
+def pma_ejecutar(request, pma_id: int):
+    pma = (PlanMantencionActivo.objects
+           .select_related("id_plan", "id_activo")
+           .filter(pk=pma_id, eliminado=False)
+           .first())
+    if not pma:
+        return HttpResponseBadRequest("PMA no encontrado")
+
+    try:
+        tareas_ids = request.POST.getlist("tareas[]")
+
+        # Actualiza base si es por tiempo
+        if getattr(pma.id_plan.tipo_medicion, "es_tiempo", False):
+            pma.base_fecha = timezone.localdate()
+            pma.base_valor = None
+
+        pma.refrescar_estado_y_vencimiento(persist=True)
+
+        # Auditoría (Registro)
+        try:
+            tipo = TipoRegistro.objects.get(nombre__iexact="Mantención realizada")
+        except TipoRegistro.DoesNotExist:
+            tipo = TipoRegistro.objects.create(nombre="Mantención realizada")
+
+        ct = ContentType.objects.get_for_model(PlanMantencionActivo)  # <--
+
+        Registro.objects.create(
+            usuario=getattr(request.user, "empleado", None),  # si tu FK NO admite null, cámbialo
+            tipo_registro=tipo,
+            content_type=ct,               # <--
+            object_id=pma.pk,              # <--
+            descripcion=f"Mantención realizada en {pma.id_activo}",
+            datos_nuevos={"tareas_marcadas": tareas_ids},
+            id_empresa=pma.id_empresa,
+        )
+
+        return JsonResponse({"ok": True})
+
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)

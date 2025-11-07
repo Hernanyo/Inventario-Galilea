@@ -644,3 +644,15 @@ urlpatterns += [
 urlpatterns += [
     path("tareas-plan/<int:aplicacion_id>/", views.tareas_plan, name="tareas_plan"),
 ]
+
+    ################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>05/11
+urlpatterns += [
+    path("api/overview/", views.overview_data, name="overview_data"),
+]
+
+#######################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>06/11
+urlpatterns += [
+    # ... tus rutas ...
+    path("planes-aplicados/<int:pma_id>/checklist/", views.pma_checklist, name="pma_checklist"),
+    path("planes-aplicados/<int:pma_id>/ejecutar/",  views.pma_ejecutar,  name="pma_ejecutar"),
+]

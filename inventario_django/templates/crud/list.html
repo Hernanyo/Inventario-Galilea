@@ -16,6 +16,8 @@
     <span class="badge bg-secondary ms-2">{{ subtitle }}</span>
   {% endif %}
 </h1>
+<!-- Zona de mensajes tipo banner -->
+<div id="flash-zone"></div>
 
 <div class="flex items-center justify-between mb-4">
   <div class="flex items-center gap-2 w-full justify-end">
@@ -641,10 +643,15 @@
             
             <!-- Creo que en este espacio debería ir el boton que queremos 04/11-->
               <!-- Botón de Acción: Mantención Realizada -->
-              <form action="{% url 'productos:mantencion_realizada' item.pk %}" method="post" style="display:inline;">
+              <form class="form-mant-realizada"
+                    action="{% url 'productos:mantencion_realizada' item.pk %}"
+                    method="post" style="display:inline;">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-xs btn-success">
-                  Mantención Realizada
+                <button
+                  type="button"
+                  class="btn btn-sm btn-success js-open-checklist"
+                  data-url-checklist="{% url 'productos:pma_checklist' pma_id=item.id_plan_mantencion_activo %}">
+                  Mantención realizada
                 </button>
               </form>
 
@@ -735,6 +742,112 @@
     </div>
   </div>
 </div>
+
+<!--Modal generico tareas del plan/guardar -->
+<div class="modal fade" id="modalChecklist" tabindex="-1" aria-hidden="true"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">Tareas del plan</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p>Plan: <strong id="pmaPlanNombre">Cargando…</strong></p>
+        <small class="text-muted d-block mb-2">
+          Marca las tareas realizadas y presiona <b>Guardar</b>. Se actualizará la fecha base y el próximo vencimiento.
+        </small>
+        <div id="pmaChecklist" class="list-group list-group-flush">
+          <div class="text-muted">Cargando…</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" data-save>Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const modalEl  = document.getElementById('modalChecklist');
+  const modal    = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+  const bodyWrap = modalEl.querySelector('#pmaChecklist');
+  const planName = modalEl.querySelector('#pmaPlanNombre');
+  const saveBtn  = modalEl.querySelector('[data-save]');
+  let currentForm = null;  // 👈 guardamos el form de la fila
+
+  // util para pedir JSON
+  async function getJSON(url) {
+    const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+
+  // abrir checklist
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.js-open-checklist');
+    if (!btn) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    currentForm = btn.closest('form');  // 👈 este es el form que enviaremos al guardar
+
+    // UI de carga
+    planName.textContent = 'Cargando…';
+    bodyWrap.innerHTML   = '<div class="text-muted">Cargando…</div>';
+    modal.show();
+
+    try {
+      const data = await getJSON(btn.dataset.urlChecklist);
+      // encabezado
+      planName.textContent = data.plan + '   Activo: ' + data.activo;
+
+      // render simple de tareas
+      bodyWrap.innerHTML = (data.tareas || []).map(t => `
+        <label class="list-group-item d-flex align-items-center gap-2">
+          <input type="checkbox" class="form-check-input me-2" data-id="${t.id_tarea}">
+          <span class="flex-grow-1">${t.descripcion}</span>
+          ${t.obligatorio ? '<span class="badge bg-primary">Obligatoria</span>' : ''}
+        </label>
+      `).join('') || '<div class="text-muted">Este plan no tiene tareas.</div>';
+
+    } catch (err) {
+      planName.textContent = 'Error al cargar';
+      bodyWrap.innerHTML = '<div class="text-danger">No fue posible cargar las tareas.</div>';
+    }
+  });
+
+  // Guardar = enviar el form original (flujo antiguo)
+  saveBtn.addEventListener('click', () => {
+    if (currentForm) {
+      // mensaje para mostrar después de recargar
+      localStorage.setItem('flash_success', 'Mantención guardada exitosamente.');
+      modal.hide();
+      currentForm.submit();  // 👈 aquí se dispara tu vista antigua mantencion_realizada
+    }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  const zone = document.getElementById('flash-zone');
+  const msg  = localStorage.getItem('flash_success');
+  if (!zone || !msg) return;
+
+  zone.innerHTML = `
+    <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+      ${msg}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+    </div>
+  `;
+  localStorage.removeItem('flash_success');
+})();
+</script>
+
 
 
 <script>

@@ -715,22 +715,22 @@ class Mantencion(models.Model):
         return getattr(self.responsable, "pk", None)
     
     
-@property
-def solicitante(self):
-    # compat: por si algún código espera 'solicitante' en vez de 'solicitante_user'
-    return self.solicitante_user
+    @property
+    def solicitante(self):
+        # compat: por si algún código espera 'solicitante' en vez de 'solicitante_user'
+        return self.solicitante_user
 
-@property
-def solicitante_id(self):
-    return getattr(self.solicitante_user, "pk", None)
+    @property
+    def solicitante_id(self):
+        return getattr(self.solicitante_user, "pk", None)
 
-@property
-def solicitante_nombre(self):
-    u = getattr(self, "solicitante_user", None)
-    if not u:
-        return ""
-    full = (u.get_full_name() or "").strip()
-    return full or u.get_username() or str(u)
+    @property
+    def solicitante_nombre(self):
+        u = getattr(self, "solicitante_user", None)
+        if not u:
+            return ""
+        full = (u.get_full_name() or "").strip()
+        return full or u.get_username() or str(u)
 
 class Factura(models.Model):
     """Factura asociada a proveedor y empresa, con soporte de archivo adjunto.

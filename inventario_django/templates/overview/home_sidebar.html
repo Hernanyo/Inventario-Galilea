@@ -145,100 +145,279 @@
   </div>
 
 
-    <!-- Gráficos / tablas -->
-    <div class="row g-3 mb-3">
-      <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-          <div class="card-header">Activos por Tipo</div>
-          <div class="card-body">
-            <div style="position:relative;height:300px"><canvas id="chartTipos"></canvas></div>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-          <div class="card-header">Mantenciones por Estado</div>
-          <div class="card-body">
-            <div style="position:relative;height:300px"><canvas id="chartMant"></canvas></div>
-          </div>
+<!-- -------- BLOQUE INTERACTIVO -------- -->
+<div class="row g-3 mb-3">
+  <!-- Filtros (tipos + ubicaciones) -->
+  <div class="col-lg-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Filtros</div>
+      <div class="card-body">
+        <small class="text-primary d-block mb-2">Condición</small>
+        <div id="filtroCondiciones" style="max-height: 150px; overflow:auto;"></div>
+
+        <small class="text-primary d-block mb-2">Tipos de activo</small>
+        <div id="filtroTipos" class="mb-3" style="max-height: 150px; overflow:auto;"></div>
+
+        <small class="text-primary d-block mb-2">Ubicaciones</small>
+        <div id="filtroUbicaciones" style="max-height: 150px; overflow:auto;"></div>
+
+        <small class="text-primary d-block mb-2">Cargos</small>
+        <div id="filtroCargos" style="max-height: 150px; overflow:auto;"></div>
+
+
+        <div class="d-grid mt-3 gap-2">
+          <button id="btnLimpiar" class="btn btn-sm btn-outline-secondary">Limpiar filtros</button>
         </div>
       </div>
     </div>
+  </div>
 
+  <!-- Gráficos -->
+  <div class="col-lg-9">
     <div class="row g-3">
-      <div class="col-lg-6">
-        <div class="card shadow-sm">
-          <div class="card-header">Últimos activos</div>
-          <div class="card-body table-responsive">
-            <table class="table table-sm align-middle">
-              <thead>
-                <tr><th>#</th><th>Nombre</th><th>Marca</th><th>Tipo</th></tr>
-              </thead>
-              <tbody>
-                {% for e in ultimos_activos|slice:":5" %}
-                  <tr>
-                    <td>{{ e.id_activo }}</td>
-                    <td>{{ e.nombre_activo }}</td>
-                    <td>{{ e.id_marca }}</td>
-                    <td>{{ e.id_tipo_activo }}</td>
-                  </tr>
-                {% empty %}
-                  <tr><td colspan="4" class="text-center text-muted">Sin registros</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
+      <div class="col-12">
+        <div class="card shadow-sm h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <div>
+              <span id="chartTitle">Gráfico</span>
+            </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Modo gráfico">
+              <button id="btnModoMarca" class="btn btn-outline-secondary active">Marca</button>
+              <button id="btnModoTipoUbic" class="btn btn-outline-secondary">Ubicación</button>
+              <button id="btnModoCond"     class="btn btn-outline-secondary">Condición</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="chartWrap" class="chart-wrap-x">
+              <canvas id="chartModelos"></canvas>
+            </div>
           </div>
         </div>
       </div>
-
-      <div class="col-lg-6">
-        <div class="card shadow-sm">
-          <div class="card-header">Últimas mantenciones</div>
-          <div class="card-body table-responsive">
-            <table class="table table-sm align-middle">
+      <div class="col-12">
+        <div class="card shadow-sm h-100">
+          <div class="card-header">Listado <small class="text-muted" id="lblTotal"></small></div>
+          <div class="card-body table-responsive table-scroll">
+            <table class="table table-sm align-middle mb-0">
               <thead>
-                <tr><th>#</th><th>Activo</th><th>Estado</th><th>Fecha</th></tr>
+                <tr>
+                  <th>ID</th>
+                  <th>Etiqueta</th>
+                  <th>Nombre</th>
+                  <th>Tipo</th>
+                  <th>Ubicación</th>
+                  <th>Empleado</th>
+                  <th>Condición</th>
+                </tr>
               </thead>
-              <tbody>
-                {% for m in ultimas_mantenciones|slice:":5" %}
-                  <tr>
-                    <td>{{ m.id_mantencion }}</td>
-                    <td>{{ m.id_activo }}</td>
-                    <td>{{ m.id_estado_mantencion }}</td>
-                    <td>{{ m.fecha|date:"Y-m-d" }}</td>
-                  </tr>
-                {% empty %}
-                  <tr><td colspan="4" class="text-center text-muted">Sin registros</td></tr>
-                {% endfor %}
-              </tbody>
+              <tbody id="tblBody"></tbody>
             </table>
           </div>
         </div>
       </div>
     </div>
+  </div>
+</div>
+<!-- -------- FIN BLOQUE INTERACTIVO -------- -->
+<style>
+  /* Scroll en filtros de la izquierda */
+  #filtroTipos, #filtroUbicaciones { max-height: 320px; overflow-y: auto; }
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script>
-      const tiposLabels = {{ chart_tipos_labels|default:"[]"|safe }};
-      const tiposValues = {{ chart_tipos_values|default:"[]"|safe }};
-      const mantLabels  = {{ chart_mant_labels|default:"[]"|safe }};
-      const mantValues  = {{ chart_mant_values|default:"[]"|safe }};
+  /* Scroll en listado inferior (~7-8 filas) */
+  .table-scroll { max-height: 300px; overflow-y: auto; }
+  .table-scroll table { margin-bottom: 0; }
+</style>
+<style>
+  .chart-wrap-x {
+    position: relative;
+    height: 310px;
+    overflow-x: auto;     /* <— scroll horizontal */
+    overflow-y: hidden;
+    white-space: nowrap;  /* evita saltos de línea del canvas */
+  }
+  #chartModelos {
+    display: block;
+  }
+</style>
 
-      if (document.getElementById('chartTipos')) {
-        new Chart(document.getElementById('chartTipos'), {
-          type: 'bar',
-          data: { labels: tiposLabels, datasets: [{ label: 'Activos', data: tiposValues }] },
-          options: { responsive: true, maintainAspectRatio: false }
-        });
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const urlData = "{% url 'productos:overview_data' %}";
+
+  const elTipos = document.getElementById("filtroTipos");
+  const elUbic  = document.getElementById("filtroUbicaciones");
+  const btnLimpiar = document.getElementById("btnLimpiar");
+  const lblTotal   = document.getElementById("lblTotal");
+  const tblBody    = document.getElementById("tblBody");
+
+  const btnModoMarca   = document.getElementById("btnModoMarca");
+  const btnModoTipoUbic = document.getElementById("btnModoTipoUbic");
+  const btnModoCond     = document.getElementById("btnModoCond");
+  const chartTitleEl   = document.getElementById("chartTitle");
+
+  const elCargos = document.getElementById("filtroCargos");
+
+  const elCondiciones = document.getElementById("filtroCondiciones");
+
+  let selectedTipos = new Set();
+  let selectedUbic  = new Set();
+
+  let modoGrafico = "marca"; // "marca" | "ubic" | "cond"
+  let lastPayload = null;     // cache de la última respuesta
+
+  let selectedCargos = new Set();
+
+  let selectedCondiciones = new Set();
+
+  // Chart de modelos
+  let chartModelos = null;
+  function drawModelos(labels, data){
+    const wrap = document.getElementById("chartWrap");
+    const canvas = document.getElementById("chartModelos");
+
+    const pxPorBarra = 50; // ancho por barra
+    const anchoNecesario = Math.max(labels.length * pxPorBarra, wrap.clientWidth);
+
+    if (chartModelos) chartModelos.destroy();
+    canvas.width  = anchoNecesario;
+    canvas.height = wrap.clientHeight;
+
+    chartModelos = new Chart(canvas.getContext("2d"), {
+      type: "bar",
+      data: { labels, datasets: [{ label: "Cantidad", data }] },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { autoSkip: false, maxRotation: 60, minRotation: 60 } },
+          y: { beginAtZero: true }
+        }
       }
-      if (document.getElementById('chartMant')) {
-        new Chart(document.getElementById('chartMant'), {
-          type: 'pie',
-          data: { labels: mantLabels, datasets: [{ data: mantValues }] },
-          options: { responsive: true, maintainAspectRatio: false }
-        });
-      }
-    </script>
+    });
+  }
+
+
+  function renderChartFromPayload(payload){
+    if (!payload) return;
+
+    if (modoGrafico === "marca") {
+      chartTitleEl.textContent = "Marca";
+      drawModelos(payload.modelos.labels, payload.modelos.data);
+    } else if (modoGrafico === "ubic") {
+      chartTitleEl.textContent = "Ubicación";
+      drawModelos(payload.tipo_ubic.labels, payload.tipo_ubic.data);
+    } else { // "cond"
+      chartTitleEl.textContent = "Condición";
+      drawModelos(payload.cond_chart.labels, payload.cond_chart.data);
+    }
+  }
+
+  function renderChecks(container, items, selectedSet, name){
+    container.innerHTML = "";
+    items.forEach(it => {
+      const id = `${name}-${it.id}`;
+      const row = document.createElement("div");
+      row.className = "form-check d-flex justify-content-between";
+      row.innerHTML = `
+        <div>
+          <input class="form-check-input" type="checkbox" id="${id}" value="${it.id}" ${selectedSet.has(String(it.id)) ? "checked":""}>
+          <label class="form-check-label" for="${id}">${it.nombre}</label>
+        </div>
+        <span class="badge bg-light text-muted">${it.count}</span>
+      `;
+      row.querySelector("input").addEventListener("change", () => {
+        if (row.querySelector("input").checked) selectedSet.add(String(it.id));
+        else selectedSet.delete(String(it.id));
+        refresh();
+      });
+      container.appendChild(row);
+    });
+  }
+
+  function renderTabla(rows){
+    tblBody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.id_activo}</td>
+        <td>${r.etiqueta || "—"}</td>
+        <td>${r.nombre_activo || "—"}</td>
+        <td>${r["id_tipo_activo__tipo_activo"] || "—"}</td>
+        <td>${r["id_ubicacion__nombre_ubicacion"] || "—"}</td>
+        <td>${r.empleado || "—"}</td>
+        <td>${r.condicion || "—"}</td>
+      </tr>
+    `).join("");
+  }
+
+  function buildQuery(){
+    const p = new URLSearchParams();
+    [...selectedTipos].forEach(v => p.append("tipos", v));
+    [...selectedUbic].forEach(v => p.append("ubicaciones", v));
+    [...selectedCargos].forEach(v => p.append("cargos", v));   // ← NUEVO
+    [...selectedCondiciones].forEach(v => p.append("condiciones", v)); // ← NUEVO
+    return p.toString();
+  }
+
+  async function refresh(){
+    const qs = buildQuery();
+    const resp = await fetch(qs ? `${urlData}?${qs}` : urlData);
+    if (!resp.ok) { console.error("API overview", resp.status); return; }
+    const data = await resp.json();
+
+    // ✅ Guarda el payload ANTES de renderizar
+    lastPayload = data;
+
+    // Actualiza filtros (contadores) manteniendo seleccionados
+    renderChecks(elTipos, data.tipos, selectedTipos, "tipo");
+    renderChecks(elUbic,  data.ubicaciones, selectedUbic, "ubic");
+    renderChecks(elCargos, data.cargos, selectedCargos, "cargo");   // ← NUEVO
+    renderChecks(elCondiciones, data.condiciones, selectedCondiciones, "cond"); // ← NUEVO
+
+    // Gráfico y tabla
+    renderChartFromPayload(lastPayload);   // <-- en vez de drawModelos(...)
+    renderTabla(data.lista);
+    lblTotal.textContent = `• Total filtrado: ${data.total}`;
+  }
+
+  function setActive(btn){
+    // limpia todos
+    [btnModoMarca, btnModoTipoUbic, btnModoCond].forEach(b => b.classList.remove("active"));
+    // activa los que pasen
+    if (btn) btn.classList.add("active");
+  }
+
+  btnModoMarca.addEventListener("click", () => {
+    modoGrafico = "marca";
+    setActive(btnModoMarca);
+    renderChartFromPayload(lastPayload);
+  });
+
+  btnModoTipoUbic.addEventListener("click", () => {
+    modoGrafico = "ubic";
+    setActive(btnModoTipoUbic);
+    renderChartFromPayload(lastPayload);
+  });
+
+  btnModoCond.addEventListener("click", () => {
+    modoGrafico = "cond";
+    setActive(btnModoCond);
+    renderChartFromPayload(lastPayload);
+  });
+
+  btnLimpiar.addEventListener("click", () => {
+    selectedTipos.clear();
+    selectedUbic.clear();
+    selectedCargos.clear();   // ← NUEVO
+    selectedCondiciones.clear(); // ← NUEVO
+    refresh();
+  });
+
+  // Carga inicial
+  refresh();
+})();
+</script>
+
   </main>
 </div>
 {% endblock %}
