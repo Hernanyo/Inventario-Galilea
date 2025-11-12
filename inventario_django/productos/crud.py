@@ -22,7 +22,8 @@ from django.db.models import Max
 from .models import HistorialMantencionesLog
 from django.utils.dateparse import parse_date
 import json
-from django.contrib import messages
+#from django.contrib import messages
+from django.contrib import messages as dj_messages
 from django.http import HttpResponseRedirect   # 👈 Faltaba este import
 from django.urls import reverse_lazy
 from django.contrib.auth.decorators import login_required
@@ -71,6 +72,13 @@ from productos.forms import MantencionForm, hide_deleted
 from django.db.models import FileField, ImageField
 from django.forms import ClearableFileInput
 import inspect
+import re
+from django.db.utils import IntegrityError   # <-- usa ESTE
+from .mixins import EmpresaBoundMixin
+from .models_inventario import Cargo  # para validarlo
+
+
+
 
 
 
@@ -314,7 +322,7 @@ def _build_adv_fields_from_list_display(model, list_display):
     """
     label_overrides = {
         "id_activo": "Id Activo",
-        "nombre_activo": "Nombre Activo",
+        "nombre_activo": "Modelo",
         "id_tipo_activo": "Id Tipo Activo",
         "id_estado_activo": "Id Estado Activo",
         "id_marca": "Id Marca",
@@ -444,6 +452,22 @@ def _apply_advanced_filter(qs, model, field_name, raw_value):
     return qs
 
 # ---------- Vistas y helpers ----------
+
+###########################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><10/10 10:24
+def _norm_nombre(v: str) -> str:
+    # iguala a la lógica de la constraint: lower + trim + colapsar espacios
+    v = (v or "").strip().lower()
+    v = re.sub(r"\s+", " ", v)
+    return v
+
+
+def _get_emp_id_from_request_or_instance(request, form_instance):
+    return (
+        request.session.get("empresa_id")
+        or getattr(form_instance, "id_empresa_id", None)
+        or getattr(getattr(form_instance, "id_empresa", None), "id_empresa", None)
+    )
+###########################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><10/10 10:24
 
 def qr_print_view(request, pk):
     obj = get_object_or_404(Activo, pk=pk)
@@ -723,7 +747,15 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         ctx["can_change"] = can_change
         ctx["can_delete"] = can_delete
 
- 
+############################################################################>>>>>>>>>>>>>>>07/11
+        # al final de get_context_data(...)
+        if self.model._meta.model_name == "mantencionejecucion":
+            self.crud_config.can_create = False
+            self.crud_config.can_change = False
+            self.crud_config.can_delete = False
+            ctx["can_create"] = ctx["can_change"] = ctx["can_delete"] = False
+############################################################################>>>>>>>>>>>>>>>07/11
+
 
         if self.model._meta.model_name == "atributosactivo":
             from .models_inventario import TipoActivo
@@ -735,7 +767,7 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         return ctx
 
 
-class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView):
+class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, CreateView, EmpresaBoundMixin):
     """Create genérico con formularios automáticos y **soporte de archivos**.
 
     - Filtra combos por empresa activa.
@@ -1032,7 +1064,115 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return ctx
     
     def form_valid(self, form):
-        resp = super().form_valid(form)
+        # === PRECHEQUEO SOLO PARA Cargo (CREATE) ===
+        if self.model.__name__ == "Cargo":
+            emp_id = _get_emp_id_from_request_or_instance(self.request, form.instance)
+
+            nombre_raw = (
+                getattr(form.instance, "nombre_cargo", None)
+                or form.cleaned_data.get("nombre_cargo")
+                or ""
+            )
+            norm_new = _norm_nombre(nombre_raw)
+
+            cand_qs = Cargo.objects.filter(id_empresa_id=emp_id).only("id_cargo", "nombre_cargo", "eliminado")
+            duplicate_active = None
+            duplicate_deleted = None
+            for c in cand_qs:
+                if _norm_nombre(getattr(c, "nombre_cargo", "") or "") == norm_new:
+                    if getattr(c, "eliminado", False):
+                        duplicate_deleted = c
+                    else:
+                        duplicate_active = c
+                    break
+
+            if duplicate_active:
+                form.add_error(
+                    "nombre_cargo",
+                    "Ya existe un cargo activo con este nombre en esta empresa."
+                )
+                dj_messages.error(self.request, "No se pudo crear: cargo duplicado en esta empresa.")
+                return self.form_invalid(form)
+
+            if duplicate_deleted:
+                # Reactivar en vez de crear uno nuevo
+                duplicate_deleted.eliminado = False
+                duplicate_deleted.save(update_fields=["eliminado"])
+                dj_messages.success(self.request, "Cargo reactivado (existía como eliminado).")
+                self.object = duplicate_deleted
+                return HttpResponseRedirect(self.get_success_url())
+                
+        # === PRECHEQUEO SOLO PARA Proveedor (CREATE) ===
+        if self.model.__name__ == "Proveedor":
+            from productos.models_inventario import Proveedor
+            emp_id = _get_emp_id_from_request_or_instance(self.request, form.instance)
+            # toma el nombre desde el form/instancia (según tu ModelForm)
+            nombre_raw = (
+                getattr(form.instance, "nombre_proveedor", None)
+                or form.cleaned_data.get("nombre_proveedor")
+                or form.cleaned_data.get("nombre")  # fallback si el campo se llama 'nombre'
+                or ""
+            )
+            norm_new = _norm_nombre(nombre_raw)
+
+            # Trae posibles candidatos en esa empresa (activos y eliminados)
+            cand_qs = Proveedor.objects.filter(id_empresa_id=emp_id).only("id_proveedor", "nombre_proveedor", "eliminado")
+            # Normaliza en Python para igualar la lógica del índice
+            duplicate_active = None
+            duplicate_deleted = None
+            for p in cand_qs:
+                norm_old = _norm_nombre(getattr(p, "nombre_proveedor", "") or "")
+                if norm_old == norm_new:
+                    if getattr(p, "eliminado", False):
+                        duplicate_deleted = p
+                    else:
+                        duplicate_active = p
+                    break
+
+            if duplicate_active:
+                # Ya existe el mismo nombre ACTIVO en esta empresa → error de validación
+                form.add_error(
+                    "nombre_proveedor" if "nombre_proveedor" in form.fields else "nombre",
+                    "Ya existe un proveedor activo con este nombre en esta empresa."
+                )
+                #from django.contrib import messages
+                #from django.contrib import messages as dj_messages
+                dj_messages.error(self.request, "No se pudo crear: ya existe un proveedor activo con ese nombre.")
+                return self.form_invalid(form)
+
+            if duplicate_deleted:
+                # OPCIÓN: reactivar en vez de crear uno nuevo
+                duplicate_deleted.eliminado = False
+                # si tienes más campos que quieras refrescar, hazlo aquí antes de guardar
+                duplicate_deleted.save(update_fields=["eliminado"])
+                #from django.contrib import messages
+                #from django.contrib import messages as dj_messages
+                dj_messages.success(self.request, "Proveedor reactivado (existía como eliminado).")
+                # redirige como si fuera éxito de create
+                self.object = duplicate_deleted
+                return HttpResponseRedirect(self.get_success_url())
+
+        # ====== resto de tu lógica de form_valid (PlanMantencion, Empleado, Activo, etc.) ======
+        try:
+            resp = super().form_valid(form)
+        except IntegrityError:
+            # Seguridad: si por carrera igual chocó el índice, devolvemos error amable
+            if self.model.__name__ == "Proveedor":
+                form.add_error(
+                    "nombre_proveedor" if "nombre_proveedor" in form.fields else "nombre",
+                    "Ya existe un proveedor con este nombre en esta empresa."
+                )
+                #from django.contrib import messages
+                #from django.contrib import messages as dj_messages
+                dj_messages.error(self.request, "No se pudo guardar: proveedor duplicado.")
+                return self.form_invalid(form)
+            
+            if self.model.__name__ == "Cargo":
+                form.add_error("nombre_cargo", "Ya existe un cargo con este nombre en esta empresa.")
+                dj_messages.error(self.request, "No se pudo guardar: cargo duplicado.")
+                return self.form_invalid(form)    
+            
+            raise
     #######################################################################################################29/10
         # ===== PlanMantencion: aplicar a Activos y manejar "vigente" (solo con los campos del plan) =====
         # ===== PlanMantencion: aplicar a Activos y manejar "vigente" =====
@@ -1044,7 +1184,7 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             msg = f"Plan aplicado a {total} activo(s). Creados/activados {creados}."
             if hacer_vigente:
                 msg += f" {vigentes} marcado(s) como vigente."
-            messages.success(self.request, msg)
+            dj_messages.success(self.request, msg)
 
             # Evita el mensaje genérico de más abajo y cualquier lógica ajena a PlanMantencion
             return resp
@@ -1067,14 +1207,14 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                     activo.id_ubicacion_id = nuevo_emp.ubicacion_id
                     activo.save(update_fields=["id_ubicacion"])
 
-        messages.success(self.request, "Guardado correctamente.")
+        dj_messages.success(self.request, "Guardado correctamente.")
         return resp
 
 ###################################################################################2509
 
 ###################################################################################2509
 
-class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView):
+class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMixin, ModelPermsMixin, UpdateView, EmpresaBoundMixin):
     """Update genérico con soporte de archivos y lógica de negocio.
 
     - Filtra combos por empresa activa.
@@ -1166,7 +1306,68 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return reverse_lazy(f"productos:{self.crud_config.slug}_list")
 
     def form_valid(self, form):
-        resp = super().form_valid(form)   # <-- define resp aquí
+        # --- PRECHEQUEO SOLO PARA Cargo (UPDATE) ---
+        if self.model.__name__ == "Cargo":
+            emp_id = self.request.session.get("empresa_id") or getattr(form.instance, "id_empresa_id", None)
+            nombre_raw = (
+                getattr(form.instance, "nombre_cargo", None)
+                or form.cleaned_data.get("nombre_cargo")
+                or ""
+            )
+            norm_new = _norm_nombre(nombre_raw)
+
+            qs = Cargo.objects.filter(id_empresa_id=emp_id).exclude(pk=getattr(self.object, "pk", None))
+            dup = None
+            for c in qs:
+                if _norm_nombre(getattr(c, "nombre_cargo", "") or "") == norm_new and not getattr(c, "eliminado", False):
+                    dup = c
+                    break
+            if dup:
+                form.add_error("nombre_cargo", "Ya existe un cargo activo con este nombre en esta empresa.")
+                dj_messages.warning(self.request, "No se pudo guardar: nombre de cargo duplicado.")
+                return self.form_invalid(form)
+            
+
+        # --- PRECHEQUEO SOLO PARA Proveedor: evita duplicados por nombre dentro de la empresa ---
+        if self.model.__name__ == "Proveedor":
+            emp_id = self.request.session.get("empresa_id") or getattr(form.instance, "id_empresa_id", None)
+            # nombre: toma el que exista (según tu ModelForm)
+            nombre_raw = (
+                getattr(form.instance, "nombre_proveedor", None)
+                or form.cleaned_data.get("nombre_proveedor")
+                or form.cleaned_data.get("nombre")     # <-- fallback si el campo es "nombre"
+                or ""
+            )
+            norm_new = _norm_nombre(nombre_raw)
+
+            qs = Proveedor.objects.filter(id_empresa_id=emp_id).exclude(pk=getattr(self.object, "pk", None))
+            dup = None
+            for p in qs:
+                if _norm_nombre(getattr(p, "nombre_proveedor", "") or "") == norm_new and not getattr(p, "eliminado", False):
+                    dup = p
+                    break
+            if dup:
+                form.add_error("nombre_proveedor" if "nombre_proveedor" in form.fields else "nombre",
+                            "Ya existe un proveedor activo con este nombre en esta empresa.")
+                dj_messages.warning(self.request, "No se pudo guardar: nombre duplicado.")
+                return self.form_invalid(form)
+        # -----------------------------------------------------------------------
+        try:
+            resp = super().form_valid(form)   # <-- define resp aquí
+        except IntegrityError:
+            if self.model.__name__ == "Proveedor":
+                form.add_error(
+                    "nombre_proveedor" if "nombre_proveedor" in form.fields else "nombre",
+                    "Ya existe un proveedor activo con este nombre en esta empresa."
+                )
+                dj_messages.error(self.request, "No se pudo guardar: ya existe un proveedor con ese nombre.")
+                return self.form_invalid(form)
+
+            if self.model.__name__ == "Cargo":
+                form.add_error("nombre_cargo", "Ya existe un cargo con este nombre en esta empresa.")
+                dj_messages.error(self.request, "No se pudo guardar: cargo duplicado.")
+                return self.form_invalid(form)
+            raise
     ###############################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>30/10
         if self.model.__name__ == "PlanMantencion":
             plan = self.object
@@ -1176,7 +1377,7 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             msg = f"Plan aplicado a {total} activo(s). Creados/activados {creados}."
             if hacer_vigente:
                 msg += f" {vigentes} marcado(s) como vigente."
-            messages.success(self.request, msg)
+            dj_messages.success(self.request, msg)
             return resp
     ###############################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>30/10
         ###########################################################################################2509
@@ -1316,7 +1517,7 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                         if sobra:
                             # esto sí generará registros ELIMINAR, pero sólo cuando cambia el tipo (esperado)
                             AgregacionAtributosPorActivo.objects.filter(pk__in=sobra).delete()
-        messages.success(self.request, "Cambios guardados correctamente.")
+        dj_messages.success(self.request, "Cambios guardados correctamente.")
         return resp
 
 
@@ -1452,8 +1653,8 @@ class ActivoForm(forms.ModelForm):
         model = Activo
         fields = [
             "id_tipo_activo",
-            "nombre_activo",
             "id_marca",
+            "nombre_activo",
             "id_estado_activo",
             "id_ubicacion",
             "id_condicion_activo",
@@ -1471,6 +1672,7 @@ class ActivoForm(forms.ModelForm):
             "integridad",
             "disponibilidad",
         ]
+        
         widgets = {
             "id_empresa": forms.Select(attrs={"class": "form-select searchable"}),
             "id_departamento": forms.Select(attrs={"class": "form-select searchable"}),
@@ -1499,11 +1701,107 @@ class ActivoForm(forms.ModelForm):
             "integridad": forms.NumberInput(attrs={"class": "form-control", "min": 1, "max": 4, "step": 1}),
             "disponibilidad": forms.NumberInput(attrs={"class": "form-control", "min": 1, "max": 4, "step": 1}),
         }
+         
+#    # Descomentar en caso de querer ver mensajes dentro de loscampos
+#    def _pretty_empty_labels(self, mapping=None, default_label="— Seleccione —"):
+#            mapping = mapping or {}
+#            for name, field in self.fields.items():
+#                if isinstance(field, forms.ModelChoiceField):
+#                    field.empty_label = mapping.get(name, default_label)  # Asigna el empty_label a cada campo
+
 
     def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["id_tipo_activo"].label = "Tipo de activo"
+        self.fields["id_marca"].label = "Marca"
+        self.fields["nombre_activo"].label = "Modelo"
+        self.fields["id_estado_activo"].label = "Estado activo"
+        self.fields["id_ubicacion"].label = "Ubicación"
+        self.fields["id_empleado"].label = "Empleado"
+        self.fields["id_proveedor"].label = "Proveedor"
+        self.fields["id_empresa"].label = "Empresa"
+        self.fields["id_departamento"].label = "Departamento"
+
         self.request = request
         emp_id = request.session.get("empresa_id") if request else None
+
+#################################################################################>>>>>>>>>>>>>>>>>>>>>>>>>><11/11 16:35
+        # Placeholder por defecto
+        self.fields["nombre_activo"].choices = [("", "Seleccione un modelo")]
+
+#    # Descomentar en caso de querer ver mensajes dentro de loscampos
+#        self._pretty_empty_labels({
+#        "id_tipo_activo": "— Seleccione el tipo —",
+#        "id_marca": "— Seleccione la marca —",
+#        "id_estado_activo": "— Seleccione el estado —",
+#        "id_ubicacion": "— Seleccione la ubicación —",
+#        "id_empleado": "— Seleccione el responsable —",
+#        "id_proveedor": "— Seleccione el proveedor —",
+#        "id_factura": "— Seleccione la factura —",
+#        "id_empresa": "— Seleccione la empresa —",
+#        "id_departamento": "— Seleccione el departamento —",
+#    })
+
+        # Detectar valores actuales (POST/initial/instance) para precargar
+        def _val(cam, inst_attr=None):
+            return (
+                self.data.get(cam)
+                or self.initial.get(cam)
+                or (getattr(self.instance, inst_attr, None) if self.instance and inst_attr else None)
+            )
+
+        tipo_id  = _val("id_tipo_activo", "id_tipo_activo_id")
+        marca_id = _val("id_marca",       "id_marca_id")
+
+
+
+        # 🔽 NUEVO: restringe marcas por tipo (y empresa/eliminados)
+        if "id_marca" in self.fields:
+            base_marcas = Marca.objects.all()
+            if emp_id and _model_has_empresa_fk(Marca):
+                base_marcas = base_marcas.filter(id_empresa_id=emp_id)
+            if _has_field(Marca, "eliminado"):
+                base_marcas = base_marcas.filter(eliminado=False)
+
+            if tipo_id:
+                mod_qs = Modelo.objects.filter(id_tipo_activo_id=tipo_id)
+                if emp_id:
+                    mod_qs = mod_qs.filter(id_empresa_id=emp_id)
+                if _has_field(Modelo, "eliminado"):
+                    mod_qs = mod_qs.filter(eliminado=False)
+
+                marca_ids = mod_qs.values_list("id_marca_id", flat=True).distinct()
+                mqs = base_marcas.filter(pk__in=marca_ids)
+
+                # Si estoy editando y la marca actual no entra en el filtro, la agrego para no “reventar” el form
+                if marca_id:
+                    mqs = (mqs | base_marcas.filter(pk=marca_id)).distinct()
+                self.fields["id_marca"].queryset = mqs.order_by("nombre_marca")
+            else:
+                # Sin tipo seleccionado: deja marcas de la empresa (no eliminadas)
+                self.fields["id_marca"].queryset = base_marcas.order_by("nombre_marca")
+
+
+
+
+        qs = Modelo.objects.filter(eliminado=False)
+        if emp_id:
+            qs = qs.filter(id_empresa_id=emp_id)
+        if tipo_id:
+            qs = qs.filter(id_tipo_activo_id=tipo_id)
+        if marca_id:
+            qs = qs.filter(id_marca_id=marca_id)
+
+        if qs.exists():
+            # value y label = nombre_modelo (guardas texto en `nombre_activo`)
+            self.fields["nombre_activo"].choices = [("", "Seleccione un modelo")] + \
+                list(qs.order_by("nombre_modelo").values_list("nombre_modelo", "nombre_modelo"))
+
+        # (opcional) obliga a elegir uno
+        self.fields["nombre_activo"].required = True
+#################################################################################>>>>>>>>>>>>>>>>>>>>>>>>>><11/11 16:35
+
+
 
         # 👇 Oculta en selects cualquier opción marcada eliminado=True
         hide_deleted(self, "id_ubicacion", "id_estado_activo", "id_marca", "id_proveedor", "id_empleado")
@@ -1570,7 +1868,6 @@ class ActivoForm(forms.ModelForm):
                     )
 
         if "id_marca" in self.fields:
-            from .models_inventario import Marca
             mqs = Marca.objects.all()
             if emp_id:
                 mqs = mqs.filter(id_empresa_id=emp_id)
@@ -1596,15 +1893,22 @@ class ActivoForm(forms.ModelForm):
                 modelos_qs = modelos_qs.filter(id_tipo_activo_id=tipo_id)
 
             # Campo como ModelChoiceField
-            self.fields["nombre_activo"] = forms.ModelChoiceField(
-                queryset=modelos_qs.order_by("nombre_modelo"),
-                empty_label="Seleccione un modelo",
-                required=False,
-                widget=forms.Select(attrs={
-                    "class": "form-select",
-                    "disabled": "disabled" if not tipo_id else None,
-                })
-            )
+            # ... después de construir `qs` y setear `choices` ...
+            self.fields["nombre_activo"].required = True
+
+            # Precarga en edición (si hay un valor ya guardado en texto)
+            if not self.data and self.instance and getattr(self.instance, "id_activo", None):
+                actual = (self.instance.nombre_activo or "").strip()
+                if actual:
+                    match = (qs.filter(nombre_modelo__iexact=actual)
+                            .values_list("nombre_modelo", flat=True)
+                            .first())
+                    if match:
+                        self.initial["nombre_activo"] = match
+                    else:
+                        self.fields["nombre_activo"].help_text = (
+                            f'Valor actual guardado: “{actual}”. Selecciona el modelo equivalente.'
+                        )
 
             # Precargar valor actual al EDITAR (el modelo se guarda como TEXTO en Activo)
             if not self.data and self.instance and getattr(self.instance, "id_activo", None):
@@ -1738,9 +2042,9 @@ class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
                 setattr(self.object, "_audit_force_tipo", "ELIMINAR")
                 self.object.eliminado = True
                 self.object.save(update_fields=["eliminado"])
-                messages.success(request, "Registro eliminado.")
+                dj_messages.success(request, "Registro eliminado.")
             else:
-                messages.info(request, "El registro ya estaba eliminado.")
+                dj_messages.info(request, "El registro ya estaba eliminado.")
             return HttpResponseRedirect(self.get_success_url())
 
         # Si el modelo no tiene 'eliminado' → hard delete normal
@@ -1852,7 +2156,8 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect
 from django.http import HttpResponseForbidden
-from django.contrib import messages
+#from django.contrib import messages
+from django.contrib import messages as dj_messages
 
 @login_required
 @require_POST
@@ -1873,7 +2178,7 @@ def registro_comentar(request, pk):
     comentario = (request.POST.get("comentario") or "").strip()
     reg.comentario = comentario or None
     reg.save(update_fields=["comentario"])
-    messages.success(request, "Comentario actualizado.")
+    dj_messages.success(request, "Comentario actualizado.")
     return redirect(request.POST.get("next") or request.META.get("HTTP_REFERER") or "/")
 # ---------- Export CSV ----------
 
@@ -2027,7 +2332,14 @@ def view_class(model, cfg, base_cls):
         (base_cls,),
         {"model": model, "crud_config": cfg}
     )
+############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11
+# --- STUBS PMA (colócalo ANTES de make_urlpatterns() / urlpatterns) ---
+from django.http import JsonResponse
 
+def pma_ejecucion_tareas_json(request, ejec_id):
+    # Placeholder temporal. Devuelve estructura vacía para que no falle el import.
+    return JsonResponse({"ok": True, "ejec_id": ejec_id, "tareas": []})
+##################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11
 
 def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
     """Genera URL patterns (CRUD + CSV) para los modelos dados o todos los de `productos`.
@@ -2051,6 +2363,23 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
             ListCls.action_perm = None
         if cfg.slug == "historial_mantenciones":
             ListCls.action_perm = None
+
+################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11-20:26
+        # ==================== MANEJO ESPECIAL LOG PMA ====================
+        if m._meta.model_name == "mantencionejecucion":
+            # 1) Usa un template PROPIO sin botones CRUD
+            ListCls.template_name = "mantenciones/pma_historial_list.html"
+            # 2) No registres create/update/delete para este modelo (solo listar y CSV)
+            patterns += [
+                path(f"{cfg.slug}/",              ListCls.as_view(), name=f"{cfg.slug}_list"),
+                path(f"{cfg.slug}/exportar/csv/", csv_view,          name=f"{cfg.slug}_csv"),
+                # Endpoint JSON del modal
+                path(f"{cfg.slug}/<int:ejec_id>/tareas.json", pma_ejecucion_tareas_json, name="pma_ejec_tareas_json"),
+            ]
+            continue
+        # ================================================================
+################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11-20:26
+
 
         # Añadir restricción para el modelo 'registro'
         if m._meta.model_name == "registro":  # Asegúrate de que el model_name es "registro"
@@ -2227,6 +2556,10 @@ SLUG_ALIASES = {
     "tipoactivo": "tipos_activo",
     "atributosactivo": "atributos_activo",
     "condicionactivo": "condiciones_activo",  # 👈 NUEVO
+    # 👇 NUEVOS
+    "mantencionejecucion": "pma_historial",
+    "mantencionejecuciontarea": "pma_tareas",
+
 }
 
 def make_slug(m: Type[Model]) -> str:
@@ -2408,8 +2741,6 @@ for _cfg in CRUD_CONFIGS:
             "id_proveedor__rut_proveedor",   # <— este es el bueno
         ]
 
-
-
     if _cfg.model._meta.model_name == "detallefactura":
         _cfg.ordering = ("-id_detalle_factura",)
     if _cfg.model._meta.model_name == "proveedor":
@@ -2418,12 +2749,55 @@ for _cfg in CRUD_CONFIGS:
         _cfg.ordering = ("-id_marca",)
     if _cfg.model._meta.model_name == "empleado":
         _cfg.ordering = ("-id_empleado",)
+#######Aca se pone para invertir el orden jejeje 
+    if _cfg.model._meta.model_name == "mantencionejecucion":
+        _cfg.ordering = ("-fecha_ejecucion",)
+    ##########################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>12/11
+    ##########################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>12/11
+# productos/crud.py
+from django.views.decorators.http import require_GET
+
+@login_required
+@require_GET
+def api_marcas_por_tipo(request):
+    emp_id  = request.session.get("empresa_id")
+    tipo_id = request.GET.get("tipo_id")
+
+    try:
+        tipo_id = int(tipo_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"items": []})
+
+    # Modelos válidos por tipo (+empresa + no eliminados)
+    m_qs = Modelo.objects.filter(id_tipo_activo_id=tipo_id)
+    if _has_field(Modelo, "eliminado"):
+        m_qs = m_qs.filter(eliminado=False)
+    if emp_id:
+        m_qs = m_qs.filter(id_empresa_id=emp_id)
+
+    marca_ids = m_qs.values_list("id_marca_id", flat=True).distinct()
+
+    # Traemos las marcas existentes (respeta empresa si aplica)
+    qs = Marca.objects.filter(pk__in=marca_ids)
+    if emp_id and _model_has_empresa_fk(Marca):
+        qs = qs.filter(id_empresa_id=emp_id)
+    if _has_field(Marca, "eliminado"):
+        qs = qs.filter(eliminado=False)
+
+    items = [{"value": m.pk, "label": m.nombre_marca} for m in qs.order_by("nombre_marca")]
+    return JsonResponse({"items": items})
+
+    ##########################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>12/11
+    ##########################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>12/11
+
 
 # cerca de tus otras vistas utilitarias/API:
 @login_required
 def api_modelos_por_tipo(request):
     emp_id  = request.session.get("empresa_id")
     tipo_id = request.GET.get("tipo_id")
+    marca_id = request.GET.get("marca_id")
+
 
     # tipo_id debe ser int o devolvemos vacío
     try:
@@ -2436,6 +2810,9 @@ def api_modelos_por_tipo(request):
         .select_related("id_marca")                  # 👈 para traer la marca en la misma query
         .filter(id_tipo_activo_id=tipo_id)
     )
+    
+    if marca_id and str(marca_id).isdigit():
+        qs = qs.filter(id_marca_id=int(marca_id))
 
     if emp_id:
         qs = qs.filter(id_empresa_id=emp_id)
@@ -2447,6 +2824,7 @@ def api_modelos_por_tipo(request):
     items = []
     for m in qs.order_by("nombre_modelo"):
         items.append({
+            "id": m.pk,  
             "value": m.pk,
             "label": m.nombre_modelo,
             "marca_id": m.id_marca_id,                                  # 👈 NUEVO
@@ -2514,7 +2892,7 @@ def _aplicar_plan_a_activos(request, plan, hacer_vigente: bool):
     # Tipo obligatorio
     tipo_id = getattr(plan, "id_tipo_activo_id", None)
     if not tipo_id:
-        messages.info(request, "El plan no tiene Tipo de activo; no se aplicó a ningún activo.")
+        dj_messages.info(request, "El plan no tiene Tipo de activo; no se aplicó a ningún activo.")
         return (0, 0, 0)
     activos = activos.filter(id_tipo_activo_id=tipo_id)
 
@@ -2530,7 +2908,7 @@ def _aplicar_plan_a_activos(request, plan, hacer_vigente: bool):
         m = Modelo.objects.filter(pk=modelo_id).only("nombre_modelo").first()
         activos = activos.filter(nombre_activo__iexact=m.nombre_modelo) if m else Activo.objects.none()
     elif not aplica_todos and not modelo_id:
-        messages.info(request, "Plan sin modelo y con 'aplica a todos' desmarcado: no se aplicó a ningún activo.")
+        dj_messages.info(request, "Plan sin modelo y con 'aplica a todos' desmarcado: no se aplicó a ningún activo.")
         return (0, 0, 0)
 
     total = activos.count()
@@ -2589,3 +2967,39 @@ def _aplicar_plan_a_activos(request, plan, hacer_vigente: bool):
                 creados_activados += 1
 
     return (total, creados_activados, marcados_vigente)
+
+#################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11-20:23
+#################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11-20:23
+#################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11-20:23
+from django.views.decorators.http import require_GET
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse, Http404
+
+@login_required
+@require_GET
+def pma_ejecucion_tareas_json(request, ejec_id: int):
+    """
+    Devuelve las tareas asociadas a una ejecución (log) de mantención.
+    """
+    from .models_inventario import MantencionEjecucion, MantencionEjecucionTarea
+    emp_id = request.session.get("empresa_id")
+
+    ejec = (MantencionEjecucion.objects
+            .select_related("id_activo")
+            .filter(pk=ejec_id)
+            .first())
+    if not ejec:
+        raise Http404("Ejecución no encontrada.")
+    # Restringe por empresa a través del activo
+    if emp_id and getattr(ejec.id_activo, "id_empresa_id", None) != emp_id:
+        raise Http404("No permitido para la empresa actual.")
+
+    rows = (MantencionEjecucionTarea.objects
+            .filter(ejecucion_id=ejec_id)
+            .order_by("id_tarea_plan_id")
+            .values("id_tarea_plan_id", "descripcion", "obligatorio", "marcada", "observacion"))
+    return JsonResponse({"items": list(rows)})
+
+
+
+

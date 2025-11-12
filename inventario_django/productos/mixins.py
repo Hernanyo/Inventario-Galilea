@@ -108,3 +108,54 @@ class SaveEmpresaMixin(LoginRequiredMixin):
             elif hasattr(form.instance, "id_empresa") and not getattr(form.instance, "id_empresa", None):
                 form.instance.id_empresa = emp_id
         return super().form_valid(form)
+
+
+#####################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>10/11
+# mixins.py
+from django.core.exceptions import ValidationError
+
+class EmpresaBoundMixin:
+    """
+    Mixin para: 
+    - fijar id_empresa desde la sesión,
+    - autocompletarlo en initial,
+    - deshabilitar el campo en el form,
+    - validar que no cambie en updates.
+    """
+    empresa_field_name = "id_empresa"          # nombre del campo FK
+    empresa_field_id_name = "id_empresa_id"    # nombre interno *_id
+
+    def get_empresa_id(self):
+        return self.request.session.get("empresa_id")
+
+    # (2) Mejor UX: initial con la empresa de sesión
+    def get_initial(self):
+        initial = super().get_initial()
+        emp_id = self.get_empresa_id()
+        if emp_id and hasattr(self.model, self.empresa_field_name):
+            initial.setdefault(self.empresa_field_name, emp_id)
+        return initial
+
+    # (3) Opcional: deshabilitar el campo para que no lo cambien
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if self.empresa_field_name in form.fields:
+            form.fields[self.empresa_field_name].disabled = True
+        return form
+
+    # (1) Servidor manda: antes de guardar, fuerza la empresa de sesión
+    def form_valid(self, form):
+        emp_id = self.get_empresa_id()
+        if emp_id and hasattr(form.instance, self.empresa_field_id_name):
+            # En Create: setea siempre
+            if self.__class__.__name__.lower().startswith("genericcreate"):
+                setattr(form.instance, self.empresa_field_id_name, emp_id)
+            # En Update: no permitir cambiar empresa
+            else:
+                # Si existe inconsistencia, la corriges o levantas error
+                if getattr(form.instance, self.empresa_field_id_name, None) != emp_id:
+                    # Opción A (corrige silenciosamente):
+                    setattr(form.instance, self.empresa_field_id_name, emp_id)
+                    # Opción B (más estricta):
+                    # raise ValidationError("La empresa del registro no coincide con la empresa activa.")
+        return super().form_valid(form)

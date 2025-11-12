@@ -54,6 +54,7 @@ from .views import CompanySelectView, company_clear
 from .views_auth import seleccionar_empresa, cambiar_empresa
 from django.views.generic import ListView
 from .mixins import EmpresaScopeMixin, scope_qs_by_empresa
+from productos.crud import api_marcas_por_tipo
 
 
 from productos.crud import (
@@ -363,21 +364,21 @@ urlpatterns += [
 
 ]
 
-# Disponibles = estado 'bodega' y sin responsable
+# Disponibles = estado 'disponible' y sin responsable
 class ActivosDisponiblesList(view_class(Activo, build_config(Activo), GenericList)):
     """
-    Vista que muestra los activos disponibles en bodega sin asignar a ningún responsable.
+    Vista que muestra los activos disponibles en disponible sin asignar a ningún responsable.
     """
     def get_queryset(self):
         qs = super().get_queryset().select_related("id_marca", "id_tipo_activo", "id_estado_activo", "id_empleado")
         return qs.filter(
-            id_estado_activo__descripcion__iexact="bodega",
+            id_estado_activo__descripcion__iexact="disponible",
             id_empleado__isnull=True,
         ).order_by("-id_activo")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["subtitle"] = "Solo activos disponibles (Bodega • sin responsable)"
+        ctx["subtitle"] = "Solo activos disponibles (disponible • sin responsable)"
         return ctx
 
 
@@ -577,6 +578,7 @@ urlpatterns += [
 ]
 
 urlpatterns += [
+    path("api/marcas-por-tipo/", api_marcas_por_tipo,   name="api_marcas_por_tipo"),
     path("api/modelos-por-tipo/", api_modelos_por_tipo, name="api_modelos_por_tipo"),
 ]
 
@@ -656,3 +658,29 @@ urlpatterns += [
     path("planes-aplicados/<int:pma_id>/checklist/", views.pma_checklist, name="pma_checklist"),
     path("planes-aplicados/<int:pma_id>/ejecutar/",  views.pma_ejecutar,  name="pma_ejecutar"),
 ]
+
+####################################################################################>>>>>>>>>>>>>>>>>>>>>>>07/11
+from .views import PmaHistorialListView#, PmaHistorialPorActivoView
+
+urlpatterns += [
+    path('mantenciones/historial-nuevo/', PmaHistorialListView.as_view(), name='pma_historial_list'),
+    #path('mantenciones/historial-nuevo/activo/<int:activo_id>/', PmaHistorialPorActivoView.as_view(), name='pma_historial_por_activo'),
+]
+
+###############################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11-20:06
+urlpatterns += [
+    # ...
+    #path("mantenciones/pma/ejecucion/<int:ejec_id>/tareas.json", views.ejecucion_tareas_json, name="pma_ejec_tareas_json"),
+    #path("mantencionejecucions/<int:ejec_id>/tareas.json", views.ejecucion_tareas_json, name="pma_ejec_tareas_json",),
+]
+
+
+urlpatterns += [
+    # ...
+    path("planes-aplicados/<int:aplicacion_id>/tareas/", views.tareas_plan, name="pma_tareas_plan"),
+    path("planes-aplicados/<int:pma_id>/ejecutar/", views.pma_ejecutar, name="pma_ejecutar"),
+    path("mantenciones/pma/ejecucion/<int:ejec_id>/tareas.json", views.ejecucion_tareas_json, name="pma_ejec_tareas_json"),
+]
+
+    ######################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>11/11 16:30
+    ######################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>11/11 16:30

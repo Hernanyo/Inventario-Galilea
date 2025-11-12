@@ -644,7 +644,7 @@
             <!-- Creo que en este espacio debería ir el boton que queremos 04/11-->
               <!-- Botón de Acción: Mantención Realizada -->
               <form class="form-mant-realizada"
-                    action="{% url 'productos:mantencion_realizada' item.pk %}"
+                    action="{% url 'productos:mantencion_realizada' item.id_plan_mantencion_activo %}"
                     method="post" style="display:inline;">
                 {% csrf_token %}
                 <button
@@ -806,12 +806,26 @@
       planName.textContent = data.plan + '   Activo: ' + data.activo;
 
       // render simple de tareas
+      // ✅ Render: checkbox + comentario por tarea
       bodyWrap.innerHTML = (data.tareas || []).map(t => `
-        <label class="list-group-item d-flex align-items-center gap-2">
-          <input type="checkbox" class="form-check-input me-2" data-id="${t.id_tarea}">
-          <span class="flex-grow-1">${t.descripcion}</span>
-          ${t.obligatorio ? '<span class="badge bg-primary">Obligatoria</span>' : ''}
-        </label>
+        <div class="list-group-item">
+          <div class="d-flex align-items-center gap-2">
+            <input type="checkbox"
+                   class="form-check-input me-2"
+                   data-id="${t.id_tarea}">
+            <div class="flex-grow-1">
+              <div class="fw-semibold">${t.descripcion}</div>
+              ${t.obligatorio ? '<span class="badge bg-primary">Obligatoria</span>' : ''}
+            </div>
+          </div>
+          <div class="mt-2">
+            <input type="text"
+                   class="form-control form-control-sm"
+                   data-obs-for="${t.id_tarea}"
+                   placeholder="Comentario (opcional)"
+                   maxlength="300">
+          </div>
+        </div>
       `).join('') || '<div class="text-muted">Este plan no tiene tareas.</div>';
 
     } catch (err) {
@@ -822,12 +836,49 @@
 
   // Guardar = enviar el form original (flujo antiguo)
   saveBtn.addEventListener('click', () => {
-    if (currentForm) {
-      // mensaje para mostrar después de recargar
-      localStorage.setItem('flash_success', 'Mantención guardada exitosamente.');
-      modal.hide();
-      currentForm.submit();  // 👈 aquí se dispara tu vista antigua mantencion_realizada
-    }
+    if (!currentForm) return;
+
+    // Limpiar ocultos previos
+    currentForm.querySelectorAll('input[name="tareas_ids[]"], input[name^="obs["]').forEach(e => e.remove());
+
+    // 1) Obtener IDs de tareas marcadas
+    const checked = Array.from(modalEl.querySelectorAll('#pmaChecklist input[type="checkbox"]:checked'))
+                    .map(cb => cb.dataset.id);
+
+    // 3) Adjuntar al form como arreglo tareas_ids[]
+    checked.forEach(id => {
+      const h = document.createElement('input');
+      h.type  = 'hidden';
+      h.name  = 'tareas_ids[]';
+      h.value = id;
+      currentForm.appendChild(h);
+    });
+
+    // 2) Comentarios por tarea (aunque no esté marcada)
+    modalEl.querySelectorAll('input[data-obs-for]').forEach(inp => {
+      const tid = inp.getAttribute('data-obs-for');
+      const val = (inp.value || '').trim();
+      if (val.length) {
+        const h = document.createElement('input');
+        h.type  = 'hidden';
+        h.name  = `obs[${tid}]`;
+        h.value = val;
+        currentForm.appendChild(h);
+      }
+    });
+
+    // (Opcional) Enviar también el nombre del plan/activo mostrado
+    // const planLabel = planName.textContent || '';
+    const h2 = document.createElement('input');
+    h2.type  = 'hidden';
+    h2.name  = 'plan_label';
+    h2.value = planName.textContent || '';
+    currentForm.appendChild(h2);
+
+    // 4) Feedback y envío
+    localStorage.setItem('flash_success', 'Mantención guardada exitosamente.');
+    modal.hide();
+    currentForm.submit();
   });
 })();
 </script>

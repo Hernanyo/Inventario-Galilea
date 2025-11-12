@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0">Historial de mantenciones (PMA)</h3>
+    {# ⬇️ Botón Exportar CSV (respeta filtros actuales) #}
+    {% if perms.productos.view_mantencionejecucion %}
+      <a class="btn btn-sm btn-outline-secondary"
+         href="{% url 'productos:mantencionejecucions_csv' %}?{{ request.GET.urlencode }}">
+        Exportar CSV
+      </a>
+    {% endif %}
+    <form method="get" class="d-flex gap-2">
+      <input name="q" value="{{ request.GET.q }}" class="form-control form-control-sm" placeholder="Buscar...">
+      <button class="btn btn-sm btn-primary">Buscar</button>
+    </form>
+  </div>
+  
+
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Id</th>
+          <th>Empresa</th>
+          <th>Plan</th>
+          <th>Id Activo</th>
+          <th>Etiqueta</th>
+          <th>Nombre Activo</th>
+          <th>Asignado a</th>
+          <th>Fecha ejecución</th>
+          <th>Usuario</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td>{{ it.pk }}</td>
+          <td>{{ it.id_empresa }}</td>
+          <td>
+            {{ it.pma.id_plan.nombre }}
+            <small class="text-muted d-block">[{{ it.pma.id_activo.etiqueta|default:"—" }}] {{ it.pma.id_activo.nombre_activo }}</small>
+          </td>
+          <td>{{ it.id_activo_id }}</td>
+          <td>{{ it.activo_etiqueta|default:"—" }}</td>
+          <td>{{ it.activo_nombre|default:"—" }}</td>
+          <td>{{ it.empleado_asignado_nombre|default:"—" }}</td>
+          <td>{{ it.fecha_ejecucion|date:"d-m-Y H:i" }}</td>
+          <td>{{ it.usuario_legible|default:"—" }}</td>
+          <td>
+            {% if it.pk %}
+                <button class="btn btn-outline-primary btn-sm ver-tareas"
+                    data-ejec-id="{{ it.pk }}"
+                    data-plan="{{ it.pma.id_plan.nombre }}"
+                    data-etiqueta="{{ it.activo_etiqueta|default:'—' }}"
+                    data-nombre="{{ it.activo_nombre|default:'—' }}"
+                    data-url="{% url 'productos:pma_ejec_tareas_json' it.pk %}">
+                Ver tareas
+                </button>
+            {% else %}
+                <span class="text-muted">—</span>
+            {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" class="text-center text-muted">Sin ejecuciones registradas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <nav>
+    <ul class="pagination pagination-sm">
+      {% if page_obj.has_previous %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&q={{ request.GET.q }}">«</a></li>
+      {% endif %}
+      <li class="page-item disabled"><span class="page-link">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></li>
+      {% if page_obj.has_next %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&q={{ request.GET.q }}">»</a></li>
+      {% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="modalTareas" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Tareas ejecutadas</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div id="tareasLoader" class="small text-muted">Cargando…</div>
+        <div class="table-responsive d-none" id="tareasTableWrap">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Descripción</th>
+                <th>Obligatorio</th>
+                <th>Realizada</th>
+                <th>Observación</th>
+              </tr>
+            </thead>
+            <tbody id="tareasBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const modal = new bootstrap.Modal(document.getElementById('modalTareas'));
+  const body  = document.getElementById('tareasBody');
+  const wrap  = document.getElementById('tareasTableWrap');
+  const load  = document.getElementById('tareasLoader');
+  const titleEl = document.querySelector('#modalTareas .modal-title');
+
+  document.querySelectorAll('.ver-tareas').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const plan = btn.dataset.plan || '';
+      const etq  = btn.dataset.etiqueta || '—';
+      const nom  = btn.dataset.nombre || '—';
+      titleEl.textContent = `Tareas ejecutadas — ${plan} [${etq}] ${nom}`;
+
+      body.innerHTML = '';
+      wrap.classList.add('d-none');
+      load.classList.remove('d-none');
+      modal.show();
+
+      try {
+        const res = await fetch(btn.dataset.url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
+        const data = await res.json();
+        body.innerHTML = (data.items || []).map((t, i) => `
+          <tr>
+            <td>${i+1}</td>
+            <td>${t.descripcion || ''}</td>
+            <td>${t.obligatorio ? 'Sí' : 'No'}</td>
+            <td>${t.realizada ? 'Sí' : 'No'}</td>
+            <td>${t.observacion || '—'}</td>
+          </tr>
+        `).join('');
+      } catch(e) {
+        body.innerHTML = `<tr><td colspan="5" class="text-danger">Error al cargar tareas.</td></tr>`;
+      } finally {
+        load.classList.add('d-none');
+        wrap.classList.remove('d-none');
+      }
+    });
+  });
+})();
+</script>
+
+{% endblock %}

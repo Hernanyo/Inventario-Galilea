@@ -29,6 +29,11 @@ from .crud import ActivoForm
 from .models_inventario import Modelo
 from .models_inventario import Activo, DocumentoActivo, TipoDocumentoActivo
 
+from .models_inventario import (
+    MantencionEjecucion, MantencionEjecucionTarea, PlanMantencionTarea
+)
+
+
 
 from .models_inventario import (
     Activo, EstadoActivo, Empleado, HistorialActivos
@@ -84,6 +89,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.http import HttpResponseForbidden
 
 from .models_inventario import PlanMantencion, PlanMantencionActivo
+from .models_inventario import MantencionEjecucion, MantencionEjecucionTarea, PlanMantencionTarea
+
 
 # modelos opcionales (según tu app)
 try:
@@ -157,6 +164,9 @@ class HomeView(CompanyRequiredMixin, TemplateView):
         for cfg in get_crud_configs():
             try:
                 names = {f.name for f in cfg.model._meta.get_fields()}
+                qs_count = cfg.model.objects.all()
+                if "eliminado" in names:
+                    qs_count = qs_count.filter(eliminado=False)
                 if emp_id:
                     if "id_empresa" in names:
                         count = cfg.model.objects.filter(id_empresa=emp_id).count()
@@ -181,7 +191,8 @@ class HomeView(CompanyRequiredMixin, TemplateView):
 
         # ===== KPIs, listas y gráficos (todo filtrado por empresa) =====
         # Activos
-        qs_activos = Activo.objects.all()
+
+        qs_activos = Activo.objects.filter(eliminado=False)
         if emp_id:
             qs_activos = qs_activos.filter(id_empresa_id=emp_id)
 
@@ -380,12 +391,78 @@ def _activar_plan_vigente_y_recalcular(pma, ahora):
 
     pma.save()
 
+def _registrar_ejecucion_pma(request, pma, tareas_ids=None, obs_map=None):
+    """
+    Registra una ejecución de mantención: cabecera + snapshot de tareas (marcadas y no marcadas).
+    No rompe el flujo si algo falla.
+    """
+    from .models_inventario import MantencionEjecucion, MantencionEjecucionTarea, PlanMantencionTarea
+    try:
+        obs_map = obs_map or {}  # { id_tarea:int -> "texto" }
+        activo = pma.id_activo
+        user   = request.user
+        emp_id = getattr(pma, "id_empresa_id", None) or getattr(activo, "id_empresa_id", None)
+
+        # normaliza ids marcadas
+        tareas_ids = tareas_ids or []
+        marcadas = set(int(x) for x in tareas_ids if str(x).isdigit())
+
+        # snapshot de tareas del plan
+        tareas_plan = list(
+            PlanMantencionTarea.objects
+            .filter(id_plan=pma.id_plan, eliminado=False)
+            .values("id_tarea", "descripcion", "obligatorio")
+            .order_by("orden", "id_tarea")
+        )
+        labels_ok = [t["descripcion"] for t in tareas_plan if t["id_tarea"] in marcadas]
+        resumen = (f"{len(labels_ok)} tarea(s): " + "; ".join(labels_ok[:5]) + ("…" if len(labels_ok) > 5 else "")) if labels_ok else None
+
+        # crear cabecera de ejecución
+        asign = getattr(activo, "id_empleado", None)
+        ejec = MantencionEjecucion.objects.create(
+            id_empresa_id=emp_id,
+            pma=pma,
+            id_activo=activo,
+            activo_etiqueta=getattr(activo, "etiqueta", None),
+            activo_nombre=getattr(activo, "nombre_activo", None),
+            id_tipo_activo=getattr(activo, "id_tipo_activo", None),
+            empleado_asignado_fk=asign if getattr(asign, "pk", None) else None,
+            empleado_asignado_nombre=str(asign) if asign else None,
+            usuario_fk=user if getattr(user, "pk", None) else None,
+            usuario_app_username=(getattr(user, "get_full_name", lambda: "")() or getattr(user, "username", "") or None),
+            notas=(request.POST.get("notas") or None),
+            medicion_valor=(request.POST.get("medicion_valor") or None),
+            medicion_fecha=(request.POST.get("medicion_fecha") or None),
+            proximo_vencimiento_fecha=getattr(pma, "proximo_vencimiento_fecha", None),
+            proximo_vencimiento_valor=getattr(pma, "proximo_vencimiento_valor", None),
+            resumen_tareas=resumen[:500] if resumen else None,
+            datos_extra={"tareas_marcadas": sorted(list(marcadas))} if marcadas else {},
+        )
+
+        # detalle por tarea
+        bulk = []
+        for t in tareas_plan:
+            tid = t["id_tarea"]
+            bulk.append(MantencionEjecucionTarea(
+                ejecucion=ejec,
+                id_tarea_plan_id=tid,
+                descripcion=(t["descripcion"] or "")[:300],
+                obligatorio=bool(t["obligatorio"]),
+                marcada=(tid in marcadas),                 # ← lo que ves como “Realizada”
+                observacion=(obs_map.get(tid) or None),    # ← comentario por tarea
+            ))
+        if bulk:
+            MantencionEjecucionTarea.objects.bulk_create(bulk, batch_size=100)
+    except Exception:
+        pass
+
+
 #############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><07/11
 
 class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
     """Vista para mostrar activos disponibles para asignación.
 
-    - Filtra los activos por estado "bodega" y muestra solo los activos sin asignar.
+    - Filtra los activos por estado "disponible" y muestra solo los activos sin asignar.
     - Permite asignar activos a un empleado.
     """
     template_name = "activos/disponibles_asignar.html"
@@ -397,7 +474,7 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             .select_related("id_marca", "id_tipo_activo", "id_estado_activo")
             .filter(
                 id_empleado__isnull=True,
-                id_estado_activo__descripcion__iexact="bodega",  # case-insensitive
+                id_estado_activo__descripcion__iexact="disponible",  # case-insensitive
             )
             .order_by("-id_activo")  # Primero ordenar antes de hacer el slice
         )
@@ -411,7 +488,7 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
-        # base de disponibles (bodega + sin empleado) ya filtrada por empresa
+        # base de disponibles (disponible + sin empleado) ya filtrada por empresa
         base = self.get_queryset_disponibles()
 
         # lee el ?tipo=<id> y filtra solo los activos mostrados
@@ -468,13 +545,13 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             return redirect(request.path)
 
         # Resolución segura de estados por empresa
-        estado_bodega = (
+        estado_disponible = (
             EstadoActivo.objects
-            .filter(descripcion__iexact="bodega", id_empresa_id=emp_id)
+            .filter(descripcion__iexact="disponible", id_empresa_id=emp_id)
             .order_by("id_estado_activo")
             .first()
             or EstadoActivo.objects
-            .filter(descripcion__iexact="bodega", id_empresa__isnull=True)
+            .filter(descripcion__iexact="disponible", id_empresa__isnull=True)
             .order_by("id_estado_activo")
             .first()
         )
@@ -489,8 +566,8 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             .first()
         )
 
-        if not estado_bodega or not estado_asignado:
-            messages.error(request, "Faltan estados 'Bodega' y/o 'Asignado' para esta empresa.")
+        if not estado_disponible or not estado_asignado:
+            messages.error(request, "Faltan estados 'disponible' y/o 'Asignado' para esta empresa.")
             return redirect(request.path)
 
         ahora = timezone.now()
@@ -503,7 +580,7 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                 .filter(
                     id_activo__in=ids,
                     id_empleado__isnull=True,
-                    id_estado_activo=estado_bodega,   # 👈 usamos el objeto, no la descripción
+                    id_estado_activo=estado_disponible,   # 👈 usamos el objeto, no la descripción
                 )
             )
             if emp_id:
@@ -637,7 +714,7 @@ from django.http import HttpResponseForbidden
 class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
     """Vista para desasignar activos de empleados.
 
-    - Permite desasignar múltiples activos de un empleado y asignarlos a un estado "bodega".
+    - Permite desasignar múltiples activos de un empleado y asignarlos a un estado "disponible".
     - Registra un historial de la acción realizada.
     """
     template_name = "activos/en_uso_desasignar.html"
@@ -681,20 +758,20 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
 
         emp_id = request.session.get("empresa_id")
 
-        # Resolver el estado 'bodega' para desasignar los activos
-        estado_bodega = (
+        # Resolver el estado 'disponible' para desasignar los activos
+        estado_disponible = (
             EstadoActivo.objects
-            .filter(descripcion__iexact="bodega", id_empresa_id=emp_id)
+            .filter(descripcion__iexact="disponible", id_empresa_id=emp_id)
             .order_by("id_estado_activo")
             .first()
             or EstadoActivo.objects
-            .filter(descripcion__iexact="bodega", id_empresa__isnull=True)
+            .filter(descripcion__iexact="disponible", id_empresa__isnull=True)
             .order_by("id_estado_activo")
             .first()
         )
 
-        if not estado_bodega:
-            messages.error(request, "Falta configurar el estado 'Bodega'.")
+        if not estado_disponible:
+            messages.error(request, "Falta configurar el estado 'disponible'.")
             return redirect(request.path)
 
         ahora = timezone.now()
@@ -732,7 +809,7 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
                     fecha=ahora,
                     responsable_anterior_fk_id=prev_emp_id,
                     estado_anterior_id=prev_estado_id,
-                    estado_nuevo=estado_bodega,
+                    estado_nuevo=estado_disponible,
                     responsable_actual=None,
                     id_empresa=e.id_empresa,  # snapshot desde el activo
                     departamento=None,
@@ -743,7 +820,7 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
 
                 # Actualizar el estado y empleado del activo
                 e.id_empleado = None
-                e.id_estado_activo = estado_bodega
+                e.id_estado_activo = estado_disponible
                 activos_a_actualizar.append(e)
 
             if activos_a_actualizar:
@@ -1343,7 +1420,7 @@ def activos_de_empleado_json(request, empleado_id: int):
 class DesasignarEmpleadoPostView(View):
     """
     Procesa el POST del modal: desasigna los activos seleccionados **de ese empleado**,
-    moviéndolos a estado 'bodega' y registrando en HistorialActivos.
+    moviéndolos a estado 'disponible' y registrando en HistorialActivos.
     """
     def post(self, request, empleado_id: int):
         emp_id = request.session.get("empresa_id")
@@ -1358,15 +1435,15 @@ class DesasignarEmpleadoPostView(View):
             messages.warning(request, "Selecciona al menos un activo.")
             return redirect('productos:activos_desasignar')
 
-        # Buscar estado 'Bodega'
-        estado_bodega = (
+        # Buscar estado 'disponible'
+        estado_disponible = (
             EstadoActivo.objects
-            .filter(descripcion__iexact="bodega", id_empresa_id=emp_id).order_by("id_estado_activo").first()
+            .filter(descripcion__iexact="disponible", id_empresa_id=emp_id).order_by("id_estado_activo").first()
             or EstadoActivo.objects
-            .filter(descripcion__iexact="bodega", id_empresa__isnull=True).order_by("id_estado_activo").first()
+            .filter(descripcion__iexact="disponible", id_empresa__isnull=True).order_by("id_estado_activo").first()
         )
-        if not estado_bodega:
-            messages.error(request, "Falta configurar el estado 'Bodega'.")
+        if not estado_disponible:
+            messages.error(request, "Falta configurar el estado 'disponible'.")
             return redirect('productos:activos_desasignar')
 
         ahora = timezone.now()
@@ -1398,7 +1475,7 @@ class DesasignarEmpleadoPostView(View):
                     fecha=ahora,
                     responsable_anterior_fk_id=e.id_empleado_id,
                     estado_anterior_id=e.id_estado_activo_id,
-                    estado_nuevo=estado_bodega,
+                    estado_nuevo=estado_disponible,
                     responsable_actual=None,
                     id_empresa=e.id_empresa,
                     departamento=None,
@@ -1407,7 +1484,7 @@ class DesasignarEmpleadoPostView(View):
                     tipo_activo=getattr(e, "id_tipo_activo", None),
                 ))
                 e.id_empleado = None
-                e.id_estado_activo = estado_bodega
+                e.id_estado_activo = estado_disponible
                 a_actualizar.append(e)
 
             if a_actualizar:
@@ -1423,7 +1500,7 @@ class DesasignarEmpleadoPostView(View):
 @login_required
 def api_activos_disponibles(request):
     """
-    Devuelve activos disponibles (estado 'bodega' y sin empleado) filtrados por tipo (opcional).
+    Devuelve activos disponibles (estado 'disponible' y sin empleado) filtrados por tipo (opcional).
     JSON: [{id, etiqueta, nombre, marca, tipo, estado}]
     """
     emp_id  = request.session.get("empresa_id")
@@ -1432,7 +1509,7 @@ def api_activos_disponibles(request):
     qs = (Activo.objects
           .select_related("id_marca", "id_tipo_activo", "id_estado_activo")
           .filter(id_empleado__isnull=True,
-                  id_estado_activo__descripcion__iexact="bodega"))
+                  id_estado_activo__descripcion__iexact="disponible"))
     if emp_id:
         qs = qs.filter(id_empresa_id=emp_id)
     if tipo_id:
@@ -1648,6 +1725,28 @@ def mantencion_realizada(request, pk):
         plan.refresh_from_db()  # Recargar el plan desde la base de datos
         print(f"Valores después del save: Base Fecha: {plan.base_fecha}, Base Valor: {plan.base_valor}")
 
+
+        # === NUEVO: leer checks y comentarios del POST ===
+        tareas_ids = (
+            request.POST.getlist("tareas[]") or
+            request.POST.getlist("tareas") or
+            request.POST.getlist("tareas_ids[]") or  # ← nombre que envía tu JS actual
+            []
+        )
+        obs_map = {}
+        for k, v in request.POST.items():
+            if k.startswith("obs[") and k.endswith("]"):
+                try:
+                    tid = int(k[4:-1])
+                    txt = (v or "").strip()
+                    if txt:
+                        obs_map[tid] = txt[:300]
+                except ValueError:
+                    pass
+
+        # Guarda ejecución con checks + comentarios
+        _registrar_ejecucion_pma(request, plan, tareas_ids=tareas_ids, obs_map=obs_map)
+
         return redirect('productos:planmantencionactivos_list')  # Ajusta esta URL según corresponda
 
     except PlanMantencionActivo.DoesNotExist:
@@ -1700,6 +1799,9 @@ def overview_data(request):
         qs = scope_qs_by_empresa(request, qs)
     except Exception:
         pass
+
+    # 🚫 Excluir borrados lógicos
+    qs = qs.filter(eliminado=False)
 
     # Filtros GET (?tipos=..&ubicaciones=..)
     tipos = request.GET.getlist("tipos")
@@ -1890,6 +1992,7 @@ def pma_checklist(request, pma_id: int):
 @require_POST
 @login_required
 def pma_ejecutar(request, pma_id: int):
+    # 1) Cargar PMA
     pma = (PlanMantencionActivo.objects
            .select_related("id_plan", "id_activo")
            .filter(pk=pma_id, eliminado=False)
@@ -1897,35 +2000,173 @@ def pma_ejecutar(request, pma_id: int):
     if not pma:
         return HttpResponseBadRequest("PMA no encontrado")
 
+    # 2) Parsear entradas del form
+    tareas_ids = request.POST.getlist("tareas[]") or request.POST.getlist("tareas") or []
+    marcadas = set(int(x) for x in tareas_ids if str(x).isdigit())
+
+    # Comentarios por tarea: obs[ID] => {ID: "texto"}
+    obs_map = {}
+    for k, v in request.POST.items():
+        if k.startswith("obs[") and k.endswith("]"):
+            try:
+                tid = int(k[4:-1])
+                txt = (v or "").strip()
+                if txt:
+                    obs_map[tid] = txt[:300]
+            except ValueError:
+                pass
+
+    # 3) Si el plan es por tiempo, actualizar base y recalcular
+    if getattr(pma.id_plan.tipo_medicion, "es_tiempo", False):
+        pma.base_fecha = timezone.localdate()
+        pma.base_valor = None
+    pma.refrescar_estado_y_vencimiento(persist=True)
+
+    # 4) Snapshot de tareas del plan
+    tareas_plan = list(
+        PlanMantencionTarea.objects
+        .filter(id_plan=pma.id_plan, eliminado=False)
+        .values("id_tarea", "descripcion", "obligatorio")
+        .order_by("orden", "id_tarea")
+    )
+    labels_ok = [t["descripcion"] for t in tareas_plan if t["id_tarea"] in marcadas]
+    resumen = ""
+    if labels_ok:
+        resumen = f"{len(labels_ok)} tarea(s): " + "; ".join(labels_ok[:5])
+        if len(labels_ok) > 5:
+            resumen += "…"
+
+    medicion_valor = request.POST.get("medicion_valor") or None
+    medicion_fecha = request.POST.get("medicion_fecha") or None
+
+    # 5) Crear cabecera de ejecución
+    activo = pma.id_activo
+    asign  = getattr(activo, "id_empleado", None)
+    ejec = MantencionEjecucion.objects.create(
+        id_empresa_id=(getattr(pma, "id_empresa_id", None) or getattr(activo, "id_empresa_id", None)),
+        pma=pma,
+        id_activo=activo,
+        activo_etiqueta=getattr(activo, "etiqueta", None),
+        activo_nombre=getattr(activo, "nombre_activo", None),
+        id_tipo_activo=getattr(activo, "id_tipo_activo", None),
+        empleado_asignado_fk=asign if getattr(asign, "pk", None) else None,
+        empleado_asignado_nombre=str(asign) if asign else None,
+        usuario_fk=request.user if getattr(request.user, "pk", None) else None,
+        usuario_app_username=(request.user.get_full_name() or request.user.username or None),
+        notas=(request.POST.get("notas") or None),
+        medicion_valor=(medicion_valor if medicion_valor not in ("", None) else None),
+        medicion_fecha=(medicion_fecha if medicion_fecha not in ("", None) else None),
+        proximo_vencimiento_fecha=getattr(pma, "proximo_vencimiento_fecha", None),
+        proximo_vencimiento_valor=getattr(pma, "proximo_vencimiento_valor", None),
+        resumen_tareas=(resumen[:500] if resumen else None),
+        datos_extra={"tareas_marcadas": sorted(list(marcadas))} if marcadas else {},
+    )
+
+    # 6) Detalle por tarea (realizada + comentario)
+    bulk = []
+    for t in tareas_plan:
+        tid = t["id_tarea"]
+        bulk.append(MantencionEjecucionTarea(
+            ejecucion=ejec,
+            id_tarea_plan_id=tid,
+            descripcion=(t["descripcion"] or "")[:300],
+            obligatorio=bool(t["obligatorio"]),
+            marcada=(tid in marcadas),                 # ← “Realizada”
+            observacion=obs_map.get(tid),              # ← Comentario
+        ))
+    if bulk:
+        MantencionEjecucionTarea.objects.bulk_create(bulk, batch_size=100)
+
+    # 7) Auditoría (Registro)
     try:
-        tareas_ids = request.POST.getlist("tareas[]")
+        tipo = TipoRegistro.objects.get(nombre__iexact="Mantención realizada")
+    except TipoRegistro.DoesNotExist:
+        tipo = TipoRegistro.objects.create(nombre="Mantención realizada")
 
-        # Actualiza base si es por tiempo
-        if getattr(pma.id_plan.tipo_medicion, "es_tiempo", False):
-            pma.base_fecha = timezone.localdate()
-            pma.base_valor = None
+    ct = ContentType.objects.get_for_model(PlanMantencionActivo)
+    Registro.objects.create(
+        usuario=getattr(request.user, "empleado", None),
+        tipo_registro=tipo,
+        content_type=ct,
+        object_id=pma.pk,
+        descripcion=f"Mantención realizada en {pma.id_activo}",
+        datos_nuevos={"tareas_marcadas": sorted(list(marcadas))},
+        id_empresa=pma.id_empresa,
+    )
 
-        pma.refrescar_estado_y_vencimiento(persist=True)
+    return JsonResponse({"ok": True})
 
-        # Auditoría (Registro)
-        try:
-            tipo = TipoRegistro.objects.get(nombre__iexact="Mantención realizada")
-        except TipoRegistro.DoesNotExist:
-            tipo = TipoRegistro.objects.create(nombre="Mantención realizada")
 
-        ct = ContentType.objects.get_for_model(PlanMantencionActivo)  # <--
+#######################################################################>>>>>>>>>>>>>>>>>>>07/11
+#######################################################################>>>>>>>>>>>>>>>>>>>07/11
 
-        Registro.objects.create(
-            usuario=getattr(request.user, "empleado", None),  # si tu FK NO admite null, cámbialo
-            tipo_registro=tipo,
-            content_type=ct,               # <--
-            object_id=pma.pk,              # <--
-            descripcion=f"Mantención realizada en {pma.id_activo}",
-            datos_nuevos={"tareas_marcadas": tareas_ids},
-            id_empresa=pma.id_empresa,
-        )
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import ListView
+from django.db.models import Q
+from .models_inventario import MantencionEjecucion
 
-        return JsonResponse({"ok": True})
+class PmaHistorialListView(LoginRequiredMixin, ListView):
+    model = MantencionEjecucion
+    template_name = "mantenciones/pma_historial_list.html"
+    context_object_name = "items"
+    paginate_by = 25
 
-    except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+    def get_queryset(self):
+        qs = (MantencionEjecucion.objects
+              .select_related("id_activo", "pma", "id_empresa", "usuario_fk", "pma__id_plan", "pma__id_activo")
+              .order_by("-fecha_ejecucion", "-id"))  # 👈 nuevo
+        emp_id = self.request.session.get("empresa_id")
+        if emp_id:
+            qs = qs.filter(id_empresa_id=emp_id)
+        q = self.request.GET.get("q")
+        if q:
+            qs = qs.filter(
+                Q(activo_etiqueta__icontains=q) |
+                Q(activo_nombre__icontains=q)   |
+                Q(usuario_app_username__icontains=q) |
+                Q(resumen_tareas__icontains=q) |
+                Q(pma__id_plan__nombre__icontains=q)
+            )
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["now"] = timezone.now()
+        return ctx
+
+
+#########################################################################################>>>>>>>>>>>>>>>07/11-20:05
+# views.py (agrega junto a otros @login_required JSON)
+from django.views.decorators.http import require_GET
+
+@login_required
+@require_GET
+def ejecucion_tareas_json(request, ejec_id: int):
+    """
+    Devuelve las tareas registradas para una ejecución (log),
+    con sus banderas (obligatorio, marcada) y observación.
+    """
+    ejec = get_object_or_404(MantencionEjecucion, pk=ejec_id)
+
+    tareas = (
+        MantencionEjecucionTarea.objects
+        .filter(ejecucion=ejec)
+        .order_by('id')
+    )
+    data = {
+        "plan": getattr(ejec.pma.id_plan, "nombre", ""),
+        "activo_etiqueta": ejec.activo_etiqueta or "",
+        "activo_nombre": ejec.activo_nombre or "",
+        "items": [{
+            # CAMBIO: tus campos en el snapshot
+            "descripcion": t.descripcion or "",
+            "obligatorio": bool(t.obligatorio),
+            # CAMBIO: API devuelve "realizada", mapeando tu campo "marcada"
+            "realizada": bool(t.marcada),
+            "observacion": t.observacion or "",
+        } for t in tareas]
+    }
+    return JsonResponse(data)
+
+    ######################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>11/11 16:30
+    

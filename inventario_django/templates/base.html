@@ -157,9 +157,9 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <!-- Tom Select + tema Bootstrap 5 -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.bootstrap5.min.css">
+<!--<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.bootstrap5.min.css">
 <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
-
+-->
 
 <body class="bg-light">
 <!-- <nav class="navbar navbar-expand-lg navbar-dark bg-dark"> -->
@@ -181,9 +181,6 @@ document.addEventListener('DOMContentLoaded', function () {
           {% endif %}
         {% endwith %}
       </a>
-
-
-
 
       <div class="ms-auto">
         {% if user.is_authenticated %}
@@ -361,98 +358,250 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modelo = document.getElementById('id_nombre_activo');
+  if (modelo && !modelo.tomselect) {
+    new TomSelect(modelo, {
+      allowEmptyOption: true,
+      create: false,
+      plugins: ['dropdown_input','clear_button'],
+      sortField: { field: 'text', direction: 'asc' },
+      maxOptions: 2000,
+      placeholder: 'Seleccione un modelo'
+    });
+  }
+});
+</script>
+
+
+
+
+
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const tipoSel   = document.querySelector('#id_id_tipo_activo') || document.querySelector('#id_tipo_activo');
-  const modeloSel = document.querySelector('#id_nombre_activo');
   const marcaSel  = document.querySelector('#id_id_marca')       || document.querySelector('#id_marca');
+  const modeloSel = document.querySelector('#id_nombre_activo');
+
   if (!modeloSel || !marcaSel) return;
 
-  const API = window.PRODUCTOS_API_MODELOS; // ← viene del <head>
+  const API = window.PRODUCTOS_API_MODELOS;
+  let cacheModelosPorTipo = [];   // se repuebla al cambiar Tipo
 
-  // ✅ Versión correcta: sin ENDPOINTS, usando la URL inyectada por Django
+  // --- Utilidades ---
+  function tsOf(el){ return el && el.tomselect ? el.tomselect : null; }
+
+  function setOptionsNative(select, options){
+    const prev = select.value;
+    select.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = ''; ph.textContent = 'Seleccione...';
+    select.appendChild(ph);
+    options.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = String(o.value);
+      opt.textContent = o.text;
+      if (o.marca_id != null) opt.dataset.marca = String(o.marca_id);
+      select.appendChild(opt);
+    });
+    // intenta conservar valor anterior si sigue existiendo
+    const exists = options.some(o => String(o.value) === String(prev));
+    select.value = exists ? prev : '';
+    select.dispatchEvent(new Event('change', { bubbles:true }));
+  }
+
+  function setOptionsTS(ts, options, placeholderText='Seleccione...'){
+    ts.clear(true);
+    ts.clearOptions();
+    ts.addOption({ value:'', text: placeholderText });
+    options.forEach(o => ts.addOption(o));
+    ts.refreshOptions(false);
+    ts.setValue('', true);
+  }
+
+  function opcionesMarcaDesdeDOM(){
+    // leemos las marcas ya cargadas en el DOM (para no depender de otra API)
+    const out = [];
+    marcaSel.querySelectorAll('option').forEach(op => {
+      const v = op.value?.trim();
+      const t = op.textContent?.trim();
+      if (!v) return;  // salta placeholder
+      out.push({ value: v, text: t });
+    });
+    return out;
+  }
+
+  function filtrarMarcasPorTipo(allowedMarcaIds){
+    // allowedMarcaIds: Set de ids permitidos (strings)
+    const ts = tsOf(marcaSel);
+    const todasMarcas = opcionesMarcaDesdeDOM();
+    const filtradas = todasMarcas.filter(m => allowedMarcaIds.has(String(m.value)));
+
+    if (ts){
+      setOptionsTS(ts, filtradas.map(m => ({ value:String(m.value), text:m.text })), '---------');
+    }else{
+      setOptionsNative(marcaSel, filtradas.map(m => ({ value:String(m.value), text:m.text })));
+    }
+  }
+
+  function construirOpcionesModelo(items){
+    // items del tipo: {value, label, marca_id}
+    return items.map(it => ({
+      value: String(it.value),
+      text: it.label,
+      marca_id: it.marca_id != null ? String(it.marca_id) : ''
+    }));
+  }
+
+  function repoblarModelos(marcaId){
+    // filtra por marca si viene; si no, muestra todos los del tipo
+    let items = cacheModelosPorTipo;
+    if (marcaId){
+      const mid = String(marcaId);
+      items = items.filter(it => String(it.marca_id) === mid);
+    }
+    const opciones = construirOpcionesModelo(items);
+
+    const ts = tsOf(modeloSel);
+    if (ts){
+      // Tom Select del modelo admite guardar marca_id como metadato
+      setOptionsTS(ts, opciones.map(o => ({ value:o.value, text:o.text, marca_id:o.marca_id })), '---------');
+    }else{
+      setOptionsNative(modeloSel, opciones.map(o => ({ value:o.value, text:o.text, marca_id:o.marca_id })));
+    }
+  }
+
   async function fetchModelosByTipo(tipoId){
     if (!API) throw new Error('API modelos no definida');
     const url = `${API}?tipo_id=${encodeURIComponent(tipoId || '')}`;
     const r   = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
     if (!r.ok) throw new Error('HTTP ' + r.status);
+
     const data = await r.json();
-    return Array.isArray(data) ? data : (data.items || []);
+    const list = Array.isArray(data) ? data : (data.items || data.results || data.data || []);
+
+    // Normaliza llaves: value/id, label/text/nombre, marca_id/marca/brand_id/...
+    return list.map(it => {
+      const _value   = it.value ?? it.id ?? it.pk ?? it.modelo_id ?? it.nombre_id;
+      const _label   = it.label ?? it.text ?? it.nombre ?? it.modelo ?? it.name ?? it.descripcion;
+      const _marcaId = it.marca_id ?? it.marca ?? it.brand_id ?? it.id_marca ?? it.marcaId;
+
+      return {
+        value: String(_value ?? ''),
+        label: String(_label ?? ''),
+        marca_id: _marcaId != null ? String(_marcaId) : ''
+      };
+    }).filter(x => x.value && x.label);
   }
 
-  function setMarcaValue(marcaId){
-    const val = (marcaId ?? '').toString();
-    if (marcaSel.tomselect){
-      if (val && !marcaSel.tomselect.options[val]) {
-        const op = marcaSel.querySelector(`option[value="${CSS.escape(val)}"]`);
-        if (op) marcaSel.tomselect.addOption({ value: val, text: op.textContent });
-      }
-      marcaSel.tomselect.setValue(val, true);
-    } else {
-      marcaSel.value = val;
-      marcaSel.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }
-
-  function marcaFromSelectedOption(){
-    if (modeloSel.tomselect){
-      const v = modeloSel.tomselect.getValue();
-      const optObj = modeloSel.tomselect.options[v];
-      return (optObj && 'marca_id' in optObj) ? (optObj.marca_id || '') : '';
-    } else {
-      const opt = modeloSel.selectedOptions && modeloSel.selectedOptions[0];
+  function getMarcaIdDesdeModeloSeleccionado(){
+    const ts = tsOf(modeloSel);
+    if (ts){
+      const v = ts.getValue();
+      const opt = ts.options?.[v];
+      return opt && 'marca_id' in opt ? (opt.marca_id || '') : '';
+    }else{
+      const opt = modeloSel.selectedOptions?.[0];
       return opt ? (opt.dataset.marca || '') : '';
     }
   }
 
-  async function onModeloChange(){
-    let marca = marcaFromSelectedOption();
-    if (!marca){
-      const tipoId   = tipoSel ? tipoSel.value : '';
-      const modeloId = modeloSel.tomselect ? modeloSel.tomselect.getValue() : modeloSel.value;
-      if (tipoId && modeloId){
-        try {
-          const items = await fetchModelosByTipo(tipoId);
-          const found = items.find(it => String(it.value) === String(modeloId));
-          marca = found ? found.marca_id : '';
-        } catch(e){
-          console.warn('Fallback a API para marca falló:', e.message);
-        }
-      }
+  function setMarcaValue(val){
+    const value = (val ?? '').toString();
+    const ts = tsOf(marcaSel);
+    if (ts){
+      // si la opción no existe todavía, no la forzamos (se filtrará por tipo)
+      ts.setValue(value, true);
+    }else{
+      marcaSel.value = value;
+      marcaSel.dispatchEvent(new Event('change', { bubbles:true }));
     }
-    setMarcaValue(marca);
   }
 
   async function onTipoChange(){
     const tipoId = tipoSel ? tipoSel.value : '';
-    if (!tipoId) { setMarcaValue(''); return; }
+    if (!tipoId){
+      cacheModelosPorTipo = [];
+      repoblarModelos(null);
+      const tsM = tsOf(marcaSel);
+      if (tsM) setOptionsTS(tsM, [], '---------'); else setOptionsNative(marcaSel, []);
+      return;
+    }
     try{
-      const items = await fetchModelosByTipo(tipoId);
-      if (modeloSel.tomselect){
-        const ts = modeloSel.tomselect;
-        ts.clear(true); ts.clearOptions();
-        ts.addOption({ value: '', text: 'Seleccione un modelo' });
-        items.forEach(it => ts.addOption({ value: String(it.value), text: it.label, marca_id: it.marca_id }));
-        ts.refreshOptions(false);
-        ts.setValue('', true);
-      }
+      cacheModelosPorTipo = await fetchModelosByTipo(tipoId);
+      // Habilita el combo de Modelo (por si estaba disabled)
+      const tsModel = tsOf(modeloSel);
+      if (tsModel) tsModel.enable(); else modeloSel.disabled = false;
+
+      // 1) Filtra marcas válidas para este tipo
+      const allowed = new Set(cacheModelosPorTipo.map(it => String(it.marca_id || '')));
+      filtrarMarcasPorTipo(allowed);
+
+      // 2) Limpia y repuebla modelos (aún sin marca elegida)
+      repoblarModelos(null);
+
+      // 3) Resetea marca
       setMarcaValue('');
     }catch(e){
       console.warn('No se pudo cargar modelos por tipo:', e.message);
     }
   }
 
-  if (modeloSel.tomselect) modeloSel.tomselect.on('change', onModeloChange);
-  else                     modeloSel.addEventListener('change', onModeloChange);
+  function onMarcaChange(){
+    const marcaId = marcaSel.value || '';
+    repoblarModelos(marcaId);
+  }
 
-  if (tipoSel) tipoSel.addEventListener('change', onTipoChange);
+  function onModeloChange(){
+    // Si aún no hay marca elegida, autoajusta la marca según el modelo
+    const marca = getMarcaIdDesdeModeloSeleccionado();
+    const marcaElegida = marcaSel.value;
+    if (!marcaElegida && marca) setMarcaValue(marca);
+  }
 
-  const inicial = modeloSel.tomselect ? modeloSel.tomselect.getValue() : modeloSel.value;
-  if (inicial) onModeloChange();
+  // Listeners
+  if (tipoSel)  tipoSel.addEventListener('change', onTipoChange);
+  if (marcaSel) marcaSel.addEventListener('change', onMarcaChange);
+
+  const tsModelo = tsOf(modeloSel);
+  if (tsModelo) tsModelo.on('change', onModeloChange);
+  else          modeloSel.addEventListener('change', onModeloChange);
+
+  // Estado inicial
+  (async function init(){
+    const tipoIdInicial  = tipoSel ? (tipoSel.value || '') : '';
+    const marcaInicial   = marcaSel.value || '';
+    const tsM            = tsOf(modeloSel);
+    const modeloInicial  = tsM ? tsM.getValue() : (modeloSel.value || '');
+
+    if (tipoIdInicial){
+      cacheModelosPorTipo = await fetchModelosByTipo(tipoIdInicial);
+
+      const allowed = new Set(cacheModelosPorTipo.map(it => String(it.marca_id || '')));
+      filtrarMarcasPorTipo(allowed);
+
+      repoblarModelos(marcaInicial || null);
+
+      // Si ya viene un modelo seleccionado, respeta su marca
+      if (modeloInicial){
+        const marcaDelModelo = getMarcaIdDesdeModeloSeleccionado();
+        if (marcaDelModelo) setMarcaValue(marcaDelModelo);
+      }else{
+        // si no hay modelo pero hay marca preseleccionada, filtra por esa marca
+        if (marcaInicial) repoblarModelos(marcaInicial);
+      }
+    }else{
+      // sin tipo: deja marca y modelo vacíos
+      const tsMarca = tsOf(marcaSel);
+      if (tsMarca) setOptionsTS(tsMarca, [], '---------'); else setOptionsNative(marcaSel, []);
+      repoblarModelos(null);
+    }
+  })();
 });
 </script>
-
-
 
 </body>
 </html>

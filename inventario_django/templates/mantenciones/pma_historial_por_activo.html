@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Historial por activo #{{ activo_id }}</h2>
+<table class="table">
+  <thead>
+    <tr>
+      <th>Fecha</th><th>Usuario</th><th>Resumen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for x in items %}
+    <tr>
+      <td>{{ x.fecha_ejecucion|date:"Y-m-d H:i" }}</td>
+      <td>{{ x.usuario_app_username }}</td>
+      <td>{{ x.resumen_tareas }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="3">Sin ejecuciones para este activo.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endblock %}

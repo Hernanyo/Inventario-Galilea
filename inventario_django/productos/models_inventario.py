@@ -26,6 +26,12 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.safestring import mark_safe
 from django.db.models import Q
+from django.utils.functional import cached_property
+from django.db import models
+from django.db.models import Q, UniqueConstraint
+from django.db.models.functions import Lower, Trim
+from django.contrib import messages as dj_messages
+
 
 
 
@@ -115,6 +121,16 @@ class Cargo(models.Model):
         verbose_name_plural = "Cargos"
         ordering = ["nombre_cargo"]
         unique_together = (('id_empresa', 'nombre_cargo'),)
+        constraints = [
+            models.UniqueConstraint(
+                Lower("nombre_cargo"), "id_empresa",
+                condition=Q(eliminado=False),
+                name="uniq_cargo_empresa_lower_active",
+                violation_error_message=(
+                    "Ya existe un cargo con ese nombre en esta empresa."
+                ),
+            ),
+        ]
 
     def __str__(self):
         return self.nombre_cargo
@@ -265,6 +281,19 @@ class Proveedor(models.Model):
         unique_together = (('id_empresa', 'rut_proveedor'),)
         verbose_name = "Proveedor"
         verbose_name_plural = "Proveedores"
+
+        # 🔒 NUEVO: nombre único por empresa (solo no eliminados), sin distinguir mayúsculas ni espacios
+        constraints = [
+            UniqueConstraint(
+                Trim(Lower('nombre_proveedor')), 'id_empresa',
+                condition=Q(eliminado=False),
+                name='uniq_proveedor_nombre_empresa_ci_active',
+            ),
+        ]
+        # (Opcional) índice para acelerar búsquedas por nombre normalizado
+        indexes = [
+            models.Index(Trim(Lower('nombre_proveedor')), name='ix_prov_nombre_norm'),
+        ]
 
     def __str__(self):
         return self.nombre_proveedor
@@ -1506,3 +1535,98 @@ class PlanMantencionActivo(models.Model):
         # Si el plan es de tiempo, vendrá por fecha; si es numerico (km/horas), por valor.
         return self.proximo_vencimiento_fecha or self.proximo_vencimiento_valor
     
+    #####################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11
+    #####################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11
+    #####################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>07/11
+
+# --- NUEVO: Ejecuciones de mantención basadas en PMA ---
+class MantencionEjecucion(models.Model):
+    id_empresa       = models.ForeignKey('Empresa', on_delete=models.PROTECT, db_column='id_empresa')
+    pma              = models.ForeignKey('PlanMantencionActivo', on_delete=models.PROTECT, db_column='id_plan_mantencion_activo')
+    id_activo        = models.ForeignKey('Activo', on_delete=models.PROTECT, db_column='id_activo')
+
+    # snapshots del activo / asignado (auditoría)
+    activo_etiqueta  = models.CharField(max_length=50, blank=True, null=True)
+    activo_nombre    = models.CharField(max_length=200, blank=True, null=True)
+    id_tipo_activo   = models.ForeignKey('TipoActivo', on_delete=models.SET_NULL, null=True, blank=True, db_column='id_tipo_activo')
+    empleado_asignado_fk = models.ForeignKey('Empleado', on_delete=models.SET_NULL, null=True, blank=True, db_column='empleado_asignado_fk')
+    empleado_asignado_nombre = models.CharField(max_length=200, blank=True, null=True)
+
+    # contexto/resultado
+    fecha_ejecucion  = models.DateTimeField(auto_now_add=True)
+    usuario_fk       = models.ForeignKey("auth.User", on_delete=models.SET_NULL, null=True, blank=True, db_column='usuario_fk')
+    usuario_app_username = models.CharField(max_length=150, blank=True, null=True)
+    notas            = models.TextField(blank=True, null=True)
+
+    # mediciones (si el plan es por valor; opcional)
+    medicion_valor   = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    medicion_fecha   = models.DateField(null=True, blank=True)
+
+    # próximo vencimiento (snapshot post-refresco)
+    proximo_vencimiento_fecha = models.DateField(null=True, blank=True)
+    proximo_vencimiento_valor = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    # resumen y extensiones
+    resumen_tareas   = models.CharField(max_length=500, blank=True, null=True)
+    datos_extra      = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = 'inventario.pma_historial'
+        ordering = ["-fecha_ejecucion", "-id"]
+        indexes = [
+            models.Index(fields=['id_empresa', '-fecha_ejecucion'], name='pma_hist_emp_fech_idx'),
+            models.Index(fields=['id_activo'], name='pma_hist_act_idx'),
+            models.Index(fields=['pma'], name='pma_hist_pma_idx'),
+        ]
+        verbose_name = "Ejecución de mantención (PMA)"
+        verbose_name_plural = "Ejecuciones de mantención (PMA)"
+
+    @cached_property
+    def usuario_legible(self) -> str:
+        """
+        Prioriza Empleado (nombre + apellido paterno). 
+        Si no existe, usa get_full_name() del User y si tampoco,
+        cae a username o snapshot texto.
+        """
+        u = self.usuario_fk
+        if u:
+            # si tienes OneToOne User -> Empleado con related_name="empleado"
+            emp = getattr(u, "empleado", None)
+            if emp and (emp.nombre or emp.apellido_paterno):
+                return f"{(emp.nombre or '').strip()} {(emp.apellido_paterno or '').strip()}".strip()
+
+            full = (u.get_full_name() or "").strip()
+            if full:
+                return full
+
+            if u.username:
+                return u.username
+
+        # último recurso: el snapshot guardado
+        return (self.usuario_app_username or "").strip()
+
+    def __str__(self):
+        return f"Ejecución {self.pk} · Activo {self.id_activo_id} · {self.fecha_ejecucion:%Y-%m-%d %H:%M}"
+
+
+class MantencionEjecucionTarea(models.Model):
+    ejecucion        = models.ForeignKey('MantencionEjecucion', on_delete=models.CASCADE, related_name='tareas', db_column='id_ejecucion')
+    id_tarea_plan    = models.ForeignKey('PlanMantencionTarea', on_delete=models.PROTECT, db_column='id_tarea_plan')
+    descripcion      = models.CharField(max_length=300)
+    obligatorio      = models.BooleanField(default=False)
+    marcada          = models.BooleanField(default=False)
+    observacion      = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = True
+        db_table = 'inventario.pma_historial_tarea'
+        indexes = [
+            models.Index(fields=['ejecucion'], name='pma_hist_tarea_ejec_idx'),
+            models.Index(fields=['id_tarea_plan'], name='pma_hist_tarea_plan_idx'),
+        ]
+        verbose_name = "Tarea ejecutada (PMA)"
+        verbose_name_plural = "Tareas ejecutadas (PMA)"
+
+    def __str__(self):
+        return f"Tarea {'✓' if self.marcada else '✗'} · {self.descripcion[:40]}"
