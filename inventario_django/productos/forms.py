@@ -25,6 +25,7 @@ from .models_inventario import PlanMantencionActivo as PMA
 
 
 
+
 def hide_deleted(form, *field_names):
     """
     A cada campo FK indicado le deja solo opciones eliminado=False.

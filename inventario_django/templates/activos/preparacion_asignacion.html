@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Preparación de asignación{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-3">
+  Preparación de activos para {{ empleado }}
+</h1>
+
+<p class="text-muted">
+  Antes de asignar los activos seleccionados a <strong>{{ empleado }}</strong>
+  (cargo: <strong>{{ cargo }}</strong>), confirma que la preparación ha sido realizada.
+</p>
+
+{% if errores %}
+  <div class="alert alert-danger">
+    <ul class="mb-0">
+      {% for e in errores %}
+        <li>{{ e }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="empleado_id" value="{{ empleado.id_empleado }}">
+  <input type="hidden" name="confirmar_preparacion" value="1">
+
+  {# reenviamos los ids de activos #}
+  {% for act_id in activos_ids %}
+    <input type="hidden" name="activos" value="{{ act_id }}">
+  {% endfor %}
+
+  {% for item in items %}
+    <div class="card mb-3">
+      <div class="card-header">
+        Asignando
+        <strong>{{ item.activo.etiqueta|default:item.activo.id_activo }}</strong>
+        a {{ empleado }}<br>
+        <small class="text-muted">
+          {{ item.activo.nombre_activo }} · {{ item.activo.id_tipo_activo }}
+        </small>
+      </div>
+      <div class="card-body">
+        {% if item.acciones %}
+          <p class="mb-2">
+            Preparación requerida para este activo:
+          </p>
+          <ul class="list-unstyled mb-0">
+            {% for acc in item.acciones %}
+              <li class="mb-1">
+                <label class="form-check">
+                  <input
+                    type="checkbox"
+                    class="form-check-input"
+                    name="prep_{{ item.activo.id_activo }}"
+                    value="{{ acc.id_accion_preparacion }}"
+                    {% if acc.id_accion_preparacion in item.checked_ids %}checked{% endif %}
+                  >
+                  <span class="form-check-label">
+                    {{ acc.descripcion }}
+                    {% if acc.obligatorio %}
+                      <span class="badge bg-danger ms-1">Obligatorio</span>
+                    {% endif %}
+                  </span>
+                </label>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted mb-0">
+            Este activo no requiere preparación para este cargo.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ############### 27/11 ############################################-->
+    {# OJO: ya no necesitamos activo_id aquí para borrar, se toma desde sesión #}
+    <!-- ############### 27/11 ############################################-->
+  {% endfor %}
+
+  <div class="d-flex justify-content-end gap-2 mt-3">
+    <!-- ######################## 25/11 ###################### -->
+    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#confirmarBorradoModal">
+      Borrar Preparación
+    </button>
+    <!-- ######################## 25/11 ######################El resto de tu formulario -->
+    <button type="button" class="btn btn-secondary" onclick="history.back();">
+      Volver sin asignar
+    </button>
+    <button type="submit" name="accion_preparacion" value="guardar" class="btn btn-warning">
+      Guardar temporalmente
+    </button>
+    <button type="submit" class="btn btn-primary">
+      Confirmar preparación y asignar activos
+    </button>
+  </div>
+</form>
+
+
+<!-- Modal de confirmación -->
+<div class="modal" id="confirmarBorradoModal" tabindex="-1" aria-labelledby="confirmarBorradoModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmarBorradoModalLabel">Confirmar eliminación de preparación</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      {# >>> AQUÍ VIENE EL TEXTO NUEVO DEL MODAL <<< #}
+      <div class="modal-body">
+        <p>
+          ¿Está seguro de que desea borrar la preparación de
+          <strong>
+            {% for item in items %}
+              {{ item.activo.etiqueta|default:item.activo.id_activo }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+          </strong>
+          para el empleado
+          <strong>{{ empleado }}</strong>?
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <form method="post" id="form-borrar-preparacion">
+          {% csrf_token %}
+          <input type="hidden" name="empleado_id" value="{{ empleado.id_empleado }}">
+          {# No mandamos activos: se leen desde prep_pendientes en la vista #}
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" name="accion" value="borrar" class="btn btn-danger">Confirmar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

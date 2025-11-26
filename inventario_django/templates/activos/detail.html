@@ -3,13 +3,23 @@
 {% block title %}{{ activo.nombre_activo }}{% endblock %}
 
 {% block content %}
-<h1 class="display-6 mb-3">
-  {{ activo.nombre_activo }}
-  <span class="text-muted small">- Etiqueta: {{ activo.etiqueta }}</span>
-  <span class="text-muted small">- ID: {{ activo.id_activo }}</span>
-</h1>
+<div class="d-flex align-items-center mb-3">
+  <h1 class="display-6 mb-0 flex-grow-1">
+    {{ activo.nombre_activo }}
+    <span class="text-muted small">- Etiqueta: {{ activo.etiqueta }}</span>
+    <span class="text-muted small">- ID: {{ activo.id_activo }}</span>
+  </h1>
 
-<div class="row g-3">
+  <!-- Botón cuadrado a la derecha -->
+  <button id="toggle-notas"
+          class="btn btn-sm btn-primary ms-3"
+          type="button" title="Notas del activo"
+          style="width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center">
+    <i class="bi bi-chat-left-text"></i>
+  </button>
+</div>
+
+<div id="fila-principal" class="row g-3">
   <div class="col-lg-8">
     <div class="card">
       <div class="card-body">
@@ -71,7 +81,7 @@
     </div>
   </div>
 
-  <div class="col-lg-4">
+  <div id="col-der" class="col-lg-4 position-relative">
     <div class="card">
       <div class="card-body">
         <h5 class="card-title mb-3">Atributos del activo</h5>
@@ -92,6 +102,41 @@
     </div>
   </div>
 </div>
+
+
+<!-- OFFCANVAS: Notas del activo -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="notasCanvas" aria-labelledby="notasCanvasLabel" data-bs-backdrop="false">
+  <div class="offcanvas-header py-2">
+    <h5 class="offcanvas-title" id="notasCanvasLabel">Notas del activo</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+  </div>
+  <div class="offcanvas-body p-0" id="notasCanvasBody">
+    <!-- Aquí se cargará el parcial _panel_notas.html -->
+  </div>
+</div>
+
+<style>
+  :root{
+    /* Ajusta si tu barra roja es más alta/baja */
+    --topbar-h: 56px;        /* alto navbar */
+    --oc-gap-bottom: 12px;   /* respiro inferior */
+  }
+
+  /* Off-canvas: ancho + no cubrir navbar + gap abajo */
+  #notasCanvas{
+    --bs-offcanvas-width: clamp(360px, 40vw, 520px);
+    top: var(--topbar-h);
+    height: calc(100vh - var(--topbar-h) - var(--oc-gap-bottom));
+    border-radius: .5rem 0 0 .5rem;      /* opcional */
+    box-shadow: -6px 0 16px rgba(0,0,0,.15); /* opcional */
+  }
+
+  /* Cuerpo a toda altura: el scroll vive en .notas-scroll */
+  #notasCanvas .offcanvas-body{ display:flex; flex-direction:column; overflow:hidden; }
+  #notasCanvas .notas-panel{ display:flex; flex-direction:column; height:100%; }
+  #notasCanvas .notas-panel .card-body{ display:flex; flex-direction:column; flex:1 1 auto; min-height:0; }
+  #notasCanvas .notas-scroll{ flex:1 1 auto; min-height:0; overflow:auto; }
+</style>
 
 {# === PLANES DE MANTENCIÓN DEL ACTIVO === #}
 <!-- Planes de mantención del activo -->
@@ -219,5 +264,62 @@
     modalEl.addEventListener("hidden.bs.modal", () => { bodyEl.innerHTML = ""; });
   });
 </script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const btn     = document.getElementById("toggle-notas");
+  const ocEl    = document.getElementById("notasCanvas");
+  const ocBody  = document.getElementById("notasCanvasBody");
+  const offc    = new bootstrap.Offcanvas(ocEl);
+
+  const panelUrl = "{% url 'productos:panel_notas_activo' activo.id_activo %}";
+  let cargado = false;
+
+  btn.addEventListener("click", () => offc.show());
+
+  ocEl.addEventListener("shown.bs.offcanvas", async () => {
+    if (cargado) return;
+    try {
+      const r = await fetch(panelUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      ocBody.innerHTML = await r.text();
+      cargado = true;
+      engancharForm();
+    } catch (e) { console.error(e); }
+  });
+
+  function engancharForm() {
+    const form = ocBody.querySelector("#nota-form");
+    if (!form) return;
+
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const fd  = new FormData(form);
+      const txt = (fd.get("texto") || "").trim();
+      if (!txt) return;
+
+      try {
+        const resp = await fetch(form.action, {
+          method: "POST",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          body: fd
+        });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+
+        ocBody.innerHTML = await resp.text();
+        engancharForm();
+
+        const sc = ocBody.querySelector(".notas-scroll");
+        if (sc) sc.scrollTop = 0; // al inicio (cámbialo a sc.scrollHeight si prefieres al final)
+      } catch (e) {
+        alert("No se pudo guardar la nota.");
+        console.error(e);
+      }
+    });
+  }
+});
+</script>
+
+
 
 {% endblock %}

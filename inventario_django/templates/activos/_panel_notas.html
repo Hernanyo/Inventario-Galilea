@@ -1,0 +1,104 @@
+{# templates/activos/_panel_notas.html #}
+<div class="notas-panel card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <strong>
+      Cantidad de notas
+    </strong>
+    <span class="badge bg-secondary">{{ total_notas }} nota{{ total_notas|pluralize:"s" }}</span>
+  </div>
+
+  <div class="card-body">
+    <form id="nota-form" class="mb-3" action="{% url 'productos:crear_nota_activo_ajax' activo.id_activo %}" method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+        <!-- Campo de texto para escribir la nota -->
+      <div class="input-group">
+        <textarea name="texto" class="form-control" rows="2" placeholder="Escribe una nota…"></textarea>
+      </div>
+
+      <!-- Campo para seleccionar archivo -->
+      <div class="input-group">
+        <input type="file" name="foto" accept="image/*" class="form-control">
+      </div>
+
+      <!-- Botón para agregar la nota -->
+      <div class="input-group">
+        <button class="btn btn-primary" type="submit">Agregar</button>
+      </div>
+    </form>
+
+    <div class="notas-scroll">
+    {% if grupos %}
+        {% for g in grupos %}
+        <ul class="list-group mb-3">
+            <!-- Sub-encabezado de fecha dentro del log -->
+            <li class="list-group-item notas-subheader sticky-subheader">
+              <i class="bi bi-calendar-event me-1"></i> {{ g.label }}
+            </li>
+
+            {% for n in g.items %}
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between">
+                <div>
+                    <div class="fw-semibold">{{ n.autor }}</div>
+                    <div class="text-break">{{ n.texto }}</div>
+
+                    {% if n.foto_url %}
+                    <div class="mt-2">
+                        <a href="{{ n.foto_url }}" target="_blank" rel="noopener">
+                        <img src="{{ n.foto_url }}" alt="Foto de la nota"
+                            style="max-width:100%; height:auto; border-radius:.5rem;">
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+                <span class="text-muted small">{{ n.hora }}</span>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endfor %}
+    {% else %}
+        <div class="text-muted">Aún no hay notas para este activo.</div>
+    {% endif %}
+</div>
+
+<style>
+  .notas-panel .notas-scroll { max-height: 91rem; overflow: auto; }
+  .notas-panel .card-body { padding-bottom: .5rem; }
+  .notas-panel .list-group-item { border-left: 0; border-right: 0; }
+  .notas-panel .notas-scroll { max-height: 91rem; overflow: auto; }
+  .dia-header{
+    position: sticky; top: 0;
+    background: #fff; z-index: 2;
+    padding: .25rem .5rem;
+    border-bottom: 1px solid #eee;
+    font-weight: 600;
+}
+#nota-form .input-group {
+    display: block;  /* Los elementos en bloque para alinearlos verticalmente */
+    width: 100%;     /* Asegura que los elementos ocupen todo el ancho disponible */
+    margin-bottom: 2px;  /* Reducir más el espacio entre los campos */
+}
+
+#nota-form .input-group textarea {
+    margin-bottom: 2px;  /* Reducir el espacio entre el campo de texto y el de archivo */
+    width: 100%;         /* Asegura que el textarea ocupe todo el ancho disponible */
+    height: 20px;        /* Ajustar la altura del textarea para que ocupe menos espacio */
+}
+
+#nota-form .input-group input[type="file"] {
+    margin-top: 2px;    /* Mantener el margen entre el campo de archivo y el botón */
+    width: 100%;         /* Esto hace que el campo ocupe todo el ancho disponible */
+}
+
+#nota-form .input-group button {
+    margin-top: 2px;     /* Espacio entre el botón y los campos anteriores */
+    width: 100%;         /* El botón ocupa todo el ancho disponible */
+}
+
+.notas-panel .card-body {
+    padding-top: 1px;    /* Reducir el padding superior */
+    padding-bottom: 1px; /* Reducir el padding inferior */
+}
+
+</style>

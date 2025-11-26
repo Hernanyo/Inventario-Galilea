@@ -6,6 +6,32 @@
 
 <p class="text-muted">Total: <strong>{{ total|default:0 }}</strong></p>
 
+{# --- NUEVO: aviso de preparación pendiente --- #}
+{# --- AVISOS: preparaciones pendientes (pueden ser varias) --- #}
+{% if prep_pendientes %}
+  {% for prep in prep_pendientes %}
+    <div class="d-flex justify-content-between align-items-center mb-3 p-2 border border-info rounded bg-info-subtle">
+      <div>
+        Tienes una preparación pendiente para
+        <strong>{{ prep.empleado_nombre }}</strong>
+        (cargo: {{ prep.cargo }}),
+        con {{ prep.activos_ids|length }} activo(s).
+      </div>
+      <form method="post" class="mb-0">
+        {% csrf_token %}
+        <input type="hidden" name="empleado_id" value="{{ prep.empleado_id }}">
+        {# Ya no hace falta enviar los activos; la vista los toma de sesión al reanudar #}
+        <input type="hidden" name="reanudar_preparacion" value="1">
+        <button type="submit" class="btn btn-sm btn-primary">
+          Reanudar preparación
+        </button>
+      </form>
+    </div>
+  {% endfor %}
+{% endif %}
+{# --- FIN AVISOS --- #}
+{# --- FIN NUEVO --- #}
+
 <form id="form-asignacion" method="post">
   {% csrf_token %}
 
@@ -48,7 +74,8 @@
   <!-- Barra con contador de selección global -->
 
   <!-- Barra fija de selección (NO usa .alert) -->
-  <div id="barra-seleccion" class="sticky-top" style="top:70px; z-index:1020;">
+  <!--   <div id="barra-seleccion" class="sticky-top" style="top:70px; z-index:1020;">  cambié la barra a una barra normal-->
+  <div id="barra-seleccion" class="mt-3 mb-2">
     <div class="d-flex align-items-center gap-2 p-2 border border-info rounded bg-info-subtle">
       <span class="fw-semibold">
         Seleccionados: <span id="sel-count">0</span>

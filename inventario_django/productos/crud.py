@@ -76,9 +76,9 @@ import re
 from django.db.utils import IntegrityError   # <-- usa ESTE
 from .mixins import EmpresaBoundMixin
 from .models_inventario import Cargo  # para validarlo
-
-
-
+from .models_inventario import ReglaCriticidad
+from .models_inventario import PreparacionAsignacion
+from .models_inventario import CondicionDetalle   # 👈 NUEVO
 
 
 
@@ -506,7 +506,30 @@ class ExcludeEliminadoFormMixin:
             exclude.append("eliminado")
         return modelform_factory(self.model, fields=fields, exclude=tuple(exclude))
 
+    #############################################################################12/11
+# >>> NUEVO (helper) cerca de otros helpers como _has_field / _scope_by_empresa
+from django.db.models import Q
 
+def _buscar_estado_activo(emp_id, etiqueta: str):
+    """Devuelve el EstadoActivo cuyo nombre/tipo/descripcion/coincida con `etiqueta` (ej. 'Disponible', 'Asignado'),
+       filtrando por empresa y respetando eliminado=False si existe."""
+    from .models_inventario import EstadoActivo
+    qs = EstadoActivo.objects.all()
+    if emp_id:
+        qs = qs.filter(id_empresa_id=emp_id)
+    if _has_field(EstadoActivo, "eliminado"):
+        qs = qs.filter(eliminado=False)
+
+    filtros = Q()
+    for fname in ("tipo", "nombre", "estado", "descripcion"):
+        try:
+            EstadoActivo._meta.get_field(fname)
+            filtros |= Q(**{f"{fname}__iexact": etiqueta})
+        except Exception:
+            pass
+    return qs.filter(filtros).first() if filtros else None
+
+    #############################################################################12/11
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
 
@@ -779,7 +802,24 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
     action_perm = "add"
     crud_config: CrudConfig
 
+    def form_invalid(self, form):
+        from pprint import pprint
+        print("\n=== ERRORES EN FORMULARIO ===")
+        pprint(form.errors)
+        pprint(form.non_field_errors())
+        print("=== FIN ERRORES ===\n")
+        return super().form_invalid(form)
+
+
     def get_form_class(self):
+    ################################################################>>>>>>>>>>>>>15/11
+        if self.model.__name__ == "ReglaCriticidad":
+            return ReglaCriticidadForm
+        if self.model.__name__ == "PreparacionAsignacion":
+            return PreparacionAsignacionForm
+
+    ################################################################>>>>>>>>>>>>>15/11
+
     ################################################################>>>>>>>>>>>>>>>>>
         if self.model.__name__ == "PlanMantencionActivo":
             from productos.forms import PlanMantencionActivoForm
@@ -860,6 +900,22 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
     
     def get_initial(self):
         initial = super().get_initial()
+        initial = super().get_initial()
+        # ... (tu lógica existente)
+
+        emp_id = self.request.session.get("empresa_id")
+
+        if self.model.__name__ == "Activo":
+            # Preselecciona empresa con la empresa de sesión
+            if emp_id:
+                initial.setdefault("id_empresa", emp_id)
+
+            # Preselecciona Estado = “Disponible”
+            ea_disp = _buscar_estado_activo(emp_id, "Disponible")
+            if ea_disp:
+                initial.setdefault("id_estado_activo", ea_disp.pk)
+
+
         # Permite ?plan=ID y/o ?activo=ID
         if self.model.__name__ == "PlanMantencionActivo":
             columnas = [
@@ -1242,6 +1298,14 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         return kwargs
 
     def get_form_class(self):
+    ################################################################>>>>>>>>>>>>>15/11
+        if self.model.__name__ == "ReglaCriticidad":
+            return ReglaCriticidadForm
+        # 🔹 NUEVO: usar el formulario custom para PreparacionAsignacion
+        if self.model.__name__ == "PreparacionAsignacion":
+            return PreparacionAsignacionForm
+
+    ################################################################>>>>>>>>>>>>>15/11
     ################################################################>>>>>>>>>>>>>>>>>
         if self.model.__name__ == "PlanMantencionActivo":
             from productos.forms import PlanMantencionActivoForm
@@ -1657,7 +1721,8 @@ class ActivoForm(forms.ModelForm):
             "nombre_activo",
             "id_estado_activo",
             "id_ubicacion",
-            "id_condicion_activo",
+            #"id_condicion_activo",
+            "id_condicion_detalle",        # ✅ AHORA            
             "id_empleado",
             "id_proveedor",
             "id_factura",
@@ -1681,7 +1746,8 @@ class ActivoForm(forms.ModelForm):
             "id_marca": forms.Select(attrs={"class": "form-select searchable"}),
             "id_estado_activo": forms.Select(attrs={"class": "form-select searchable"}),
             "id_ubicacion": forms.Select(attrs={"class": "form-select searchable"}),
-            "id_condicion_activo": forms.Select(attrs={"class": "form-select searchable"}),
+            #"id_condicion_activo": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_condicion_detalle": forms.Select(attrs={"class": "form-select searchable"}),    # ✅
             "id_empleado": forms.Select(attrs={"class": "form-select searchable"}),
             "id_proveedor": forms.Select(attrs={"class": "form-select searchable"}),
             "id_factura": forms.Select(attrs={"class": "form-select searchable"}),
@@ -1728,6 +1794,11 @@ class ActivoForm(forms.ModelForm):
 #################################################################################>>>>>>>>>>>>>>>>>>>>>>>>>><11/11 16:35
         # Placeholder por defecto
         self.fields["nombre_activo"].choices = [("", "Seleccione un modelo")]
+
+        # Al inicio o cerca de donde seteas labels/widgets en __init__
+#        if self.instance and getattr(self.instance, "nombre_activo", None):
+#            self.fields["nombre_activo"].widget.attrs["data-current-name"] = self.instance.nombre_activo
+
 
 #    # Descomentar en caso de querer ver mensajes dentro de loscampos
 #        self._pretty_empty_labels({
@@ -1794,8 +1865,20 @@ class ActivoForm(forms.ModelForm):
 
         if qs.exists():
             # value y label = nombre_modelo (guardas texto en `nombre_activo`)
-            self.fields["nombre_activo"].choices = [("", "Seleccione un modelo")] + \
-                list(qs.order_by("nombre_modelo").values_list("nombre_modelo", "nombre_modelo"))
+            self.fields["nombre_activo"].choices = [("", "Seleccione un modelo")] + [
+                (m.pk, m.nombre_modelo) for m in qs.order_by("nombre_modelo")
+            ]
+        # Precarga al EDITAR: si el activo guarda texto en nombre_activo, mapea a su Modelo (ID)
+        if not self.data and self.instance and getattr(self.instance, "id_activo", None):
+            actual_name = (self.instance.nombre_activo or "").strip()
+            if actual_name:
+                match = qs.filter(nombre_modelo__iexact=actual_name).first()
+                if match:
+                    self.initial["nombre_activo"] = match.pk
+                    # Asegurar que la opción esté en choices aunque el filtro cambie
+                    if (match.pk, match.nombre_modelo) not in self.fields["nombre_activo"].choices:
+                        self.fields["nombre_activo"].choices.append((match.pk, match.nombre_modelo))
+
 
         # (opcional) obliga a elegir uno
         self.fields["nombre_activo"].required = True
@@ -1820,10 +1903,10 @@ class ActivoForm(forms.ModelForm):
             self.fields["id_empresa"].queryset = self.fields["id_empresa"].queryset.filter(id_empresa=emp_id)
 
         if "id_empleado" in self.fields:
-            qs = Empleado.objects.filter(estado_activo=True)
+            empleados_qs = Empleado.objects.filter(estado_activo=True)
             if emp_id:
-                qs = qs.filter(id_empresa_id=emp_id)
-            self.fields["id_empleado"].queryset = qs.order_by("nombre", "apellido_paterno")
+                empleados_qs = empleados_qs.filter(id_empresa_id=emp_id)
+            self.fields["id_empleado"].queryset = empleados_qs.order_by("nombre", "apellido_paterno")
 
         if "id_factura" in self.fields:
             from .models_inventario import Factura
@@ -1834,12 +1917,45 @@ class ActivoForm(forms.ModelForm):
             self.fields["id_factura"].label = "Factura (folio)"
             self.fields["id_factura"].help_text = "Opcional. Selecciona por folio; puedes dejarlo en blanco."
 
-        if "id_condicion_activo" in self.fields:
-            from .models_inventario import CondicionActivo
-            cqs = CondicionActivo.objects.all()
-            if emp_id:
-                cqs = cqs.filter(id_empresa_id=emp_id)
-            self.fields["id_condicion_activo"].queryset = cqs.order_by("descripcion")
+#        if "id_condicion_activo" in self.fields:
+#            from .models_inventario import CondicionActivo
+#            cqs = CondicionActivo.objects.all()
+#            if emp_id:
+#                cqs = cqs.filter(id_empresa_id=emp_id)
+#            self.fields["id_condicion_activo"].queryset = cqs.order_by("descripcion")
+                # Condición (detalle) visible para el usuario
+##################################################### 20/10 ###################################                
+        if "id_condicion_detalle" in self.fields:
+            qs_cond = CondicionDetalle.objects.all()
+
+            # Filtrar por empresa, si el modelo la tiene
+            if emp_id and _model_has_empresa_fk(CondicionDetalle):
+                qs_cond = qs_cond.filter(id_empresa_id=emp_id)
+
+            # Ocultar eliminados si el modelo tiene campo `eliminado`
+            if _has_field(CondicionDetalle, "eliminado"):
+                qs_cond = qs_cond.filter(eliminado=False)
+
+            # Orden genérico
+            qs_cond = qs_cond.order_by("pk")
+            self.fields["id_condicion_detalle"].queryset = qs_cond
+
+            # Nombre amigable
+            self.fields["id_condicion_detalle"].label = "Condición"
+
+            # (Opcional) preseleccionar "Nuevo [Sin Preparar]" solo en creación
+            if not self.instance.pk and not self.data:
+                try:
+                    default_detalle = qs_cond.filter(
+                        condicion_activo__codigo_sistema="NUEVO",
+                        descripcion__icontains="Sin Preparar",
+                    ).first()
+                    if default_detalle:
+                        self.fields["id_condicion_detalle"].initial = default_detalle.pk
+                except Exception:
+                    # Si los nombres de campos no coinciden, simplemente no fija inicial.
+                    pass
+##################################################### 20/10 ###################################   
 
         if "id_departamento" in self.fields:
             dqs = Departamento.objects.all()
@@ -1867,67 +1983,67 @@ class ActivoForm(forms.ModelForm):
                         "La ubicación actual está marcada como eliminada. Debes reemplazarla para guardar."
                     )
 
-        if "id_marca" in self.fields:
-            mqs = Marca.objects.all()
-            if emp_id:
-                mqs = mqs.filter(id_empresa_id=emp_id)
-            self.fields["id_marca"].queryset = mqs.order_by("nombre_marca")
+#        if "id_marca" in self.fields:
+#            mqs = Marca.objects.all()
+#            if emp_id:
+#                mqs = mqs.filter(id_empresa_id=emp_id)
+#            self.fields["id_marca"].queryset = mqs.order_by("nombre_marca")
 
-        # ====== Campo "nombre_activo" como lista de Modelos (y precarga en edición) ======
-        if "nombre_activo" in self.fields:
-            # Detecta tipo actual: POST > initial > instancia
-            # Detecta el tipo seleccionado (POST, initial o instancia)
-            tipo_id = (
-                self.data.get("id_tipo_activo")
-                or self.initial.get("id_tipo_activo")
-                or getattr(self.instance, "id_tipo_activo_id", None)
-            )
-            # Si vino instancia, normaliza a PK
-            if hasattr(tipo_id, "pk"):
-                tipo_id = tipo_id.pk
-
-            modelos_qs = Modelo.objects.all()
-            if emp_id:
-                modelos_qs = modelos_qs.filter(id_empresa_id=emp_id)
-            if tipo_id:
-                modelos_qs = modelos_qs.filter(id_tipo_activo_id=tipo_id)
-
-            # Campo como ModelChoiceField
-            # ... después de construir `qs` y setear `choices` ...
-            self.fields["nombre_activo"].required = True
-
-            # Precarga en edición (si hay un valor ya guardado en texto)
-            if not self.data and self.instance and getattr(self.instance, "id_activo", None):
-                actual = (self.instance.nombre_activo or "").strip()
-                if actual:
-                    match = (qs.filter(nombre_modelo__iexact=actual)
-                            .values_list("nombre_modelo", flat=True)
-                            .first())
-                    if match:
-                        self.initial["nombre_activo"] = match
-                    else:
-                        self.fields["nombre_activo"].help_text = (
-                            f'Valor actual guardado: “{actual}”. Selecciona el modelo equivalente.'
-                        )
-
-            # Precargar valor actual al EDITAR (el modelo se guarda como TEXTO en Activo)
-            if not self.data and self.instance and getattr(self.instance, "id_activo", None):
-                actual = (self.instance.nombre_activo or "").strip()
-                if actual:
-                    # sé tolerante a mayúsculas/acentos/espacios
-                    match = (modelos_qs
-                            .filter(nombre_modelo__iexact=actual)
-                            .first())
-                    if match:
-                        self.initial["nombre_activo"] = match.pk
-                        # Si no viene marca inicial, y el modelo tiene, precárgala
-                        if "id_marca" in self.fields and not self.initial.get("id_marca"):
-                            if getattr(match, "id_marca_id", None):
-                                self.initial["id_marca"] = match.id_marca_id
-                    else:
-                        self.fields["nombre_activo"].help_text = (
-                            f'Valor actual guardado: “{actual}”. Selecciona el modelo equivalente.'
-                        )
+#        # ====== Campo "nombre_activo" como lista de Modelos (y precarga en edición) ======
+#        if "nombre_activo" in self.fields:
+#            # Detecta tipo actual: POST > initial > instancia
+#            # Detecta el tipo seleccionado (POST, initial o instancia)
+#            tipo_id = (
+#                self.data.get("id_tipo_activo")
+#                or self.initial.get("id_tipo_activo")
+#                or getattr(self.instance, "id_tipo_activo_id", None)
+#            )
+#            # Si vino instancia, normaliza a PK
+#            if hasattr(tipo_id, "pk"):
+#                tipo_id = tipo_id.pk
+#
+#            modelos_qs = Modelo.objects.all()
+#            if emp_id:
+#                modelos_qs = modelos_qs.filter(id_empresa_id=emp_id)
+#            if tipo_id:
+#                modelos_qs = modelos_qs.filter(id_tipo_activo_id=tipo_id)
+#
+#            # Campo como ModelChoiceField
+#            # ... después de construir `qs` y setear `choices` ...
+#            self.fields["nombre_activo"].required = True
+#
+#            # Precarga en edición (si hay un valor ya guardado en texto)
+#            if not self.data and self.instance and getattr(self.instance, "id_activo", None):
+#                actual = (self.instance.nombre_activo or "").strip()
+#                if actual:
+#                    match = (modelos_qs.filter(nombre_modelo__iexact=actual)
+#                            .values_list("nombre_modelo", flat=True)
+#                            .first())
+#                    if match:
+#                        self.initial["nombre_activo"] = match
+#                    else:
+#                        self.fields["nombre_activo"].help_text = (
+#                            f'Valor actual guardado: “{actual}”. Selecciona el modelo equivalente.'
+#                        )
+#
+#            # Precargar valor actual al EDITAR (el modelo se guarda como TEXTO en Activo)
+#            if not self.data and self.instance and getattr(self.instance, "id_activo", None):
+#                actual = (self.instance.nombre_activo or "").strip()
+#                if actual:
+#                    # sé tolerante a mayúsculas/acentos/espacios
+#                    match = (modelos_qs
+#                            .filter(nombre_modelo__iexact=actual)
+#                            .first())
+#                    if match:
+#                        self.initial["nombre_activo"] = match.pk
+#                        # Si no viene marca inicial, y el modelo tiene, precárgala
+#                        if "id_marca" in self.fields and not self.initial.get("id_marca"):
+#                            if getattr(match, "id_marca_id", None):
+#                                self.initial["id_marca"] = match.id_marca_id
+#                    else:
+#                        self.fields["nombre_activo"].help_text = (
+#                            f'Valor actual guardado: “{actual}”. Selecciona el modelo equivalente.'
+#                        )
 
         # Oculta métricas de seguridad si no es crítico
         if not getattr(self.instance, "activo_critico", False):
@@ -1946,25 +2062,48 @@ class ActivoForm(forms.ModelForm):
         except Exception:
             pass
 
-    def clean_numero_serie(self):
-        return (self.cleaned_data.get("numero_serie") or "").strip()
+
+
 
     def clean_nombre_activo(self):
-        v = self.cleaned_data.get("nombre_activo")
+        """
+        Normaliza lo que venga del select:
+        - Si viene una instancia de Modelo -> guarda su nombre.
+        - Si viene un número (id) -> busca el nombre y lo guarda.
+        - Si viene texto -> guarda el texto.
+        - En edición, si viene vacío, conserva el valor que ya tenía.
+        """
         try:
             from .models_inventario import Modelo as _Modelo
         except Exception:
             _Modelo = Modelo
-        # Si eligió un Modelo → guardar su nombre en el CharField
+
+        v = self.cleaned_data.get("nombre_activo")
+
+        # 1) Instancia de Modelo
         if isinstance(v, _Modelo):
-            # (Opcional) también podrías forzar la marca aquí si quieres
             return v.nombre_modelo
-        # Si viene vacío: en edición conserva; en creación queda vacío
-        if v in (None, ""):
+
+        # 2) String / valor posteado
+        s = (str(v).strip() if v is not None else "")
+
+        # 2.a) Vacío: en edición conserva, en creación queda vacío
+        if not s:
             if self.instance and getattr(self.instance, "id_activo", None):
                 return self.instance.nombre_activo or ""
             return ""
-        return v
+
+        # 2.b) Si es id numérico -> mapear a nombre
+        if s.isdigit():
+            m = _Modelo.objects.filter(pk=int(s)).only("nombre_modelo").first()
+            return m.nombre_modelo if m else s  # fallback seguro
+
+        # 2.c) Texto ya es el nombre del modelo
+        return s
+
+
+    def clean_numero_serie(self):
+        return (self.cleaned_data.get("numero_serie") or "").strip()
 
     def clean(self):
         cleaned = super().clean()
@@ -1987,20 +2126,43 @@ class ActivoForm(forms.ModelForm):
         return cleaned
 
     def save(self, commit=True):
+        # 1) Sincronizar condición maestro/detalle ANTES de guardar
+        detalle = self.cleaned_data.get("id_condicion_detalle")
+
+        if detalle is not None:
+            # Lo que ve el usuario
+            self.instance.id_condicion_detalle = detalle
+            # Compatibilidad con la tabla maestra (FK en CondicionDetalle → CondicionActivo)
+            # Ojo: el campo en CondicionDetalle se llama `condicion_activo`
+            self.instance.id_condicion_activo = detalle.condicion_activo
+        else:
+            # Si no eligieron nada, dejamos ambos en None
+            self.instance.id_condicion_detalle = None
+            self.instance.id_condicion_activo = None
+
+        # 2) Guardado normal + atributos dinámicos
         with transaction.atomic():
             activo = super().save(commit=commit)
+
             if commit and self.request:
                 tipo_id = self.cleaned_data.get("id_tipo_activo")
                 if tipo_id:
                     atributos = AtributosActivo.objects.filter(id_tipo_activo=tipo_id)
                     if self.request.session.get("empresa_id"):
-                        atributos = atributos.filter(id_tipo_activo__id_empresa_id=self.request.session.get("empresa_id"))
-                    existentes = {aa.atributo_id: aa
-                                  for aa in AgregacionAtributosPorActivo.objects.filter(activo_id=activo.id_activo)}
+                        atributos = atributos.filter(
+                            id_tipo_activo__id_empresa_id=self.request.session.get("empresa_id")
+                        )
+
+                    existentes = {
+                        aa.atributo_id: aa
+                        for aa in AgregacionAtributosPorActivo.objects.filter(activo_id=activo.id_activo)
+                    }
+
                     for attr in atributos:
                         key = f"attr_{attr.id_atributo_activo}"
                         valor = (self.request.POST.get(key) or "").strip()
                         fila = existentes.get(attr.id_atributo_activo)
+
                         if fila:
                             if (fila.valor or "") != valor:
                                 fila.valor = valor or None
@@ -2010,9 +2172,199 @@ class ActivoForm(forms.ModelForm):
                                 AgregacionAtributosPorActivo.objects.create(
                                     activo_id=activo.id_activo,
                                     atributo_id=attr.id_atributo_activo,
-                                    valor=valor
+                                    valor=valor,
                                 )
         return activo
+
+
+##############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><15/11
+######################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+class ReglaCriticidadForm(forms.ModelForm):
+    """Formulario para crear/editar reglas de criticidad por tipo de activo y cargo."""
+
+    # Usamos ModelChoiceField para mostrar un <select> de cargos
+    cargo_nombre = forms.ModelChoiceField(
+        label="Cargo nombre",
+        queryset=Cargo.objects.none(),  # se completa en __init__
+        widget=forms.Select(attrs={"class": "form-select searchable"}),
+        required=True,
+        help_text="Seleccione un cargo; se guardará el nombre tal como aparece en Empleado.cargo.",
+    )
+
+    class Meta:
+        model = ReglaCriticidad
+        fields = [
+            "id_empresa",
+            "id_tipo_activo",
+            "cargo_nombre",
+            "confidencialidad",
+            "integridad",
+            "disponibilidad",
+            "clasificacion",
+        ]
+
+        widgets = {
+            "id_empresa": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_tipo_activo": forms.Select(attrs={"class": "form-select searchable"}),
+
+            "confidencialidad": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "max": 4, "step": 1}
+            ),
+            "integridad": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "max": 4, "step": 1}
+            ),
+            "disponibilidad": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "max": 4, "step": 1}
+            ),
+            "clasificacion": forms.Select(
+                choices=[
+                    ("confidencial", "Confidencial"),
+                    ("uso_interno", "Uso Interno"),
+                    ("publico", "Público"),
+                ],
+                attrs={"class": "form-select"},
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        """
+        Permitimos pasar 'empresa' desde la vista para limitar los cargos al id_empresa.
+        Si no viene, intentamos usar la empresa de la instancia (en edición).
+        """
+        empresa = kwargs.pop("empresa", None)
+        super().__init__(*args, **kwargs)
+
+        qs = Cargo.objects.filter(eliminado=False)
+
+        # Si la vista pasó empresa, filtramos por ella
+        if empresa is not None:
+            qs = qs.filter(id_empresa=empresa)
+        # Si estamos editando y la regla ya tiene empresa, usamos esa
+        elif self.instance and self.instance.id_empresa_id:
+            qs = qs.filter(id_empresa=self.instance.id_empresa)
+
+        qs = qs.order_by("nombre_cargo")    
+        
+        self.fields["cargo_nombre"].queryset = qs.order_by("nombre_cargo")
+        self.fields["cargo_nombre"].empty_label = "-- Seleccione un cargo --"
+
+
+        # === NUEVO: repoblar el select al editar ==========================
+        # Si estamos editando (instance con PK) y hay un cargo_nombre guardado,
+        # buscamos el Cargo cuyo nombre coincida y lo ponemos como initial.
+        if self.instance and self.instance.pk and self.instance.cargo_nombre:
+            nombre_guardado = " ".join(
+                (self.instance.cargo_nombre or "").split()
+            )  # normalizamos igual que en clean
+
+            cargo_inicial = qs.filter(
+                nombre_cargo__iexact=nombre_guardado
+            ).first()
+
+            if cargo_inicial:
+                # Esto hace que el <select> aparezca con el cargo correcto seleccionado
+                self.initial["cargo_nombre"] = cargo_inicial
+        # ==================================================================
+
+    # Este clean transforma el Cargo seleccionado en un string *normalizado*
+    # que es lo que espera el CharField `cargo_nombre` en el modelo.
+    def clean_cargo_nombre(self):
+        cargo_obj = self.cleaned_data["cargo_nombre"]  # es un objeto Cargo
+        nombre = cargo_obj.nombre_cargo or ""
+
+        # Normalizamos: quitamos espacios al principio/fin
+        # y colapsamos espacios múltiples en uno solo.
+        nombre_normalizado = " ".join(nombre.split())
+        return nombre_normalizado
+
+    def clean_confidencialidad(self):
+        value = self.cleaned_data.get("confidencialidad")
+        if value is not None and (value < 1 or value > 4):
+            raise forms.ValidationError("El valor de Confidencialidad debe estar entre 1 y 4.")
+        return value
+
+    def clean_integridad(self):
+        value = self.cleaned_data.get("integridad")
+        if value is not None and (value < 1 or value > 4):
+            raise forms.ValidationError("El valor de Integridad debe estar entre 1 y 4.")
+        return value
+
+    def clean_disponibilidad(self):
+        value = self.cleaned_data.get("disponibilidad")
+        if value is not None and (value < 1 or value > 4):
+            raise forms.ValidationError("El valor de Disponibilidad debe estar entre 1 y 4.")
+        return value
+#################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+class PreparacionAsignacionForm(forms.ModelForm):
+    # Sobrescribimos el CharField cargo_nombre con un ModelChoiceField
+    cargo = forms.ModelChoiceField(
+        label="Cargo",
+        queryset=Cargo.objects.none(),  # se rellena en __init__
+        widget=forms.Select(attrs={"class": "form-select searchable"}),
+        required=True,
+        help_text="Nombre del cargo tal como se usa en Empleado.cargo.",
+    )
+
+    class Meta:
+        model = PreparacionAsignacion
+        fields = [
+            "id_empresa",
+            "id_tipo_activo",
+            "cargo",
+            "nombre",
+            "habilitada",
+        ]
+        widgets = {
+            "id_empresa": forms.Select(attrs={"class": "form-select searchable"}),
+            "id_tipo_activo": forms.Select(attrs={"class": "form-select searchable"}),
+            "nombre": forms.TextInput(attrs={"class": "form-control"}),
+            "habilitada": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        """
+        Igual que en ReglaCriticidadForm:
+
+        - Si la vista nos pasa `empresa`, filtramos cargos por esa empresa.
+        - Si estamos editando y la preparación ya tiene empresa, usamos esa.
+        """
+        empresa = kwargs.pop("empresa", None)
+        super().__init__(*args, **kwargs)
+
+        qs = Cargo.objects.filter(eliminado=False)
+
+        if empresa is not None:
+            qs = qs.filter(id_empresa=empresa)
+        elif self.instance and self.instance.id_empresa_id:
+            qs = qs.filter(id_empresa=self.instance.id_empresa_id)
+
+        self.fields["cargo"].queryset = qs.order_by("nombre_cargo")
+        self.fields["cargo"].empty_label = "-- Seleccione un cargo --"
+
+        qs = qs.order_by("nombre_cargo")    
+
+        if self.instance and self.instance.pk and self.instance.cargo:
+            nombre_guardado = " ".join((self.instance.cargo or "").split())
+            cargo_inicial = qs.filter(nombre_cargo__iexact=nombre_guardado).first()
+            if cargo_inicial:
+                self.initial["cargo"] = cargo_inicial
+      
+
+    def clean_cargo_nombre(self):
+        """
+        Convertimos el Cargo seleccionado en el string normalizado
+        que se guarda en el CharField `cargo_nombre` del modelo.
+        """
+        cargo_obj = self.cleaned_data["cargo"]
+        nombre = cargo_obj.nombre_cargo or ""
+        # normalizar espacios
+        return " ".join(nombre.split())
+
+
+
+##############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><15/11
+
+
 
 class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     """Delete genérico con **borrado lógico** si el modelo tiene `eliminado`.
@@ -2041,7 +2393,45 @@ class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
                 # esto hará que el signal registre ELIMINAR
                 setattr(self.object, "_audit_force_tipo", "ELIMINAR")
                 self.object.eliminado = True
-                self.object.save(update_fields=["eliminado"])
+#                self.object.save(update_fields=["eliminado"])
+
+                # ============================
+                # NUEVO: preparar update_fields ##################### 23/11 #################### 20:02
+                # ============================
+                update_fields = ["eliminado"]
+
+                # Si el modelo es Activo, marcar condición "No Disponible [Eliminado]"
+                if isinstance(self.object, Activo):
+                    emp_id = request.session.get("empresa_id")
+
+                    detalle_eliminado = (
+                        CondicionDetalle.objects
+                        .filter(
+                            eliminado=False,
+                            id_empresa_id=emp_id,
+                            condicion_activo__descripcion__iexact="No Disponible",
+                        )
+                        # asumimos que la descripción contiene "eliminado",
+                        # por ejemplo: "No Disponible [Eliminado]"
+                        .filter(descripcion__icontains="eliminado")
+                        .order_by("id_condicion_detalle")
+                        .first()
+                    )
+
+                    if detalle_eliminado:
+                        self.object.id_condicion_activo = detalle_eliminado.condicion_activo
+                        self.object.id_condicion_detalle = detalle_eliminado
+                        update_fields += ["id_condicion_activo", "id_condicion_detalle"]
+
+                # Guardar solo los campos modificados
+                self.object.save(update_fields=update_fields)
+
+                # ============================
+                # FIN BLOQUE NUEVO     ##################### 23/11 #################### 20:02
+                # ============================
+
+
+
                 dj_messages.success(request, "Registro eliminado.")
             else:
                 dj_messages.info(request, "El registro ya estaba eliminado.")
@@ -2572,6 +2962,7 @@ CRUD_CONFIGS = _collect_unique_crud_configs()
 
 # Ordenar Activos por ID descendente por defecto (lo nuevo arriba)
 for _cfg in CRUD_CONFIGS:
+    
 
     if _cfg.model._meta.model_name == "empleado":
         # Define exactamente las columnas que quieres (pueden ser > 9)
@@ -2608,8 +2999,6 @@ for _cfg in CRUD_CONFIGS:
         if "estado_planes_badge" not in cols:
             cols.insert(2, "estado_planes_badge")  # o en el lugar que desees
         _cfg.list_display = cols
-
-
     
     if _cfg.model._meta.model_name == "planmantencionactivo":
         cols = list(_cfg.list_display)
@@ -2621,6 +3010,8 @@ for _cfg in CRUD_CONFIGS:
         if "estado_badge" not in cols:
             cols.insert(7, "estado_badge")
         _cfg.list_display = cols
+        # ⬇⬇ NUEVO: mostrar primero los últimos que se crearon
+        _cfg.ordering = ("-id_plan_mantencion_activo",)
 
         
     if _cfg.model._meta.model_name == "activo":
@@ -2634,16 +3025,27 @@ for _cfg in CRUD_CONFIGS:
             if "id_factura" not in cols:
                 cols.append("id_factura")
         _cfg.list_display = cols
+
+
     # Activo: mostrar la columna "Condición" en la lista
+    # Activo: mostrar la columna "Condición" usando id_condicion_detalle
     if _cfg.model._meta.model_name == "activo":
         cols = list(_cfg.list_display)
+
+        # Si aún existe la antigua columna, la sacamos para no duplicar
+        if "id_condicion_activo" in cols:
+            cols.remove("id_condicion_activo")
+
         try:
+            # La idea es mostrar la condición justo después del estado del activo
             i = cols.index("id_estado_activo")
-            if "id_condicion_activo" not in cols:
-                cols.insert(i + 1, "id_condicion_activo")
+            if "id_condicion_detalle" not in cols:
+                cols.insert(i + 1, "id_condicion_detalle")
         except ValueError:
-            if "id_condicion_activo" not in cols:
-                cols.append("id_condicion_activo")
+            # Si por algún motivo no está id_estado_activo, la agregamos al final
+            if "id_condicion_detalle" not in cols:
+                cols.append("id_condicion_detalle")
+
         _cfg.list_display = cols
 
     if _cfg.model._meta.model_name == "activo":
@@ -2703,6 +3105,10 @@ for _cfg in CRUD_CONFIGS:
         _cfg.ordering = ("-id_mantencion",)
     if _cfg.model._meta.model_name == "factura":
         _cfg.ordering = ("-id_factura",)
+    if _cfg.model._meta.model_name == "ubicacion":
+        _cfg.ordering = ("-id_ubicacion",)
+    if _cfg.model._meta.model_name == "cargo":
+        _cfg.ordering = ("-id_cargo",)
 
         # === Historial de Activos: mostrar la FOTO del nombre, no la FK ===
     if _cfg.model._meta.model_name == "historialactivos":
@@ -2999,7 +3405,4 @@ def pma_ejecucion_tareas_json(request, ejec_id: int):
             .order_by("id_tarea_plan_id")
             .values("id_tarea_plan_id", "descripcion", "obligatorio", "marcada", "observacion"))
     return JsonResponse({"items": list(rows)})
-
-
-
 

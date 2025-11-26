@@ -32,6 +32,7 @@ from .models_inventario import (Activo, MedicionActivo, PlanMantencion, PlanMant
 from django.db.models import Q
 from decimal import Decimal
 from datetime import date
+from .models_inventario import Activo, ReglaCriticidad
 
 
 
@@ -817,4 +818,91 @@ def _solo_un_vigente_por_activo(sender, instance: PlanMantencionActivo, **kwargs
             id_activo=instance.id_activo, es_vigente=True
         ).exclude(pk=instance.pk).update(es_vigente=False)
 
-        
+##############################################>>>>>>>>>>>>>>>>>>>>>>>>>14/11
+#############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from .models_inventario import Activo, ReglaCriticidad
+
+
+def _normalizar(texto: str) -> str:
+    """
+    Quita espacios al inicio/fin y colapsa múltiples espacios internos.
+    '  Jefe   de  TI   ' -> 'Jefe de TI'
+    """
+    return " ".join((texto or "").split())
+
+
+@receiver(post_save, sender=Activo)
+def asignar_criticidad_por_regla(sender, instance: Activo, created: bool, **kwargs):
+    """
+    Al guardar un Activo (nuevo o editado):
+    - Si tiene empleado asignado y tipo de activo
+    - Busca una ReglaCriticidad por (empresa, tipo_activo, cargo_nombre)
+    - Copia los valores de criticidad al activo y lo marca como crítico.
+    """
+
+    # 1) Debe tener empleado y tipo de activo
+    if not instance.id_empleado_id or not instance.id_tipo_activo_id:
+        return
+
+    empleado = instance.id_empleado
+
+    # 2) Normalizamos el nombre del cargo: quitamos espacios extra
+    cargo = " ".join((empleado.cargo or "").split())
+    if not cargo:
+        return
+
+    # 3) Aseguramos empresa del activo usando la del empleado si viene nula
+    if instance.id_empresa_id is None and empleado.id_empresa_id:
+        instance.id_empresa = empleado.id_empresa  # esto también setea id_empresa_id en memoria
+
+    if instance.id_empresa_id is None:
+        # Sin empresa no podemos matchear regla
+        return
+
+    # (Opcional – solo para debug, puedes borrar luego)
+    # print(f"[Signal] Buscando regla para empresa={instance.id_empresa_id}, "
+    #       f"tipo={instance.id_tipo_activo_id}, cargo='{cargo}'")
+
+    # 4) Buscar regla: empresa + tipo_activo + cargo_nombre (case-insensitive)
+    regla = (
+        ReglaCriticidad.objects
+        .filter(
+            eliminado=False,
+            id_empresa=instance.id_empresa,
+            id_tipo_activo=instance.id_tipo_activo,
+            cargo_nombre__iexact=cargo,
+        )
+        .order_by("id_regla")
+        .first()
+    )
+
+    if not regla:
+        # (Opcional debug)
+        # print("[Signal] No se encontró regla de criticidad para ese binomio.")
+        return
+
+    # 5) Armamos los cambios a aplicar SIEMPRE que haya regla
+    cambios = {
+        "activo_critico": True,
+        "clasificacion": regla.clasificacion,
+        "confidencialidad": regla.confidencialidad,
+        "integridad": regla.integridad,
+        "disponibilidad": regla.disponibilidad,
+    }
+
+    # Quitamos claves con valor None por seguridad
+    cambios = {k: v for k, v in cambios.items() if v is not None}
+
+    if not cambios:
+        return
+
+    # (Opcional debug)
+    # print(f"[Signal] Aplicando cambios de criticidad al Activo {instance.pk}: {cambios}")
+
+    # 6) Usamos update() para NO disparar de nuevo post_save y evitar loops
+    instance.__class__.objects.filter(pk=instance.pk).update(**cambios)

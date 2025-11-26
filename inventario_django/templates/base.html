@@ -14,6 +14,7 @@
 <script>
   // Django pone aquí la URL exacta del endpoint
   window.PRODUCTOS_API_MODELOS = "{% url 'productos:api_modelos_por_tipo' %}";
+  window.PRODUCTOS_API_MARCAS  = "{% url 'productos:api_marcas_por_tipo' %}";
 </script>
 
 </head>
@@ -379,7 +380,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 
-
+<!--
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const tipoSel   = document.querySelector('#id_id_tipo_activo') || document.querySelector('#id_tipo_activo');
@@ -602,6 +603,7 @@ document.addEventListener('DOMContentLoaded', function () {
   })();
 });
 </script>
+-->
 
 </body>
 </html>

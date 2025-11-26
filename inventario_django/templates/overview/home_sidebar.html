@@ -21,7 +21,7 @@
 
           <div class="list-group list-group-flush sidebar-list">
             {% for m in menu %}
-              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos' and m.slug != 'atributoopcionportipoactivos' and m.slug != 'documentoactivos' and m.slug != 'tipodocumentoactivos'%}
+              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos' and m.slug != 'atributoopcionportipoactivos' and m.slug != 'documentoactivos' and m.slug != 'tipodocumentoactivos' and m.slug != 'activonotas' and m.slug != 'accionpreparacions' and m.slug != 'condiciondetalles'%}
 
                 {% with path=request.path %}
                 <a href="/{{ m.slug }}/"
@@ -203,7 +203,7 @@
                 <tr>
                   <th>ID</th>
                   <th>Etiqueta</th>
-                  <th>Nombre</th>
+                  <th>Modelo</th>
                   <th>Tipo</th>
                   <th>Ubicación</th>
                   <th>Empleado</th>

@@ -31,6 +31,27 @@ from django.db import models
 from django.db.models import Q, UniqueConstraint
 from django.db.models.functions import Lower, Trim
 from django.contrib import messages as dj_messages
+from itertools import groupby
+from django.db.models.functions import TruncDate
+from django.utils import timezone
+import os
+from uuid import uuid4
+from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
+from django.utils import timezone
+
+
+def nota_image_upload_to(instance, filename: str) -> str:
+    base, ext = os.path.splitext(filename)
+    ext = (ext or "").lower()
+    # /media/activos/<id_activo>/notas/AAAA/MM/nota-<uuid>.ext
+    return f"activos/{instance.id_activo_id}/notas/{timezone.now():%Y/%m}/nota-{uuid4().hex}{ext}"
+
+def validate_image_size(file):
+    max_mb = 5
+    if file.size > max_mb * 1024 * 1024:
+        raise ValidationError(f"La imagen supera {max_mb} MB.")
+
 
 
 
@@ -243,6 +264,13 @@ class CondicionActivo(models.Model):
     descripcion = models.CharField(max_length=100)
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa', null=True, blank=True)
     eliminado = models.BooleanField(default=False)
+        # 👇 NUEVO CAMPO
+    codigo_sistema = models.CharField(
+        "Código sistema",
+        max_length=30,
+        blank=True,
+        null=True,
+    )
 
     class Meta:
         managed = True
@@ -254,6 +282,77 @@ class CondicionActivo(models.Model):
     def __str__(self):
         return self.descripcion
 
+    ########################################### 18/11 ############################## 
+class CondicionDetalle(models.Model):
+    """
+    Detalle de condición visible para usuarios.
+    Ejemplos:
+      - No disponible -> Obsoleto / Perdido / Vendido
+      - En reparación -> En mantención externa, etc.
+    """
+    id_condicion_detalle = models.AutoField(
+        primary_key=True,
+        db_column="id_condicion_detalle"
+    )
+
+    descripcion = models.CharField(
+        max_length=100,
+        db_column="descripcion"
+    )
+
+    # Relación con la condición "maestra" (Nuevo / Operativo / No Disponible / En Reparación)
+    condicion_activo = models.ForeignKey(
+        CondicionActivo,
+        on_delete=models.PROTECT,
+        db_column="id_condicion_activo",
+        related_name="detalles"
+    )
+
+    id_empresa = models.ForeignKey(
+        Empresa,
+        models.DO_NOTHING,
+        db_column='id_empresa',
+        null=True,
+        blank=True
+    )
+
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        managed = True
+        db_table = 'condicion_detalle'
+        unique_together = (('id_empresa', 'descripcion'),)
+        verbose_name = "Detalle de condición"
+        verbose_name_plural = "Detalles de condición"
+
+    def __str__(self):
+        base = self.condicion_activo.descripcion if self.condicion_activo_id else ""
+        det  = self.descripcion or ""
+        if base and det:
+            return f"{base} [{det}]"
+        return det or base or "—"
+    
+    ###########################################22/11##################################
+        # 👇 AGREGA ESTO (no requiere migración)
+    @classmethod
+    def detalle_unico_por_codigo(cls, codigo_sistema: str, id_empresa: int | None = None):
+        """
+        Devuelve el detalle asociado al CondicionActivo con ese codigo_sistema.
+        Asumimos que solo hay un detalle 'válido' por empresa para ese código.
+        """
+        qs = cls.objects.filter(
+            eliminado=False,
+            condicion_activo__codigo_sistema=codigo_sistema,
+        )
+        if id_empresa:
+            qs = qs.filter(id_empresa_id=id_empresa)
+
+        # Como tú dijiste: asumimos que solo hay uno,
+        # así que tomamos el primero por ID.
+        return qs.order_by("id_condicion_detalle").first()
+    ###########################################22/11##################################
+
+    ########################################### 18/11 ############################## 
 
 
 
@@ -396,6 +495,8 @@ class Activo(models.Model):
     id_condicion_activo = models.ForeignKey(CondicionActivo, models.DO_NOTHING, db_column='id_condicion_activo', blank=True, null=True, verbose_name="Condición")
     id_factura = models.ForeignKey('Factura', models.DO_NOTHING, db_column='id_factura', blank=True, null=True, verbose_name='Factura (folio)')
     id_ubicacion = models.ForeignKey("Ubicacion", on_delete=models.SET_NULL, null=True, blank=True, db_column="id_ubicacion", related_name="activos")
+        # NUEVO: lo que verá el usuario
+    id_condicion_detalle = models.ForeignKey(CondicionDetalle, models.DO_NOTHING, db_column='id_condicion_detalle', blank=True, null=True, verbose_name="Condición_Activo",)
 
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
@@ -415,7 +516,31 @@ class Activo(models.Model):
             if self.id_departamento is None:
                 self.id_departamento = getattr(self.id_empleado, "id_departamento", None)
 
+        # 🔁 Sincronizar condición maestra según el detalle
+        if self.id_condicion_detalle_id:
+            self.id_condicion_activo_id = self.id_condicion_detalle.condicion_activo_id
+
         is_new = self._state.adding
+        ########################################################### 20/10 #########################################################
+        # ### 1) Si es nuevo y NO trae detalle, forzar "Sin Preparar"
+        if is_new and not self.id_condicion_detalle_id:
+            from .models_inventario import CondicionDetalle
+
+            qs = CondicionDetalle.objects.filter(
+                eliminado=False,
+                descripcion__iexact="Sin Preparar",
+            )
+            if self.id_empresa_id:
+                qs = qs.filter(id_empresa=self.id_empresa_id)
+
+            detalle = qs.select_related("condicion_activo").first()
+            if detalle:
+                self.id_condicion_detalle = detalle
+
+        # ### 2) Sincronizar condición maestra según el detalle
+        if self.id_condicion_detalle_id:
+            self.id_condicion_activo_id = self.id_condicion_detalle.condicion_activo_id
+        ########################################################### 20/10 #########################################################
         super().save(*args, **kwargs)  # guarda primero para tener ID
 
 
@@ -423,6 +548,35 @@ class Activo(models.Model):
             generar_qr(self)
             super().save(update_fields=["qr_code"])
 
+
+
+################################################################### 22/11 #############################################################
+        # 👇 AGREGA ESTE MÉTODO
+    def marcar_como_operativo(self, guardar: bool = True):
+        """
+        Cambia la condición del activo a OPERATIVO[*] según la empresa del activo.
+
+        Usa CondicionActivo.codigo_sistema = 'OPERATIVO' y toma el único
+        CondicionDetalle configurado para esa empresa.
+        """
+        from .models_inventario import CondicionDetalle  # import local para evitar ciclos
+
+        detalle_op = CondicionDetalle.detalle_unico_por_codigo(
+            "OPERATIVO",
+            self.id_empresa_id,
+        )
+        if not detalle_op:
+            raise ValidationError(
+                "No está configurado el detalle de condición OPERATIVO "
+                "para esta empresa."
+            )
+
+        self.id_condicion_detalle = detalle_op
+        self.id_condicion_activo_id = detalle_op.condicion_activo_id
+
+        if guardar:
+            self.save(update_fields=["id_condicion_detalle", "id_condicion_activo"])
+################################################################### 22/11 #############################################################
 
     def _pma_vigente(self):
         return (self.planmantencionactivo_set
@@ -496,6 +650,47 @@ class Activo(models.Model):
         return mark_safe(html)
         
 
+    ##############################################################>>>>>>>>>>>>>>>>>13/11
+    def notas_grouped_por_dia(self):
+        """
+        Devuelve: [{"fecha": date, "items": [{"id","hora","autor","texto"}...]}...]
+        Orden: más recientes primero. Día calculado en zona local.
+        """
+        qs = (
+            self.notas
+                .filter(eliminado=False)
+                .select_related("id_autor")
+                .order_by("-creado_en", "-id_nota")
+        )
+
+        filas = []
+        for n in qs:
+            dt_local = timezone.localtime(n.creado_en)
+            filas.append({
+                "id": n.id_nota,
+                "fecha": dt_local.date(),              # ← usa "fecha"
+                "hora": dt_local.strftime("%H:%M"),
+                "autor": str(n.id_autor) if n.id_autor_id else "",
+                "texto": n.texto,
+                "foto_url": getattr(n, "foto_url", "") or (n.foto.url if getattr(n, "foto", None) else ""),
+            })
+
+        grupos = []
+        for fecha, items in groupby(filas, key=lambda x: x["fecha"]):
+            grupos.append({"fecha": fecha, "items": list(items)})
+        return grupos
+
+    ##############################################################>>>>>>>>>>>>>>>>>13/11
+    #def __str__(self):
+
+        ## Lo mantenemos simple y robusto para que no reviente nada
+        #return f"{self.id_activo} · {self.nombre_activo} · {self.etiqueta}"
+    
+    def __str__(self):
+        """
+        Representación legible del activo en los combos y listas.
+        """
+        return f"{self.etiqueta or '—'} · ID: {self.id_activo} [{self.nombre_activo}]"
 
 
     class Meta:
@@ -504,10 +699,179 @@ class Activo(models.Model):
         verbose_name="Activo"
         verbose_name_plural="Activos"
 
+#########################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+#########################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+class ReglaCriticidad(models.Model):
+    """
+    Reglas de criticidad por:
+    - Empresa
+    - Tipo de activo
+    - Nombre de cargo (texto)
+    """
+
+    id_regla = models.AutoField(primary_key=True, db_column="id_regla")
+
+    # Asociaciones
+    id_empresa = models.ForeignKey(
+        Empresa,
+        models.DO_NOTHING,
+        db_column="id_empresa",
+        null=True,
+        blank=True,
+    )
+    id_tipo_activo = models.ForeignKey(
+        TipoActivo,
+        models.DO_NOTHING,
+        db_column="id_tipo_activo",
+    )
+    cargo_nombre = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Nombre del cargo tal como aparece en Empleado.cargo",
+    )
+
+    # Campos de criticidad (1 a 4)
+    confidencialidad = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(4)],
+    )
+    integridad = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(4)],
+    )
+    disponibilidad = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(4)],
+    )
+
+    clasificacion = models.CharField(
+        max_length=20,
+        choices=[
+            ("confidencial", "Confidencial"),
+            ("uso_interno", "Uso Interno"),
+            ("publico", "Público"),
+        ],
+        null=True,
+        blank=True,
+    )
+
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        managed = True
+        db_table = "regla_criticidad"
+        verbose_name = "Regla de criticidad"
+        verbose_name_plural = "Reglas de criticidad"
+        # 1 regla por empresa + tipo + cargo
+        unique_together = (("id_empresa", "id_tipo_activo", "cargo_nombre"),)
 
     def __str__(self):
-        return f"{self.etiqueta or '—'} · ID: {self.id_activo} [{self.nombre_activo}]"
+        emp = self.id_empresa or "Sin empresa"
+        cargo = self.cargo_nombre or "Sin cargo"
+        return f"{emp} · {self.id_tipo_activo} · {cargo}"
 
+#########################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+#########################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+# --- Preparación de activos antes de asignar ---------------------------------
+# Plan de preparación por (empresa, tipo activo, cargo)
+class PreparacionAsignacion(models.Model):
+    id_preparacion = models.AutoField(primary_key=True)
+
+    id_empresa = models.ForeignKey(
+        'Empresa',
+        models.PROTECT,
+        db_column='id_empresa',
+        related_name='preparaciones_asignacion',
+    )
+    id_tipo_activo = models.ForeignKey(
+        'TipoActivo',
+        models.PROTECT,
+        db_column='id_tipo_activo',
+        related_name='preparaciones_asignacion',
+    )
+
+    # IMPORTANTE: este texto debe coincidir con Empleado.cargo (al menos a nivel lógico)
+    cargo = models.CharField(
+        max_length=150,
+        help_text="Nombre del cargo tal como se usa en Empleado.cargo",
+    )
+
+    # Opcional: nombre descriptivo del plan (ej: 'Prep notebook Jefe TI')
+    nombre = models.CharField(max_length=200, blank=True)
+
+    habilitada = models.BooleanField(default=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'preparacion_asignacion'
+        verbose_name = 'Preparación de asignación'
+        verbose_name_plural = 'Preparaciones de asignación'
+        # 1 sola preparación por combinación empresa + tipo + cargo
+        unique_together = ('id_empresa', 'id_tipo_activo', 'cargo')
+
+    def __str__(self):
+        return f"{self.id_empresa} · {self.id_tipo_activo} · {self.cargo or 'Sin cargo'}"
+
+    @classmethod
+    def reglas_para(cls, activo, cargo_nombre: str):
+        """
+        Devuelve un queryset de PreparacionAsignacion aplicables a este activo y cargo.
+        Normalmente será 0 ó 1, pero lo dejamos como queryset por flexibilidad.
+        """
+        if not activo or not cargo_nombre:
+            return cls.objects.none()
+
+        return (
+            cls.objects
+            .filter(
+                id_empresa_id=getattr(activo, "id_empresa_id", None),
+                id_tipo_activo_id=getattr(activo, "id_tipo_activo_id", None),
+                cargo__iexact=cargo_nombre,
+                habilitada=True,
+                eliminado=False,
+            )
+            .prefetch_related("acciones")  # ← para traer las tareas en un solo viaje
+        )
+
+
+class AccionPreparacion(models.Model):
+    id_accion_preparacion = models.AutoField(primary_key=True)
+
+    id_preparacion = models.ForeignKey(
+        PreparacionAsignacion,
+        models.CASCADE,
+        db_column='id_preparacion',
+        related_name='acciones',   # prep.acciones.all()
+    )
+
+    descripcion = models.CharField(
+        max_length=255,
+        help_text="Ej: 'Instalar Windows', 'Configurar antivirus', etc.",
+    )
+
+    obligatorio = models.BooleanField(
+        default=True,
+        help_text="Si es obligatorio, debe marcarse el check para poder asignar.",
+    )
+
+    orden = models.PositiveIntegerField(default=0)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'accion_preparacion'
+        verbose_name = 'Acción de preparación'
+        verbose_name_plural = 'Acciones de preparación'
+        ordering = ['orden', 'id_accion_preparacion']
+
+    def __str__(self):
+        return f"{self.descripcion} ({'obligatoria' if self.obligatorio else 'opcional'})"
+
+
+####################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
 
 class AtributosActivo(models.Model):
     """Definición de atributo dinámico por tipo de activo.
@@ -851,6 +1215,7 @@ class DetalleFactura(models.Model):
     class Meta:
         managed = True
         db_table = 'detalle_factura'
+        ordering = ("-id_detalle_factura",)
 
     def __str__(self):
         item = self.nombre_activo or (self.id_activo and str(self.id_activo)) or "Item s/i"
@@ -953,6 +1318,67 @@ class HistorialActivos(models.Model):
     def __str__(self):
         eq = getattr(self, "activo", None)
         return f"Historial #{self.pk} · {eq or '—'} · {self.fecha}"
+####################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11
+####################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11
+# --- Minilog / Notas rápidas por Activo --------------------------------------
+class ActivoNota(models.Model):
+    id_nota     = models.AutoField(primary_key=True, db_column="id_nota")
+
+    # Respeta tu estilo de FKs + db_column y multiempresa
+    id_empresa  = models.ForeignKey(
+        Empresa, models.DO_NOTHING,
+        db_column="id_empresa", null=True, blank=True
+    )
+    id_activo   = models.ForeignKey(
+        Activo, models.DO_NOTHING,
+        db_column="id_activo", related_name="notas"
+    )
+    id_autor    = models.ForeignKey(
+        Empleado, models.DO_NOTHING,
+        db_column="id_autor", null=True, blank=True
+    )
+
+    foto = models.ImageField(
+        upload_to=nota_image_upload_to,
+        null=True, blank=True,
+        validators=[
+            FileExtensionValidator(allowed_extensions=["jpg", "jpeg", "png", "gif", "webp"]),
+            validate_image_size,
+        ],
+        verbose_name="Foto adjunta",
+    )
+
+
+
+    creado_en   = models.DateTimeField(default=timezone.now, db_index=True)
+    texto       = models.TextField()
+    eliminado   = models.BooleanField(default=False)
+
+    class Meta:
+        managed   = True
+        db_table  = "activo_nota"  # sin esquema para ser consistente con la mayoría
+        ordering  = ["-creado_en", "-id_nota"]
+        indexes   = [
+            models.Index(fields=["id_activo", "-creado_en"], name="ix_nota_activo_fecha"),
+            models.Index(fields=["id_empresa", "id_activo"], name="ix_nota_empresa_activo"),
+        ]
+
+    @property
+    def foto_url(self):
+        try:
+            return self.foto.url if self.foto else ""
+        except Exception:
+            return ""
+        
+    def __str__(self):
+        try:
+            etiqueta = getattr(self.id_activo, "etiqueta", "—")
+        except Exception:
+            etiqueta = "—"
+        return f"Nota #{self.id_nota} · {etiqueta} · {self.creado_en:%Y-%m-%d %H:%M}"
+
+####################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11
+####################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11
 
 
 # --- Nuevo:Historial de Mantenciones ---
@@ -1403,6 +1829,7 @@ class PlanMantencionActivo(models.Model):
         db_table = "plan_mantencion_activo"
         verbose_name = "Plan aplicado a Activo"
         verbose_name_plural = "Planes aplicados a Activos"
+        ordering = ["-id_plan_mantencion_activo"]  # <<< ESTA LÍNEA NUEVA
         constraints = [
             models.UniqueConstraint(
                 fields=["id_plan", "id_activo"],

@@ -55,6 +55,8 @@ from .views_auth import seleccionar_empresa, cambiar_empresa
 from django.views.generic import ListView
 from .mixins import EmpresaScopeMixin, scope_qs_by_empresa
 from productos.crud import api_marcas_por_tipo
+from productos.crud import api_modelos_por_tipo
+
 
 
 from productos.crud import (
@@ -684,3 +686,12 @@ urlpatterns += [
 
     ######################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>11/11 16:30
     ######################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>11/11 16:30
+
+#############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11
+urlpatterns += [
+    path("activos/<int:id_activo>/panel-notas/",
+         views.panel_notas_activo, name="panel_notas_activo"),
+    path("activos/<int:id_activo>/notas/crear/",
+         views.crear_nota_activo_ajax, name="crear_nota_activo_ajax"),
+]
+#############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11

@@ -28,11 +28,19 @@ from django.shortcuts import render
 from .crud import ActivoForm
 from .models_inventario import Modelo
 from .models_inventario import Activo, DocumentoActivo, TipoDocumentoActivo
+from django.http import HttpResponseBadRequest
+from .models_inventario import ActivoNota
+from datetime import datetime, timedelta
 
 from .models_inventario import (
     MantencionEjecucion, MantencionEjecucionTarea, PlanMantencionTarea
 )
 
+# arriba del archivo
+from datetime import datetime, timedelta
+from django.utils import timezone
+from django.http import HttpResponseBadRequest
+# ...
 
 
 from .models_inventario import (
@@ -90,6 +98,13 @@ from django.http import HttpResponseForbidden
 
 from .models_inventario import PlanMantencion, PlanMantencionActivo
 from .models_inventario import MantencionEjecucion, MantencionEjecucionTarea, PlanMantencionTarea
+from .models_inventario import (
+    PreparacionAsignacion,
+    AccionPreparacion,
+    ReglaCriticidad,   # para reutilizar la lógica de criticidad al asignar
+)
+from .models_inventario import CondicionDetalle, CondicionActivo
+
 
 
 # modelos opcionales (según tu app)
@@ -455,7 +470,49 @@ def _registrar_ejecucion_pma(request, pma, tareas_ids=None, obs_map=None):
             MantencionEjecucionTarea.objects.bulk_create(bulk, batch_size=100)
     except Exception:
         pass
+################################## 16 de Noviembre 16:57 ##################################
+# Si ya tienes algo parecido para criticidad, reutiliza esa función
+def _normaliza_cadena(txt: str) -> str:
+    txt = (txt or "").strip()
+    # colapsar espacios múltiples
+    return " ".join(txt.split())
 
+
+def construir_preparaciones_para_activos(activos, empleado):
+    """
+    Dado un iterable de activos y un empleado, devuelve un dict:
+        { id_activo: {
+              "activo": <Activo>,
+              "acciones": [AccionPreparacion...],
+          }, ... }
+
+    Si un activo no tiene preparación configurada, su lista 'acciones' será [].
+    """
+    resultado = {}
+    if not empleado:
+        return resultado
+
+    from .models_inventario import PreparacionAsignacion  # si no lo tienes ya importado
+    cargo_norm = _normaliza_cadena(getattr(empleado, "cargo", "") or "")
+
+    for a in activos:
+        # Usamos el classmethod del modelo para centralizar la lógica
+        reglas = list(PreparacionAsignacion.reglas_para(a, cargo_norm))
+
+        if not reglas:
+            resultado[a.id_activo] = {"activo": a, "acciones": []}
+            continue
+
+        prep = reglas[0]  # normalmente será solo una
+        acciones = list(
+            prep.acciones.filter(eliminado=False).order_by("orden", "id_accion_preparacion")
+        )
+
+        resultado[a.id_activo] = {"activo": a, "acciones": acciones}
+
+    return resultado
+
+################################## 16/11 16:57 ##################################
 
 #############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><07/11
 
@@ -475,7 +532,15 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             .filter(
                 id_empleado__isnull=True,
                 id_estado_activo__descripcion__iexact="disponible",  # case-insensitive
+                eliminado=False,  # 👈 NO mostrar activos borrados lógicamente
             )
+##################################### 22/11 #################################################################
+            # 👇 No mostrar activos con condición NO DISPONIBLE o EN REPARACIÓN
+            .exclude(
+                id_condicion_activo__descripcion__in=["No Disponible", "En Reparación"]
+            )
+##################################### 22/11 #################################################################
+
             .order_by("-id_activo")  # Primero ordenar antes de hacer el slice
         )
         if emp_id:
@@ -518,21 +583,166 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             "tipo_seleccionado": str(tipo_id or ""),
             "empleados": empleados_qs.order_by("nombre", "apellido_paterno", "apellido_materno"),
         })
+
+        # --- NUEVO 16/11: indicador de preparación pendiente en sesión ---
+        # Indicador de preparaciones pendientes (pueden ser varias)
+        prep_dict = self.request.session.get("prep_pendientes", {})
+        if prep_dict:
+            # Lo pasamos como lista para que el template pueda iterar
+            ctx["prep_pendientes"] = list(prep_dict.values())
+        # -----------------------------------------------------------------
+
+
         return ctx
     
+################################ 25/11 ########################################
+
+################################ 25/11 ########################################
+
     @transaction.atomic
     def post(self, request, *args, **kwargs):
+        """
+        POST de asignación de activos.
+
+        Ahora soporta 3 flujos:
+        - Asignar directamente (como antes).
+        - Guardar temporalmente la preparación en sesión.
+        - Reanudar una preparación pendiente desde la sesión.
+        - Eliminar la preparación (nueva funcionalidad para borrar la preparación y restaurar estado).
+
+        """
         ids = request.POST.getlist("activos")
         ids = list(dict.fromkeys(map(int, ids)))
         empleado_id = request.POST.get("empleado_id")
 
+
+################################ 25/11 ########################################
+        accion = request.POST.get("accion")  # "guardar", "confirmar", "borrar"
+
+        # ======================================================================
+        # ACCIÓN: BORRAR PREPARACIÓN → restaurar a "Nuevo / Sin preparar"
+        # ======================================================================
+        if accion == "borrar":
+            emp_id = request.session.get("empresa_id")
+
+            # 1) Recuperar la preparación guardada en sesión para este empleado
+            prep_all = request.session.get("prep_pendientes", {}) or {}
+            prep_emp = prep_all.get(str(empleado_id), {})
+
+            activos_a_borrar = prep_emp.get("activos_ids", [])
+
+            # Quitar el banner de preparación pendiente de este empleado
+            if str(empleado_id) in prep_all:
+                del prep_all[str(empleado_id)]
+                if prep_all:
+                    request.session["prep_pendientes"] = prep_all
+                else:
+                    request.session.pop("prep_pendientes", None)
+                request.session.modified = True
+
+            if not activos_a_borrar:
+                messages.info(
+                    request,
+                    "No hay una preparación guardada para este empleado."
+                )
+                return redirect(request.path)
+
+            if not emp_id:
+                messages.error(
+                    request,
+                    "No hay empresa activa en la sesión."
+                )
+                return redirect(request.path)
+
+            # 2) Buscar el detalle "Sin Preparar" asociado a la condición NUEVO
+            detalle_sin_preparar = (
+                CondicionDetalle.objects
+                .filter(
+                    eliminado=False,
+                    id_empresa_id=emp_id,
+                    descripcion__iexact="Sin Preparar",
+                    condicion_activo__codigo_sistema__iexact="NUEVO",
+                )
+                .order_by("id_condicion_detalle")
+                .first()
+            )
+
+            if not detalle_sin_preparar:
+                messages.error(
+                    request,
+                    "No está configurada la condición 'Nuevo / Sin preparar' para esta empresa."
+                )
+                return redirect(request.path)
+
+            # 3) Restaurar la condición de todos los activos de esa preparación
+            (
+                Activo.objects
+                .filter(
+                    id_activo__in=activos_a_borrar,
+                    eliminado=False,
+                    id_empresa_id=emp_id,
+                )
+                .update(
+                    id_condicion_activo=detalle_sin_preparar.condicion_activo,
+                    id_condicion_detalle=detalle_sin_preparar,
+                )
+            )
+
+            messages.success(
+                request,
+                f"Se eliminó la preparación de {len(activos_a_borrar)} activo(s) y "
+                "se restauraron como 'Nuevo / Sin preparar'."
+            )
+            return redirect(request.path)
+        # ======================================================================
+        # FIN ACCIÓN BORRAR
+        # ======================================================================
+
+
+################################ 25/11 ########################################
+        
+
+        # --- NUEVO 16/11: flujo de preparación paso a paso / reanudar ---
+        accion_preparacion = request.POST.get("accion_preparacion")  # None | "guardar" | "confirmar"
+        reanudar = request.POST.get("reanudar_preparacion") == "1"
+        # -----------------------------------------------------------------
+        prep_dict = request.session.get("prep_pendientes", {})
+
+############################## 22/11 #################################17:39
+        # ¿Este POST viene desde el checklist de preparación?
+        desde_checklist = "confirmar_preparacion" in request.POST
+
+        # Si vengo desde el checklist o vengo reanudando, debo permitir activos en "En Reparación"
+        permitir_en_reparacion = reanudar or desde_checklist
+############################## 22/11 #################################17:39
+
+
+        # --- NUEVO 16/11: si es reanudar, sobreescribimos ids y empleado con lo guardado ---
+        if reanudar:
+            # Diccionario con TODAS las preparaciones pendientes (por empleado)
+            prep_all = request.session.get("prep_pendientes", {}) or {}
+            # Preparación específica de este empleado
+            prep_emp = prep_all.get(str(empleado_id))
+
+            if not prep_emp:
+                messages.info(request, "No hay una preparación pendiente para este empleado.")
+                return redirect(request.path)
+
+            # Sobrescribimos los ids que venían del formulario
+            ids = prep_emp.get("activos_ids", [])
+
+        # -------------------------------------------------------------------------------
+
+
+        
         if not ids:
             messages.warning(request, "Selecciona al menos un activo.")
             return redirect(request.path)
         if not empleado_id:
             messages.warning(request, "Selecciona un empleado destino.")
             return redirect(request.path)
-
+        
+        
         emp_id = request.session.get("empresa_id")
 
         # El empleado debe pertenecer a la empresa en sesión
@@ -570,21 +780,323 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             messages.error(request, "Faltan estados 'disponible' y/o 'Asignado' para esta empresa.")
             return redirect(request.path)
 
+        ########################################################################
+        # NUEVO 15/11: Paso intermedio de PREPARACIÓN antes de asignar
+        ########################################################################
+
+        # ==== Candidatos a asignar (sin lock todavía) ====
+        candidatos = (
+            Activo.objects
+            .select_related("id_tipo_activo", "id_empresa")
+            .filter(
+                id_activo__in=ids,
+                id_empleado__isnull=True,
+############################ 22/11 ####################17:02
+                id_estado_activo_id=estado_disponible.id_estado_activo,
+                eliminado=False,  # 👈 no trabajar con activos borrados
+############################ 22/11 ####################17:02
+#            )
+#            .exclude(
+#                id_condicion_activo__descripcion__in=["No Disponible", "En Reparación"]
+            )
+        )
+
+############################ 22/11 ####################17:02
+############################## 22/11 ############################################### 17:41
+
+
+        if emp_id:
+            candidatos = candidatos.filter(id_empresa_id=emp_id)
+
+        # Si estoy reanudando o vengo del checklist, permito "En Reparación"
+        if permitir_en_reparacion:
+            candidatos = candidatos.exclude(
+                id_condicion_activo__descripcion__iexact="No Disponible"
+            )
+        else:
+            candidatos = candidatos.exclude(
+                id_condicion_activo__descripcion__in=["No Disponible", "En Reparación"]
+            )
+
+############################## 22/11 ############################################### 17:41
+
+        activos_lista = list(candidatos)
+        if not activos_lista:
+            messages.error(
+                request,
+                "Los activos seleccionados ya no están disponibles para asignación."
+            )
+            return redirect(request.path)
+
+        # Construir reglas de preparación por activo
+        preparaciones = construir_preparaciones_para_activos(activos_lista, empleado)
+
+        # ¿Hay al menos una acción de preparación definida?
+        hay_acciones = any(
+            len(info["acciones"]) > 0
+            for info in preparaciones.values()
+        )
+
+        # ============================
+        # FASE 1: mostrar checklist
+        # ============================
+        if "confirmar_preparacion" not in request.POST and hay_acciones:
+            # --- 2) Recuperar checks guardados SOLO para este empleado ---
+            saved_by_activo = {}
+            if reanudar:
+                prep_all = request.session.get("prep_pendientes", {}) or {}
+                prep_emp = prep_all.get(str(empleado.id_empleado), {})
+                raw_checked_map = prep_emp.get("checked_map", {})
+
+            # normalizamos: claves a int, valores a set(int)
+                # normalizamos: claves a int, valores a set(int)
+                for act_id_str, acc_list in raw_checked_map.items():
+                    try:
+                        act_id_int = int(act_id_str)
+                    except (TypeError, ValueError):
+                        continue
+                    saved_by_activo[act_id_int] = {
+                        int(v) for v in acc_list if str(v).isdigit()
+                    }
+            # ---------------------------------------------------------------------
+            items = []
+            for a in activos_lista:
+                info = preparaciones.get(a.id_activo, {"acciones": []})
+                items.append({
+                    "activo": a,
+                    "acciones": info["acciones"],
+                    # ✅ si estoy reanudando y hay datos en sesión para este activo,
+                    #    los uso; si no, lista vacía.
+                    "checked_ids": list(saved_by_activo.get(a.id_activo, set())),
+                })
+
+            ctx = {
+                "empleado": empleado,
+                "cargo": empleado.cargo,
+                "activos_ids": [a.id_activo for a in activos_lista],
+                "items": items,
+            }
+            return render(request, "activos/preparacion_asignacion.html", ctx)
+
+        # ============================
+        # FASE 2: validar checklist
+        # ============================
+        checked_map = {}
+        if "confirmar_preparacion" in request.POST and hay_acciones:
+            # Recuperamos qué acciones marcó el usuario por activo
+            for a in activos_lista:
+                key = f"prep_{a.id_activo}"
+                marcadas = request.POST.getlist(key)
+                checked_map[a.id_activo] = {
+                    int(v) for v in marcadas if str(v).isdigit()
+                }
+############################ 22/11 ####################17:02
+            # --- NUEVO 16/11: si la acción es GUARDAR, no validamos obligatorios ---
+
+            if accion_preparacion == "guardar":
+                # 1) Buscar el detalle "No disponible temporalmente" (En Reparación)
+                detalle_temporal = (
+                    CondicionDetalle.objects
+                    .filter(
+                        eliminado=False,
+                        id_empresa_id=emp_id,
+                        condicion_activo__descripcion__iexact="en reparación",
+                        descripcion__iexact="No disponible temporalmente",
+                    )
+                    .order_by("id_condicion_detalle")
+                    .first()
+                )
+
+                if not detalle_temporal:
+                    messages.error(
+                        request,
+                        "No está configurado el detalle de condición "
+                        "'En Reparación / No disponible temporalmente' para esta empresa."
+                    )
+                    return redirect(request.path)
+################################################# 25/11 #########################################################                
+#                # Guardar las condiciones originales de los activos antes de marcarlos como "En Reparación"
+#                for activo in activos_lista:
+#                    activo.estado_original = activo.id_estado_activo  # Guardamos el estado original
+#                    activo.condicion_original = activo.id_condicion_activo  # Guardamos la condición original
+#                    activo.condicion_detalle_original = activo.id_condicion_detalle  # Guardamos el detalle de la condición original
+#                    activo.save()
+################################################# 25/11 #########################################################                
+
+                # 2) Marcar los activos como "En Reparación / No disponible temporalmente"
+                Activo.objects.filter(
+                    id_activo__in=[a.id_activo for a in activos_lista],
+                    id_empleado__isnull=True,
+                    id_estado_activo_id=estado_disponible.id_estado_activo,
+                    id_empresa_id=emp_id,
+                ).update(
+                    id_condicion_activo=detalle_temporal.condicion_activo,
+                    id_condicion_detalle=detalle_temporal,
+                )
+
+                # 3) Guardar la preparación en sesión (igual que antes)
+#                request.session["prep_pendiente"] = {
+                # 3) Guardar / fusionar la preparación en sesión POR EMPLEADO
+                prep_all = request.session.get("prep_pendientes", {}) or {}
+                key = str(empleado.id_empleado)
+                previo = prep_all.get(key, {})
+
+                prev_ids = previo.get("activos_ids", [])
+                nuevos_ids = [a.id_activo for a in activos_lista]
+                merged_ids = sorted(set(prev_ids) | set(nuevos_ids))
+
+                prev_checked = previo.get("checked_map", {})
+                new_checked = {
+                    str(a_id): list(ids_set)
+                    for a_id, ids_set in checked_map.items()
+                }
+                merged_checked = {**prev_checked, **new_checked}
+
+                prep_all[key] = {
+                    "empleado_id": empleado.id_empleado,
+                    "empleado_nombre": str(empleado),
+                    "cargo": empleado.cargo,
+                    "activos_ids": merged_ids,
+                    "checked_map": merged_checked,
+                    "timestamp": timezone.now().isoformat(),
+                }
+
+                request.session["prep_pendientes"] = prep_all
+                request.session.modified = True
+                messages.info(
+                    request,
+                    "Preparación guardada temporalmente. "
+                    "El activo queda marcado como 'En reparación (No disponible temporalmente)'."
+                )
+                return redirect(request.path)
+            # ---------------------------------------------------------------------
+############################ 22/11 ####################17:02
+
+            errores = []
+            # Validar que TODAS las acciones obligatorias estén marcadas
+            for a in activos_lista:
+                info = preparaciones.get(a.id_activo, {"acciones": []})
+                acciones = info["acciones"]
+                if not acciones:
+                    continue  # este activo no requiere preparación
+
+                obligatorias = [
+                    acc for acc in acciones
+                    if getattr(acc, "obligatorio", True)
+                ]
+                if not obligatorias:
+                    continue
+
+                marcadas_ids = checked_map.get(a.id_activo, set())
+                faltantes = [
+                    acc.descripcion
+                    for acc in obligatorias
+                    if acc.id_accion_preparacion not in marcadas_ids
+                ]
+                if faltantes:
+                    errores.append(
+                        f"Activo {a.etiqueta or a.id_activo}: faltan por marcar → {', '.join(faltantes)}"
+                    )
+
+            if errores:
+                messages.error(
+                    request,
+                    "Debes completar todas las acciones obligatorias de preparación antes de asignar."
+                )
+                # Volvemos a mostrar el formulario con los checks ya marcados
+                items = []
+                for a in activos_lista:
+                    info = preparaciones.get(a.id_activo, {"acciones": []})
+                    items.append({
+                        "activo": a,
+                        "acciones": info["acciones"],
+                        "checked_ids": list(checked_map.get(a.id_activo, set())),
+                    })
+                ctx = {
+                    "empleado": empleado,
+                    "cargo": empleado.cargo,
+                    "activos_ids": [a.id_activo for a in activos_lista],
+                    "items": items,
+                    "errores": errores,
+                }
+                return render(request, "activos/preparacion_asignacion.html", ctx)
+
+            # --- NUEVO 16/11: si se confirma bien, limpiamos la preparación pendiente ---
+            # --- 4) Si se confirma bien, limpiamos SOLO la preparación de este empleado ---
+            prep_all = request.session.get("prep_pendientes", {}) or {}
+            key = str(empleado.id_empleado)
+            if key in prep_all:
+                del prep_all[key]
+                if prep_all:
+                    request.session["prep_pendientes"] = prep_all
+                else:
+                    request.session.pop("prep_pendientes", None)
+                request.session.modified = True
+            # ---------------------------------------------------------------------------
+        ########################################################################
+        # FIN NUEVO 15/11 – si llegamos aquí:
+        #   - no hay preparaciones, o
+        #   - ya se validaron todas → seguimos con tu lógica de asignación
+        ########################################################################
+
+
+
+#################################### 22/11 #################################################
+        # ============================================================
+        # NUEVO 22/11: buscar el detalle OPERATIVO para esta empresa
+        # Suponemos que solo hay UN detalle asociado a Operativo.
+        # ============================================================
+        detalle_operativo = (
+            CondicionDetalle.objects
+            .filter(
+                eliminado=False,
+                id_empresa_id=emp_id,
+                condicion_activo__descripcion__iexact="operativo",
+            )
+            .order_by("id_condicion_detalle")
+            .first()
+        )
+
+        if not detalle_operativo:
+            messages.error(
+                request,
+                "No está configurado el detalle de condición OPERATIVO "
+                "para esta empresa."
+            )
+            return redirect(request.path)
+        # ============================================================
+#################################### 22/11 #################################################
+
         ahora = timezone.now()
         usuario_empleado = getattr(request.user, "empleado", None)
 
+#################################### 22/11 ################################################# 17:43
         with transaction.atomic():
             qs = (
                 Activo.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .filter(
                     id_activo__in=ids,
                     id_empleado__isnull=True,
-                    id_estado_activo=estado_disponible,   # 👈 usamos el objeto, no la descripción
+                    id_estado_activo=estado_disponible.id_estado_activo,
+                    eliminado=False,  # 👈 idem
                 )
             )
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
+
+#            # Mismo criterio que en "candidatos": si vengo del checklist o reanudo,
+#            # permito activos en "En Reparación"
+#            if permitir_en_reparacion:
+#                qs = qs.exclude(
+#                    id_condicion_activo__descripcion__iexact="No Disponible"
+#                )
+#            else:
+#                qs = qs.exclude(
+#                    id_condicion_activo__descripcion__in=["No Disponible", "En Reparación"]
+#                )
+#################################### 22/11 ################################################# 17:43
+
 
             faltantes = set(ids) - set(qs.values_list("id_activo", flat=True))
             if faltantes:
@@ -599,13 +1111,18 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             for e in qs:
                 prev_emp_id    = e.id_empleado_id
                 prev_estado_id = e.id_estado_activo_id
+####################################### 22/11 ########################################################
+                prev_cond_det_id  = getattr(e, "id_condicion_detalle_id", None)
+                prev_cond_act_id  = getattr(e, "id_condicion_activo_id", None)
+####################################### 22/11 ########################################################
+
                 changed = (
                     prev_emp_id != empleado.id_empleado
                     or prev_estado_id != estado_asignado.id_estado_activo
                 )
                 if not changed:
                     continue
-    ############################################################################################>>>>>>>>>>>>
+
     ############################################################################################>>>>>>>>>>>>04/11
                 # Primero actualizamos los planes de mantenimiento asociados al activo
                 # --- Actualizar PMAs del activo (sin reventar por intervalo_dias = None) ---
@@ -621,8 +1138,19 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                 if pma_objetivo:
                     _activar_plan_vigente_y_recalcular(pma_objetivo, ahora)
 
-        ############################################################################################>>>>>>>>>>>>
-    ############################################################################################>>>>>>>>>>>>
+    ############################################################################################>>>>>>>>>>>>15/11
+                # --- Asignar empleado y estado ---
+                e.id_empleado = empleado
+                e.id_estado_activo = estado_asignado
+####################################### 22/11 ########################################################
+                e.id_condicion_detalle = detalle_operativo
+                e.id_condicion_activo = detalle_operativo.condicion_activo
+####################################### 22/11 ########################################################
+
+                # --- NUEVO: aplicar regla de criticidad según cargo + tipo + empresa ---
+                aplicar_regla_criticidad(e)  # <<< esto rellena activo_critico + CID + clasificacion
+
+    ############################################################################################>>>>>>>>>>>>15/11
 
 
                 historiales.append(HistorialActivos(
@@ -641,13 +1169,26 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                     tipo_activo=getattr(e, "id_tipo_activo", None),
                 ))
 
-                e.id_empleado = empleado
-                e.id_estado_activo = estado_asignado
+                ##e.id_empleado = empleado
+                ##e.id_estado_activo = estado_asignado
                 activos_a_actualizar.append(e)
 
             if activos_a_actualizar:
                 Activo.objects.bulk_update(
-                    activos_a_actualizar, ["id_empleado", "id_estado_activo"]
+                    activos_a_actualizar,
+                    [
+                        "id_empleado",
+                        "id_estado_activo",
+####################################### 22/11 ########################################################
+                        "id_condicion_activo",     # <<< NUEVO
+                        "id_condicion_detalle",    # <<< NUEVO
+####################################### 22/11 ########################################################
+                        "activo_critico",
+                        "clasificacion",
+                        "confidencialidad",
+                        "integridad",
+                        "disponibilidad",
+                    ],
                 )
             if historiales:
                 HistorialActivos.objects.bulk_create(historiales, ignore_conflicts=True)
@@ -2169,4 +2710,138 @@ def ejecucion_tareas_json(request, ejec_id: int):
     return JsonResponse(data)
 
     ######################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>11/11 16:30
+    ###################################################################################>>>>>>>>>>>>>>>>>>>>>>>>13/11
+    # productos/views.py
+@login_required
+@login_required
+def panel_notas_activo(request, id_activo: int):
+    activo = get_object_or_404(Activo, pk=id_activo, eliminado=False)
+    grupos = activo.notas_grouped_por_dia()  # lista de grupos del modelo
+
+    emp_id = request.session.get("empresa_id")
+    if emp_id and getattr(activo, "id_empresa_id", None) != emp_id:
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("No permitido para esta empresa.")
+
+    hoy  = timezone.localdate()
+    ayer = hoy - timedelta(days=1)
+
+    MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+             "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+
+    def normaliza(d):
+        # d puede venir como date o datetime
+        if hasattr(d, "tzinfo"):      # datetime
+            d = timezone.localtime(d).date()
+        label = f"{d.day} {MESES[d.month-1]} {d.year}"
+        if d == hoy:
+            label += " (hoy)"
+        elif d == ayer:
+            label += " (ayer)"
+        return d, label
+
+    grupos_fmt = []
+    for g in grupos:
+        # acepta "fecha" o "dia" según lo que devuelva tu helper
+        base = g.get("fecha") or g.get("dia")
+        f_local, label = normaliza(base)
+        g2 = dict(g)
+        g2["fecha"] = f_local
+        g2["label"] = label
+        grupos_fmt.append(g2)
+
+    ctx = {
+        "activo": activo,
+        "grupos": grupos_fmt,  # ← IMPORTANTE: ahora sí mandamos los formateados
+        "total_notas": sum(len(g["items"]) for g in grupos_fmt),
+        "hoy": hoy,
+        "ayer": ayer,
+    }
+    return render(request, "activos/_panel_notas.html", ctx)
+
+@login_required
+@require_POST
+def crear_nota_activo_ajax(request, id_activo: int):
+    """Crea la nota y devuelve el MISMO parcial ya actualizado."""
+    activo = get_object_or_404(Activo, pk=id_activo, eliminado=False)
+    texto = (request.POST.get("texto") or "").strip()
+    foto  = request.FILES.get("foto")  # ⬅️ NUEVO
+
+    if not texto and not foto:
+        return HttpResponseBadRequest("Debes escribir una nota o adjuntar una foto.")
     
+    emp_id = request.session.get("empresa_id")
+    if emp_id and getattr(activo, "id_empresa_id", None) != emp_id:
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("No permitido para esta empresa.")
+
+    emp = getattr(request.user, "empleado", None)
+    ActivoNota.objects.create(
+        id_activo=activo,
+        id_autor=emp if emp else None,
+        id_empresa=(emp.id_empresa if emp else getattr(activo, "id_empresa", None)),
+        texto=texto,
+        foto=foto,  # ⬅️ NUEVO
+    )
+    # devolvemos el panel ya refrescado
+    return panel_notas_activo(request, id_activo)
+    ###################################################################################>>>>>>>>>>>>>>>>>>>>>>>>13/11
+    ###################################################################################>>>>>>>>>>>>>>>>>>>>>>>>13/11
+
+
+#########################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+def aplicar_regla_criticidad(activo):
+    """
+    Aplica la ReglaCriticidad al activo según:
+      - empresa
+      - tipo de activo
+      - cargo del empleado
+
+    NO guarda en BD, solo modifica el objeto en memoria.
+    """
+    # Empleado asociado
+    empleado = getattr(activo, "id_empleado", None)
+    if not empleado or not activo.id_tipo_activo_id:
+        return
+
+    # Cargo “limpio”
+    cargo = (empleado.cargo or "").strip()
+    if not cargo:
+        return
+
+    # Empresa: primero la del activo, si no, la del empleado
+    empresa_id = getattr(activo, "id_empresa_id", None) or getattr(empleado, "id_empresa_id", None)
+    if not empresa_id:
+        return
+
+    # Importa aquí para evitar problemas de import circular si tienes muchos modelos
+    from .models_inventario import ReglaCriticidad
+
+    regla = (
+        ReglaCriticidad.objects
+        .filter(
+            eliminado=False,
+            id_empresa_id=empresa_id,
+            id_tipo_activo_id=activo.id_tipo_activo_id,
+            cargo_nombre__iexact=cargo,
+        )
+        .order_by("id_regla")
+        .first()
+    )
+    if not regla:
+        return
+
+    # Marcamos como crítico
+    activo.activo_critico = True
+
+    # Solo rellenamos si están vacíos / en None
+    if not getattr(activo, "clasificacion", None):
+        activo.clasificacion = getattr(regla, "clasificacion", None)
+    if getattr(activo, "confidencialidad", None) is None:
+        activo.confidencialidad = getattr(regla, "confidencialidad", None)
+    if getattr(activo, "integridad", None) is None:
+        activo.integridad = getattr(regla, "integridad", None)
+    if getattr(activo, "disponibilidad", None) is None:
+        activo.disponibilidad = getattr(regla, "disponibilidad", None)
+
+#########################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11

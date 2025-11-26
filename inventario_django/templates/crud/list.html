@@ -52,8 +52,10 @@
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:modelos_list' %}">Modelos</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:atributosactivos_list' %}">Atributos por tipo</a>
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:estadoactivos_list' %}">Estados</a>
-      <a class="btn btn-secondary btn-sm" href="{% url 'productos:condicionactivos_list' %}">Condición</a>
+      <!-- <a class="btn btn-secondary btn-sm" href="{% url 'productos:condicionactivos_list' %}">Condición</a>  ## borrar para recuperar -->
       <a class="btn btn-secondary btn-sm" href="{% url 'productos:tipodocumentoactivos_list' %}">Tipos de documento</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:condiciondetalles_list' %}">Condición.</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'productos:activonotas_list' %}">Entradas Activos</a>
       
       <a href="{% url 'productos:historial_activos_list' %}" class="btn btn-info">Historial de Activos</a>
       <a href="{% url 'productos:exportar_activos_criticos_excel' %}" class="btn btn-outline-success btn-sm" title="Exportar solo activos críticos (Excel CSV)">Exportar críticos (Excel)</a>
@@ -63,6 +65,11 @@
     {% if view.crud_config.model_name == 'tipodocumentoactivo' %}
     <a class="btn btn-secondary btn-sm" href="{% url 'productos:documentoactivos_list' %}">Documentos de activo</a>
     {% endif %}
+
+    {% if view.crud_config.model_name == 'preparacionasignacion' %}
+    <a class="btn btn-secondary btn-sm" href="{% url 'productos:accionpreparacions_list' %}">Acciones de Preparación</a>
+    {% endif %}
+
 
 
     {% if view.crud_config.model_name == 'mantencion' %}

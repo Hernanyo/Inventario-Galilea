@@ -17,13 +17,19 @@
   {% endif %}
 </h1>
 
+<style>
+  /* Oculta el <select> de Modelo solo mientras carga por primera vez */
+  .modelo-loading { visibility: hidden; }
+</style>
+
+
 <div class="container-fluid">
   <div class="row g-4">
     <!-- Columna izquierda: Formulario -->
     <div class="col-12 col-lg-8">
       <div class="card shadow-sm">
         <div class="card-body">
-          <form method="post"
+          <form id="form-activo" method="post"
                 {% if view.crud_config.model_name == "factura" or form.is_multipart %}
                   enctype="multipart/form-data"
                 {% endif %}>
@@ -302,117 +308,7 @@
               </script>
 
 
-              <script>
-              (function(){
-                const selTipo   = document.getElementById('id_id_tipo_activo');
-                const selModelo = document.getElementById('id_nombre_activo');
-                const selMarca  = document.getElementById('id_id_marca');
-
-                // Valores actuales del objeto (para la carga inicial)
-                const CURRENT_MODEL_ID   = "{{ form.initial.nombre_activo|default:'' }}";
-                const CURRENT_MODEL_NAME = "{{ object.nombre_activo|default:''|escapejs }}";
-                const CURRENT_BRAND_ID   = "{{ object.id_marca_id|default:'' }}";
-
-                function setDisabled(disabled) {
-                  if (selModelo) selModelo.disabled = !!disabled;
-                }
-
-                function repoblarModelos(items, selectedValue) {
-                  if (!selModelo) return;
-
-                  const current = selectedValue ?? selModelo.value ?? '';
-
-                  selModelo.innerHTML = '';
-                  const opt0 = document.createElement('option');
-                  opt0.value = '';
-                  opt0.textContent = '---------';
-                  selModelo.appendChild(opt0);
-
-                  (items || []).forEach(it => {
-                    const o = document.createElement('option');
-                    o.value = it.value;           // PK del Modelo
-                    o.textContent = it.label;     // nombre_modelo
-                    if (it.marca_id) o.dataset.marcaId = String(it.marca_id);
-                    if (current && String(current) === String(it.value)) o.selected = true;
-                    selModelo.appendChild(o);
-                  });
-
-                  setDisabled(!(items && items.length));
-
-                  // Si quedó algún modelo seleccionado, dispara 'change' para autocompletar marca
-                  if (selModelo.value) {
-                    selModelo.dispatchEvent(new Event('change'));
-                  }
-                }
-
-                async function loadModelos(tipoId, opts) {
-                  const { selectedValue=null, clearBrand=true } = (opts || {});
-
-                  if (!selModelo) return;
-                  repoblarModelos([], selectedValue);
-
-                  // Limpia marca SOLO si lo pedimos (en cambios de tipo). En carga inicial NO.
-                  if (clearBrand && selMarca) selMarca.value = '';
-
-                  if (!tipoId) return;
-
-                  const url = "{% url 'productos:api_modelos_por_tipo' %}?tipo_id=" + encodeURIComponent(tipoId);
-                  try {
-                    const res = await fetch(url);
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    const data = await res.json();
-
-                    // Si no tenemos PK para seleccionar, intenta casar por NOMBRE del modelo (robusto)
-                    let selected = selectedValue;
-                    if (!selected && CURRENT_MODEL_NAME) {
-                      const hit = (data.items || []).find(
-                        it => String(it.label).trim().toLowerCase() === CURRENT_MODEL_NAME.trim().toLowerCase()
-                      );
-                      if (hit) selected = hit.value;
-                    }
-
-                    repoblarModelos(data.items, selected);
-
-                    // Si aun así no hay modelo seleccionado pero tenemos marca en BD, restáurala
-                    if (!selModelo.value && CURRENT_BRAND_ID) {
-                      if (selMarca) {
-                        selMarca.value = CURRENT_BRAND_ID;
-                        selMarca.dispatchEvent(new Event('change'));
-                      }
-                    }
-                  } catch (err) {
-                    console.error('Error cargando modelos:', err);
-                  }
-                }
-
-                // Autocompletar marca cuando cambie el modelo
-                if (selModelo && selMarca) {
-                  selModelo.addEventListener('change', () => {
-                    const optSel = selModelo.options[selModelo.selectedIndex];
-                    const marcaId = optSel?.dataset?.marcaId;
-                    if (marcaId) {
-                      selMarca.value = marcaId;
-                      selMarca.dispatchEvent(new Event('change'));
-                    }
-                  });
-                }
-
-                if (selTipo) {
-                  setDisabled(!selTipo.value);
-
-                  // CARGA INICIAL: usa el valor que vino del servidor si existe (PK) y NO limpies marca
-                  const initialModeloId = CURRENT_MODEL_ID || (selModelo ? selModelo.value : '');
-                  if (selTipo.value) {
-                    loadModelos(selTipo.value, { selectedValue: initialModeloId, clearBrand: false });
-                  }
-
-                  // CAMBIO DE TIPO: repuebla y sí limpia la marca
-                  selTipo.addEventListener('change', e => {
-                    loadModelos(e.target.value, { selectedValue: null, clearBrand: true });
-                  });
-                }
-              })();
-              </script>
+              
 
               <!-- AUTOCOMPLETAR ETIQUETA SEGÚN TIPO -->
               <!-- AUTOCOMPLETAR ETIQUETA SEGÚN TIPO -->
@@ -480,8 +376,32 @@
                 {% endif %}
               </div>
 
+              {% if view.crud_config.model_name == "activo" and not object %}
+              <!-- Modal confirmación de etiqueta -->
+              <div class="modal fade" id="confirmEtiquetaModal" tabindex="-1" aria-labelledby="confirmEtiquetaLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title" id="confirmEtiquetaLabel">Verificación de Etiqueta</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      ¿La etiqueta <strong><span id="confirm-etiqueta"></span></strong> está correcta?
+                      <div class="text-muted small mt-2">Confirma antes de guardar el activo.</div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button>
+                      <button type="button" class="btn btn-primary" id="confirmGuardarBtn">Guardar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {% endif %}
+
+
+
             <div class="mt-3 d-flex gap-2">
-              <button class="btn btn-primary">Guardar</button>
+              <button type="submit" class="btn btn-primary" id="btn-guardar">Guardar</button>
               <a class="btn btn-outline-secondary" href="{% url 'productos:'|add:view.crud_config.slug|add:'_list' %}">Cancelar</a>
             </div>
           </form>
@@ -683,4 +603,409 @@
     </div>
   </div>
 </div>
+
+{% if view.crud_config.model_name == "activo" %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Solo en CREAR (cuando no hay "object" en el template)
+  const isCreate = {% if object %}false{% else %}true{% endif %};
+  if (!isCreate) return;
+
+  // IDs posibles (con y sin prefijo id_) para mayor tolerancia
+  const selEmpresa    = document.getElementById('id_id_empresa')         || document.getElementById('id_empresa');
+  const selEstado     = document.getElementById('id_id_estado_activo')   || document.getElementById('id_estado_activo');
+  const selUbicacion  = document.getElementById('id_id_ubicacion')       || document.getElementById('id_ubicacion');
+  const selCondicion =
+      document.getElementById('id_id_condicion_detalle') ||
+      document.getElementById('id_condicion_detalle')    ||
+      document.getElementById('id_id_condicion_activo')  ||
+      document.getElementById('id_condicion_activo')     ||
+      document.getElementById('id_condicion');
+  const selEmpleado   = document.getElementById('id_id_empleado')        || document.getElementById('id_empleado');
+
+  // Helper: TomSelect o nativo
+  const ts = el => (el && el.tomselect) ? el.tomselect : null;
+
+  // Deja el select como "solo lectura" pero SIN disabled (para que viaje en el POST)
+  function makeReadOnly(selectEl) {
+    if (!selectEl) return;
+    const s = ts(selectEl);
+    if (s) {
+      // No deshabilitamos, solo bloqueamos cambios
+      s.lock();
+    } else {
+      // Select nativo: evitamos que se abra o cambie
+      selectEl.addEventListener('mousedown', e => e.preventDefault());
+      selectEl.addEventListener('keydown', e => e.preventDefault());
+    }
+  }
+
+  function setByLabelAndLock(selectEl, label) {
+    if (!selectEl) return;
+    const selectTS = ts(selectEl);
+
+    const findOptionByText = (opts, target) => {
+      target = (target || '').trim().toLowerCase();
+      for (const o of opts) {
+        if ((o.textContent || '').trim().toLowerCase() === target) return o;
+      }
+      return null;
+    };
+
+    if (selectTS) {
+      const allOpts = Object.values(selectTS.options || {}); // {value, text, ...}
+      const hit = allOpts.find(
+        o => (o.text || '').trim().toLowerCase() === (label || '').trim().toLowerCase()
+      );
+      if (hit && hit.value) {
+        selectTS.setValue(String(hit.value), true);
+      } else {
+        console.warn('[defaults] No se encontró opción con texto:', label, 'en', selectEl.id);
+      }
+      // Solo bloqueamos cambios, NO disable
+      selectTS.lock();
+    } else {
+      const hit = findOptionByText(selectEl.options || [], label);
+      if (hit) {
+        selectEl.value = hit.value;
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      makeReadOnly(selectEl);
+    }
+  }
+
+  // Este sí puede ir disabled porque NO queremos que mande nada
+  function clearAndLockEmpty(selectEl) {
+    if (!selectEl) return;
+    const selectTS = ts(selectEl);
+    if (selectTS) {
+      selectTS.clear(true);
+      selectTS.setValue('', true);
+      selectTS.disable();
+      selectTS.lock();
+    } else {
+      selectEl.value = '';
+      selectEl.disabled = true;
+    }
+  }
+
+  // Empresa y Estado: solo lectura, pero NO disabled
+  [selEstado, selEmpresa].forEach(makeReadOnly);
+
+  // Ubicación = "Bodega Central" (solo lectura)
+  setByLabelAndLock(selUbicacion, 'Bodega Central');
+
+  // Condición = "Nuevo [Sin Preparar]" (solo lectura)
+  setByLabelAndLock(selCondicion, 'Nuevo [Sin Preparar]');
+
+  // Empleado: vacío y bloqueado
+  clearAndLockEmpty(selEmpleado);
+});
+</script>
+{% endif %}
+
+
+
+
+{% if view.crud_config.model_name == "activo" %}
+<script>
+  window.ACTIVO_INICIAL = {
+    tipo:   "{{ object.id_tipo_activo_id|default:'' }}",
+    marca:  "{{ object.id_marca_id|default:'' }}",
+    modelo: "{{ form.nombre_activo.value|default:'' }}"
+  };
+</script>
+{% endif %}
+
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const tipo   = document.getElementById('id_id_tipo_activo') || document.getElementById('id_tipo_activo');
+  const marca  = document.getElementById('id_id_marca')       || document.getElementById('id_marca');
+  const modelo = document.getElementById('id_nombre_activo');
+
+  if (!tipo || !marca || !modelo) return;
+
+  const URL_MARCAS  = window.PRODUCTOS_API_MARCAS  || "{% url 'productos:api_marcas_por_tipo' %}";
+  const URL_MODELOS = window.PRODUCTOS_API_MODELOS || "{% url 'productos:api_modelos_por_tipo' %}";
+
+  // Helpers Tom Select
+  const ts = el => (el && el.tomselect) ? el.tomselect : null;
+
+  function setOptionsNative(select, items, placeholder) {
+    const old = select.value;
+    select.innerHTML = '';
+    const o0 = document.createElement('option');
+    o0.value = '';
+    o0.textContent = placeholder || '---------';
+    select.appendChild(o0);
+    (items || []).forEach(it => {
+      const o = document.createElement('option');
+      o.value = String(it.id ?? it.value ?? '');
+      o.textContent = it.label ?? it.text ?? '';
+      if (it.marca_id != null) o.dataset.marca = String(it.marca_id);
+      select.appendChild(o);
+    });
+    // no forzamos el old si ya no existe
+    select.value = '';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function setOptionsTS(selectTS, items, placeholder) {
+    selectTS.clear(true);
+    selectTS.clearOptions();
+    selectTS.addOption({ value: '', text: placeholder || '---------' });
+    (items || []).forEach(it => {
+      selectTS.addOption({
+        value: String(it.id ?? it.value ?? ''),
+        text: it.label ?? it.text ?? '',
+        marca_id: it.marca_id != null ? String(it.marca_id) : ''
+      });
+    });
+    selectTS.refreshOptions(false);
+    //selectTS.setValue('', true);
+  }
+
+  async function fetchJSON(url) {
+    const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+
+  async function cargarMarcasPorTipo(tipoId) {
+    if (!tipoId) {
+      const ms = ts(marca);
+      if (ms) setOptionsTS(ms, [], '---------'); else setOptionsNative(marca, [], '---------');
+      return;
+    }
+    const data = await fetchJSON(`${URL_MARCAS}?tipo_id=${encodeURIComponent(tipoId)}`);
+    const items = data.items || data.results || data.data || [];
+    const ms = ts(marca);
+    if (ms) setOptionsTS(ms, items, '---------'); else setOptionsNative(marca, items, '---------');
+  }
+
+  async function cargarModelos(tipoId, marcaId) {
+    const modTS = ts(modelo);
+    if (!tipoId) {
+      if (modTS) setOptionsTS(modTS, [], 'Seleccione un modelo');
+      else       setOptionsNative(modelo, [], 'Seleccione un modelo');
+      return;
+    }
+
+    const q = new URLSearchParams({ tipo_id: String(tipoId) });
+    if (marcaId) q.set('marca_id', String(marcaId));
+
+    const url = `${URL_MODELOS}?${q.toString()}`;
+    const data = await fetchJSON(url);
+
+    // Normalización SUPER TOLERANTE
+    const raw = Array.isArray(data) ? data : (data.items || data.results || data.data || []);
+    console.debug('[api_modelos_por_tipo] url:', url, 'raw:', raw);
+
+    const list = raw.map(it => {
+      const id =
+        it.id ??
+        it.value ??
+        it.pk ??
+        it.id_nombre_activo ??
+        it.nombre_activo_id ??
+        it.id_modelo ??
+        it.modelo_id ??
+        it.id_nombre ??
+        it.nombre_id ??
+        '';
+
+      const label =
+        it.label ??
+        it.text ??
+        it.nombre ??
+        it.modelo ??
+        it.name ??
+        it.descripcion ??
+        it.value_display ??
+        '';
+
+      const marca_id =
+        it.marca_id ??
+        it.marca ??
+        it.brand_id ??
+        it.id_marca ??
+        it.marcaId ??
+        it.id_marca_id ??
+        '';
+
+      return {
+        id: String(id || ''),
+        label: String(label || ''),
+        marca_id: marca_id !== undefined && marca_id !== null ? String(marca_id) : ''
+      };
+    }).filter(x => x.id && x.label);
+
+    if (modTS) {
+      setOptionsTS(modTS, list, 'Seleccione un modelo');
+    } else {
+      setOptionsNative(modelo, list, 'Seleccione un modelo');
+    }
+  }
+
+  function marcaIdDeModeloSeleccionado() {
+    const modTS = ts(modelo);
+    if (modTS) {
+      const v = modTS.getValue();
+      const opt = modTS.options?.[v];
+      return opt ? (opt.marca_id || '') : '';
+    } else {
+      const opt = modelo.selectedOptions?.[0];
+      return opt ? (opt.dataset.marca || '') : '';
+    }
+  }
+
+  function setMarcaValue(val) {
+    const mTS = ts(marca);
+    if (mTS) mTS.setValue(String(val || ''), true);
+    else {
+      marca.value = String(val || '');
+      marca.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  // Eventos
+  tipo.addEventListener('change', async () => {
+    const t = tipo.value;
+    await cargarMarcasPorTipo(t);
+    await cargarModelos(t, ''); // limpia modelos
+  });
+
+  marca.addEventListener('change', async () => {
+    await cargarModelos(tipo.value, marca.value);
+  });
+
+  // Si el usuario elige modelo antes de marca (o al cargar edición), sincroniza la marca
+  const modTS = ts(modelo);
+  if (modTS) modTS.on('change', () => {
+    if (!marca.value) {
+      const mid = marcaIdDeModeloSeleccionado();
+      if (mid) setMarcaValue(mid);
+    }
+  });
+  else modelo.addEventListener('change', () => {
+    if (!marca.value) {
+      const mid = marcaIdDeModeloSeleccionado();
+      if (mid) setMarcaValue(mid);
+    }
+  });
+
+  // Estado inicial (edición/crear)
+// Estado inicial (edición/crear)
+(async () => {
+  const preload = window.ACTIVO_INICIAL || {};
+
+  const tipoInicialDOM    = tipo.value || '';
+  const marcaInicialDOM   = marca.value || '';
+  const modeloInicialDOM  = (ts(modelo) ? ts(modelo).getValue() : (modelo.value || ''));
+
+  // Si el DOM no trae valor, usa los del servidor
+  const tipoInicial   = tipoInicialDOM   || String(preload.tipo   || '');
+  const marcaInicial  = marcaInicialDOM  || String(preload.marca  || '');
+  const modeloInicial = modeloInicialDOM || String(preload.modelo || '');
+
+if (tipoInicial) {
+  await cargarMarcasPorTipo(tipoInicial);
+
+  if (marcaInicial) {
+    const mTS = ts(marca);
+    if (mTS) mTS.setValue(String(marcaInicial), true);
+    else { marca.value = String(marcaInicial); marca.dispatchEvent(new Event('change', {bubbles:true})); }
+  }
+
+  await cargarModelos(tipoInicial, marcaInicial || '');
+
+  // Seleccionar el modelo precargado
+  const modeloTarget = modeloInicial || (window.ACTIVO_INICIAL && String(window.ACTIVO_INICIAL.modelo || ''));
+  if (modeloTarget) {
+    const modTS = ts(modelo);
+    if (modTS) modTS.setValue(String(modeloTarget), true);
+    else { modelo.value = String(modeloTarget); modelo.dispatchEvent(new Event('change', {bubbles:true})); }
+  }
+
+  // Si hay modelo pero no marca, sincroniza la marca del modelo
+  if (!marcaInicial && (ts(modelo)?.getValue() || modelo.value)) {
+    const mid = (function(){
+      const modTS2 = ts(modelo);
+      if (modTS2) {
+        const v = modTS2.getValue(); const opt = modTS2.options?.[v];
+        return opt ? (opt.marca_id || '') : '';
+      } else {
+        const opt = modelo.selectedOptions?.[0];
+        return opt ? (opt.dataset.marca || '') : '';
+      }
+    })();
+    if (mid) setMarcaValue(mid);
+  }
+} else {
+  await cargarMarcasPorTipo('');
+  await cargarModelos('', '');
+}
+})();
+});
+</script>
+
+
+{% if view.crud_config.model_name == "activo" and not object %}
+<!-- Modal confirmación de etiqueta -->
+<div class="modal fade" id="confirmEtiquetaModal" tabindex="-1" aria-labelledby="confirmEtiquetaLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmEtiquetaLabel">Verificación de Etiqueta</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        ¿La etiqueta <strong><span id="confirm-etiqueta"></span></strong> está correcta?
+        <div class="text-muted small mt-2">Confirma antes de guardar el activo.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button>
+        <button type="button" class="btn btn-primary" id="confirmGuardarBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Solo en creación de ACTIVO
+  const form = document.getElementById('form-activo');
+  if (!form) return;
+
+  const inputEtiqueta = document.getElementById('id_etiqueta');
+  const modalEl       = document.getElementById('confirmEtiquetaModal');
+  if (!inputEtiqueta || !modalEl) return;
+
+  const modal         = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+  const spanEtiqueta  = document.getElementById('confirm-etiqueta');
+  const btnConfirmar  = document.getElementById('confirmGuardarBtn');
+
+  let pendingSubmit = false;
+
+  form.addEventListener('submit', (e) => {
+    if (pendingSubmit) return;   // ya confirmado: deja pasar
+    e.preventDefault();
+
+    const etiqueta = (inputEtiqueta.value || '').trim();
+    spanEtiqueta.textContent = etiqueta || '(vacía)';
+    spanEtiqueta.classList.toggle('text-danger', !etiqueta);
+
+    modal.show();
+  });
+
+  btnConfirmar.addEventListener('click', () => {
+    pendingSubmit = true;
+    modal.hide();
+    if (form.requestSubmit) form.requestSubmit();
+    else form.submit();
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
