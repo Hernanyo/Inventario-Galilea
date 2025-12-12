@@ -7,7 +7,7 @@ from django.views.generic import RedirectView
 from .views import (
     HomeView, CompanySelectView, company_clear,
     ActivosDisponiblesView, ActivosDesasignarView,
-    mantencion_nueva, mantencion_editar, api_atributos_por_tipo,
+    mantencion_nueva, mantencion_editar, api_atributos_por_tipo, MiLoginView,
 )
 
 # 👇 Importa las vistas que están en crud.py
@@ -56,6 +56,10 @@ from django.views.generic import ListView
 from .mixins import EmpresaScopeMixin, scope_qs_by_empresa
 from productos.crud import api_marcas_por_tipo
 from productos.crud import api_modelos_por_tipo
+#from .views import VincularFacturaActivosView
+from productos import crud as crud_views
+
+
 
 
 
@@ -73,13 +77,19 @@ from productos.crud import (
 
 app_name = "productos"
 
+################### 04/12 ###################################################3
 # --- Autenticación y selección de empresa (PREPENDER) ---
 auth_selector_patterns = [
-    path("ingreso/", seleccionar_empresa, name="company_select"),
-    path("ingreso/cambiar/", cambiar_empresa, name="company_change"),
-    path("login/",  auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),
-    path("logout/", auth_views.LogoutView.as_view(next_page="productos:company_select"), name="logout"),
+    # Selector de empresa (ya logueado)
+    path("ingreso/", CompanySelectView.as_view(), name="company_select"),
+    # Cambiar empresa = limpiar empresa de sesión y volver a elegir
+    path("ingreso/cambiar/", company_clear, name="company_change"),
+    # Login personalizado
+    path("login/",  MiLoginView.as_view(), name="login"),
+    # Logout → de vuelta al login
+    path("logout/", auth_views.LogoutView.as_view(next_page="productos:login"), name="logout"),
 ]
+################### 04/12 ###################################################3
 
 # --- Vista genérica para DetalleFactura ---
 cfg_detalle = build_config(DetalleFactura)
@@ -96,6 +106,11 @@ urlpatterns = [
 
     # Detalle facturas
     path("detallefacturas/", DetalleFacturaList.as_view(), name="detallefacturas_list"),
+    path("detallefacturas/nuevo/",
+        views.nuevo_detalle_factura_multiple,
+        name="detalle_factura_nuevo_multiple",
+    ),
+
 
     # QR de activos
     path("activos/<int:pk>/qr/", qr_print_view, name="activos_qr"),
@@ -695,3 +710,23 @@ urlpatterns += [
          views.crear_nota_activo_ajax, name="crear_nota_activo_ajax"),
 ]
 #############################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>13/11
+########################## 26/11 ############################################
+urlpatterns += [
+#    path(
+#        "facturas/<int:pk>/detalles/",
+#        views.factura_detalles_view,
+#        name="facturas_detalles",
+#    ),
+    path(
+        "facturas/<int:pk>/vincular-activos/",
+        views.vincular_activos_factura, 
+        name="facturas_vincular_activos",
+    ),
+]
+########################## 26/11 ############################################
+########################## 27/11 ############################################
+urlpatterns += [
+    # Otras URLs
+    path('desvincular/<int:activo_id>/', views.desvincular_activo, name='desvincular_activo'),
+]
+########################## 27/11 ############################################

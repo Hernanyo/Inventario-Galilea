@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% load tz %}
+
+{% block title %}Vincular activos – Factura {{ factura.folio }}{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-3">
+  Vincular activos a la factura {{ factura.folio }}
+  {% if factura.id_proveedor %}
+    · {{ factura.id_proveedor }}
+  {% endif %}
+</h1>
+
+<p class="mb-3 text-muted">
+  Fecha emisión: {{ factura.fecha_emision|date:"d/m/Y" }}
+  {% if factura.id_empresa %}
+    · Empresa: {{ factura.id_empresa }}
+  {% endif %}
+</p>
+
+<div class="row">
+  <!-- Columna izquierda: Detalles de factura -->
+  <div class="col-md-6 mb-4">
+    <h2 class="h5">Detalles de la factura</h2>
+    <table class="table table-sm table-striped align-middle">
+      <thead>
+        <tr>
+          <th>Ítem</th>
+          <th>Descripción</th>
+          <th class="text-end">Cantidad</th>
+          <th class="text-end">Vinculados</th>
+          <th class="text-end">Restantes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in detalles %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>{{ d.nombre_activo }}</td>
+            <td class="text-end">{{ d.cantidad }}</td>
+            <td class="text-end">{{ d.cantidad_vinculada }}</td>
+            <td class="text-end">{{ d.cantidad_restante }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="text-center text-muted">
+              La factura no tiene detalles registrados.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="small text-muted">
+      Crea o edita los detalles desde el menú <strong>Detalle Facturas</strong>.
+    </p>
+  </div>
+
+  <!-- Columna derecha: Formulario de vinculación -->
+  <div class="col-md-6 mb-4">
+    <h2 class="h5">Vincular activos a un detalle</h2>
+
+    <!-- FORM PRINCIPAL: SOLO PARA VINCULAR -->
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="mb-3">
+        <label for="id_detalle_id" class="form-label">Detalle de factura</label>
+        <select id="id_detalle_id" name="detalle_id" class="form-select" required>
+          <option value="">— Seleccione un detalle —</option>
+          {% for d in detalles %}
+            <option value="{{ d.id_detalle_factura }}">
+              Ítem {{ forloop.counter }} · {{ d.nombre_activo }}
+              ({{ d.cantidad_vinculada }}/{{ d.cantidad }} usados)
+            </option>
+          {% endfor %}
+        </select>
+        <div class="form-text">
+          Solo se permitirá vincular hasta la cantidad restante del detalle seleccionado.
+        </div>
+      </div>
+
+      <div class="mb-2">
+        <strong>Activos disponibles</strong>
+      </div>
+
+      <!-- Filtro por tipo -->
+      <div class="mb-2 d-flex align-items-center">
+        <label for="filtro_tipo" class="me-2 mb-0 small">Filtrar por tipo de activo:</label>
+        <select id="filtro_tipo" class="form-select form-select-sm" style="max-width: 260px;">
+          <option value="">— Todos —</option>
+          {% for t in tipos_activo %}
+            <option value="{{ t.id_tipo_activo }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- NUEVO: Buscador de activos -->
+      <div class="mb-2">
+        <label for="filtro_activo" class="form-label small mb-1">Buscar activo</label>
+        <input
+          type="text"
+          id="filtro_activo"
+          class="form-control form-control-sm"
+          placeholder="Buscar por etiqueta, modelo, ID, etc.">
+        <small class="text-muted">
+          El filtro se aplica sobre todo el texto de la fila.
+        </small>
+      </div>
+
+      <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+        <table id="tabla-activos-disponibles" class="table table-sm table-hover align-middle">
+          <thead>
+            <tr>
+              <th style="width: 32px;">
+                <input type="checkbox" id="chk_all" />
+              </th>
+              <th>ID</th>
+              <th>Etiqueta</th>
+              <th>Modelo</th>
+              <th>Tipo activo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in activos_disponibles %}
+              <tr data-tipo-id="{{ a.id_tipo_activo_id }}">
+                <td>
+                  <input
+                    type="checkbox"
+                    name="activos_ids"
+                    value="{{ a.id_activo }}"
+                  />
+                </td>
+                <td>{{ a.id_activo }}</td>
+                <td>{{ a.etiqueta }}</td>
+                <td>{{ a.nombre_activo }}</td>
+                <td>{{ a.id_tipo_activo }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="text-muted text-center">
+                  No hay activos disponibles para vincular.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- FILA DE BOTONES: los 3 juntos -->
+      <div class="mt-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">
+          Vincular activos seleccionados
+        </button>
+        <a href="{% url 'productos:facturas_list' %}" class="btn btn-outline-secondary btn-sm">
+          Volver al listado de facturas
+        </a>
+        <!-- Este botón puede ir dentro del form, no pasa nada -->
+        <button type="button" class="btn btn-info btn-sm"
+                data-bs-toggle="modal" data-bs-target="#activosVinculadosModal">
+            Ver activos vinculados
+        </button>
+      </div>
+    </form>  <!-- 👈 CERRAMOS AQUÍ EL FORM PRINCIPAL -->
+  </div>
+</div>
+
+<!-- Modal de activos vinculados, COMPLETAMENTE FUERA DEL FORM PRINCIPAL -->
+<div class="modal fade" id="activosVinculadosModal" tabindex="-1"
+     aria-labelledby="activosVinculadosModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="activosVinculadosModalLabel">
+          Activos Vinculados a la factura Folio {{ factura.folio }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        {% for detalle, data in detalles_con_activos.items %}
+          <h5>Detalle: {{ detalle.nombre_activo }} ({{ detalle.cantidad_vinculada }} / {{ detalle.cantidad }})</h5>
+
+          <table class="table table-sm table-striped">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Etiqueta</th>
+                <th>Modelo</th>
+                <th>Valor unitario</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for activo in data.activos %}
+                <tr>
+                  <td>{{ activo.id_activo }}</td>
+                  <td>{{ activo.etiqueta }}</td>
+                  <td>{{ activo.nombre_activo }}</td>
+                  <td>{{ data.valor_unitario }}</td>
+                  <td>
+                    <form method="post" action="{% url 'productos:desvincular_activo' activo.id_activo %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-danger btn-sm">
+                        Desvincular
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="5" class="text-center">
+                    No hay activos vinculados a este detalle.
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Script único: checkbox maestro + filtro por tipo + buscador -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const master      = document.getElementById("chk_all");
+  const filtroTipo  = document.getElementById("filtro_tipo");
+  const filtroTexto = document.getElementById("filtro_activo");
+  const filas       = Array.from(
+    document.querySelectorAll("#tabla-activos-disponibles tbody tr")
+  );
+
+  // Checkbox maestro
+  if (master) {
+    master.addEventListener("change", function () {
+      document
+        .querySelectorAll('input[name="activos_ids"]')
+        .forEach(cb => cb.checked = master.checked);
+    });
+  }
+
+  function aplicarFiltros() {
+    const valTipo = filtroTipo ? filtroTipo.value : "";
+    const term    = filtroTexto ? filtroTexto.value.trim().toLowerCase() : "";
+
+    filas.forEach(tr => {
+      const tipoId    = tr.dataset.tipoId;
+      const textoFila = tr.textContent.toLowerCase();
+
+      const coincideTipo  = !valTipo || tipoId === valTipo;
+      const coincideTexto = !term || textoFila.includes(term);
+
+      if (coincideTipo && coincideTexto) {
+        tr.style.display = "";
+      } else {
+        tr.style.display = "none";
+      }
+    });
+  }
+
+  if (filtroTipo) {
+    filtroTipo.addEventListener("change", aplicarFiltros);
+  }
+  if (filtroTexto) {
+    filtroTexto.addEventListener("input", aplicarFiltros);
+  }
+});
+</script>
+{% endblock %}

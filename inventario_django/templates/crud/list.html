@@ -23,10 +23,17 @@
   <div class="flex items-center gap-2 w-full justify-end">
 
     {% if can_create %}
-      <a class="btn btn-primary btn-sm"
-        href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
-        Nuevo {{ view.crud_config.verbose_name }}
-      </a>
+      {% if view.crud_config.model_name == 'detallefactura' %}
+        <a class="btn btn-primary btn-sm"
+          href="{% url 'productos:detalle_factura_nuevo_multiple' %}">
+          Nuevo {{ view.crud_config.verbose_name }}
+        </a>
+      {% else %}
+        <a class="btn btn-primary btn-sm"
+          href="{% url 'productos:'|add:view.crud_config.slug|add:'_create' %}">
+          Nuevo {{ view.crud_config.verbose_name }}
+        </a>
+      {% endif %}
     {% endif %}
 
     <a class="btn btn-outline btn-sm"
@@ -320,7 +327,18 @@
       </thead>
       <tbody>
   {% for item in items %}
-    <tr>
+    <tr
+      {% if view.crud_config.model_name == 'factura' %}
+        class="js-row-click js-factura-row"
+        data-href="{% url 'productos:detallefacturas_list' %}?factura={{ item.id_factura }}"
+      {% elif view.crud_config.model_name == 'activo' %}
+        class="js-row-click"
+        data-href="{% url 'productos:activos_detail' item.id_activo %}"
+      {% elif view.crud_config.model_name == 'empleado' %}
+        class="js-row-click"
+        data-href="{% url 'productos:empleados_detail' item.id_empleado %}"
+      {% endif %}
+    >
       {% for col in list_display %}
         {% if view.crud_config.model_name == 'activo' and col == 'observaciones' %}
           <td class="obs-col">
@@ -395,18 +413,14 @@
             <td>
             {% if view.crud_config.model_name == 'activo' %}
               {% if col == 'nombre_activo' or col == 'etiqueta' %}
-                <a href="{% url 'productos:activos_detail' item.id_activo %}">
                   {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
-                </a>
               {% else %}
                 {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
               {% endif %}
 
             {% elif view.crud_config.model_name == 'empleado' %}
               {% if col == 'rut' or col == 'nombre' %}
-                <a href="{% url 'productos:empleados_detail' item.id_empleado %}">
                   {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
-                </a>
               {% else %}
                 {% if q %}{{ item|attr:col|underline_match:q }}{% else %}{{ item|attr:col }}{% endif %}
               {% endif %}
@@ -545,6 +559,10 @@
               <a class="btn btn-xs btn-outline-primary" href="{% url 'productos:factura_attach_file' item.id_factura %}">
                 Adjuntar Factura
               </a>
+              <a class="btn btn-xs btn-info" href="{% url 'productos:facturas_vincular_activos' item.id_factura %}">
+                Vincular activos
+              </a>
+
 
             {% if item.archivo_adjunto %}
               <a class="btn btn-xs btn-outline-dark"
@@ -1118,8 +1136,43 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // Filas clickeables genéricas (facturas, activos, empleados…)
+  document.querySelectorAll('tr.js-row-click[data-href]').forEach(function (row) {
+    row.style.cursor = 'pointer';
+
+    row.addEventListener('click', function (e) {
+      // Si el click fue sobre un botón, link, input, etc., dejamos su acción normal
+      if (e.target.closest('a, button, input, select, textarea')) {
+        return;
+      }
+
+      const href = row.dataset.href;
+      if (!href) return;
+
+      // Ctrl+click (o Cmd+click) = abrir en pestaña nueva, como un link normal
+      if (e.ctrlKey || e.metaKey) {
+        window.open(href, '_blank');
+      } else {
+        window.location.href = href;
+      }
+    });
+  });
+});
+</script>
+
+
+
+
 <style>
   td.coment-col { white-space: nowrap; width: 90px; }
+    /* Que se note que la fila es clickeable */
+  tr.js-row-clickable {
+    cursor: pointer;
+  }
 </style>
 
 

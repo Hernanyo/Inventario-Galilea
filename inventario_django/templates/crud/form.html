@@ -318,40 +318,42 @@
                 const inputEtiqueta = document.getElementById("id_etiqueta");
                 if (!selTipo || !inputEtiqueta) return;
 
-                // force=false: respeta lo que ya hay (útil al cargar/editar)
-                // force=true: siempre sugiere (útil cuando el usuario cambia el tipo)
                 async function autocompletarEtiqueta(force = false) {
                   const tipoId = selTipo.value;
                   if (!tipoId) {
-                    // Si el tipo queda vacío, limpia la etiqueta sólo si fue autogenerada/vacía.
                     if (force && !inputEtiqueta.value.trim()) inputEtiqueta.value = "";
                     return;
                   }
 
-                  // En carga inicial no pisamos si el usuario ya escribió algo.
+                  // Si ya hay algo escrito y NO estamos forzando, no pisamos
                   if (!force && inputEtiqueta.value.trim()) return;
 
                   try {
                     const url = "{% url 'productos:api_siguiente_etiqueta' %}?tipo_id=" + encodeURIComponent(tipoId);
                     const res = await fetch(url, { credentials: "same-origin" });
                     if (!res.ok) return;
+
                     const data = await res.json();
-                    if (data && data.next) {
-                      inputEtiqueta.value = data.next;
+
+                    // 👇 Asegúrate de que lea "next"
+                    const sugerida = data && data.next;
+                    if (sugerida) {
+                      inputEtiqueta.value = sugerida;
                     }
                   } catch (e) {
                     console.warn("No se pudo sugerir etiqueta:", e);
                   }
                 }
 
-                // Al cargar: sólo si el campo está vacío (por ejemplo, al crear)
+                // Al cargar (crear): solo si el campo está vacío
                 if (selTipo.value && !inputEtiqueta.value.trim()) {
                   autocompletarEtiqueta(false);
                 }
 
-                // Al cambiar el tipo: forzamos siempre la actualización
+                // Cuando cambias el tipo de activo: forzar siempre actualización
                 selTipo.addEventListener("change", () => autocompletarEtiqueta(true));
               })();
+
               </script>
 
             {% endif %}
@@ -693,7 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
   [selEstado, selEmpresa].forEach(makeReadOnly);
 
   // Ubicación = "Bodega Central" (solo lectura)
-  setByLabelAndLock(selUbicacion, 'Bodega Central');
+  setByLabelAndLock(selUbicacion, 'Matriz (Bodega)');
 
   // Condición = "Nuevo [Sin Preparar]" (solo lectura)
   setByLabelAndLock(selCondicion, 'Nuevo [Sin Preparar]');
@@ -1008,4 +1010,107 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 {% endif %}
+
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Busca el campo empresa en cualquier formulario CRUD
+  const selEmpresa =
+    document.getElementById('id_id_empresa') ||
+    document.getElementById('id_empresa');
+
+  if (!selEmpresa) return;
+
+  // TomSelect (con buscador) o select nativo
+  const ts = selEmpresa.tomselect || null;
+
+  const getCurrentValue = () => {
+    if (ts) {
+      const v = ts.getValue();
+      return Array.isArray(v) ? v[0] : v;  // por si devuelve array
+    }
+    return selEmpresa.value || '';
+  };
+
+  // Si ya hay valor (por ejemplo en EDICIÓN), no tocamos nada
+  if (getCurrentValue()) return;
+
+  if (ts) {
+    // TomSelect: buscamos cuántas opciones REALES hay (distintas de vacío)
+    const opcionesReales = Object.values(ts.options || {})
+      .filter(o => o.value && String(o.value).trim() !== '');
+
+    if (opcionesReales.length === 1) {
+      ts.setValue(String(opcionesReales[0].value), true);
+      // Si quieres dejarlo fijo, descomenta esta línea:
+      // ts.lock();
+    }
+  } else {
+    // Select HTML normal
+    const opcionesReales = Array.from(selEmpresa.options)
+      .filter(opt => opt.value && opt.value.trim() !== '');
+
+    if (opcionesReales.length === 1) {
+      selEmpresa.value = opcionesReales[0].value;
+      selEmpresa.dispatchEvent(new Event('change', { bubbles: true }));
+      // Si quieres dejarlo fijo:
+      // selEmpresa.disabled = true;
+    }
+  }
+});
+</script>
+
+<!-- Script para ocultar el permiso bodega del formulario de activo si es ROl usuario-->
+ {% if view.crud_config.model_name == "empleado" %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const rolSelect    = document.getElementById('id_rol');
+  const permisoField = document.getElementById('id_permiso_bodega');
+
+  if (!rolSelect || !permisoField) {
+    // Si este form no tiene esos campos, no hacemos nada
+    return;
+  }
+
+  // Contenedor visual del campo (el <div class="mb-3"> ...)
+  let permisoWrapper =
+      permisoField.closest('.mb-3') ||
+      permisoField.closest('.form-group') ||
+      permisoField.parentElement;
+
+  if (!permisoWrapper) {
+    permisoWrapper = permisoField.parentElement;
+  }
+
+  function limpiarPermiso() {
+    const ts = permisoField.tomselect || null;
+    if (ts) {
+      ts.clear(true);
+    } else {
+      permisoField.value = '';
+    }
+  }
+
+  function updatePermisoVisibility() {
+    const val = (rolSelect.value || '').toLowerCase();
+
+    // Mostrar cuando el nuevo empleado sea admin / jefe / usuario
+    if (val === 'usuario') {
+      permisoWrapper.style.display = '';
+    } else {
+      // trabajador u otro -> ocultar y limpiar
+      permisoWrapper.style.display = 'none';
+      limpiarPermiso();
+    }
+  }
+
+  // Estado inicial (cuando cargas el form)
+  updatePermisoVisibility();
+
+  // Cuando cambias el rol
+  rolSelect.addEventListener('change', updatePermisoVisibility);
+});
+</script>
+{% endif %}
+
 {% endblock %}

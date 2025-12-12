@@ -4,7 +4,9 @@ from django.db.models import Count
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 
-from .crud import get_crud_configs
+from .crud import get_crud_configs, _scope_by_empresa
+from .mixins import filtrar_activos_por_bodegas_permitidas, filtrar_empleados_por_bodegas_permitidas
+
 
 # Modelos opcionales para métricas
 try:

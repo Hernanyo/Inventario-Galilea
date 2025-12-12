@@ -187,20 +187,34 @@ document.addEventListener('DOMContentLoaded', function () {
         {% if user.is_authenticated %}
           <!-- Mostrar los botones SOLO si no estamos en la página principal -->
 
-          <!-- Agregar los botones de acción con las URL correctas -->
+          <!-- Agregar los botones de acción con las URL correctas ################ 09/12 ##############-->
           <div class="btn-group me-5">
-            <a class="btn btn-outline-light" href="{% url 'productos:empresas_list' %}">Empresas</a>
+            {# Empresas: solo Admin/Jefe/superuser #}
+            {% with emp=user.empleado %}
+              {% if user.is_superuser or emp and emp.es_supervisor %}
+                <a class="btn btn-outline-light" href="{% url 'productos:empresas_list' %}">Empresas</a>
+              {% endif %}
+            {% endwith %}
+
             <a class="btn btn-outline-light" href="{% url 'productos:ubicacions_list' %}">Ubicaciones</a>
             <a class="btn btn-outline-light" href="{% url 'productos:cargos_list' %}">Cargos</a>
             <a class="btn btn-outline-light" href="{% url 'productos:empleados_list' %}">Empleados</a>
-            <a class="btn btn-outline-light" href="{% url 'productos:marcas_list' %}">Marcas</a>
+
+            {# Marcas: solo Admin/Jefe/superuser #}
+            {% with emp=user.empleado %}
+              {% if user.is_superuser or emp and emp.es_supervisor %}
+                <a class="btn btn-outline-light" href="{% url 'productos:marcas_list' %}">Marcas</a>
+              {% endif %}
+            {% endwith %}
+            
+            <!-- Esta es la zona que crea los botones en la banda roja-->
             <a class="btn btn-outline-light" href="{% url 'productos:proveedors_list' %}">Proveedores</a>
             <a class="btn btn-outline-light" href="{% url 'productos:activos_list' %}">Activos</a>
-            <a class="btn btn-outline-light" href="{% url 'productos:mantencions_list' %}">Mantenciones</a>
+            <!-- <a class="btn btn-outline-light" href="{% url 'productos:mantencions_list' %}">Mantenciones</a> -->
             <a class="btn btn-outline-light" href="{% url 'productos:facturas_list' %}">Facturas</a>
             <a class="btn btn-outline-light" href="{% url 'productos:registros_list' %}">Registros de acciones</a>
           </div>
-
+          <!-- Agregar los botones de acción con las URL correctas ################ 09/12 ##############-->
           
           {% with current=request.resolver_match.url_name %}
             <a

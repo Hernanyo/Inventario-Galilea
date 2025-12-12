@@ -18,36 +18,74 @@
       <div class="offcanvas-body p-0">
         <div class="sidebar-card">
           <div class="sidebar-title">Navegación</div>
-
+<!-- ############################ 09/12 ############################ quitar botones especificos empresa, marca, permiso-->
           <div class="list-group list-group-flush sidebar-list">
             {% for m in menu %}
-              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos' and m.slug != 'atributoopcionportipoactivos' and m.slug != 'documentoactivos' and m.slug != 'tipodocumentoactivos' and m.slug != 'activonotas' and m.slug != 'accionpreparacions' and m.slug != 'condiciondetalles'%}
 
-                {% with path=request.path %}
-                <a href="/{{ m.slug }}/"
-                  class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if path|slice:":{{ m.slug|length|add:'2' }}" == '/'|add:m.slug|add:'/' %}active{% endif %}">
-                  <span>
-                    <i class="
-                      {% if m.slug == 'empresas' %}bi-buildings
-                      {% elif m.slug == 'ubicacions' %}bi-geo-alt
-                      {% elif m.slug == 'empleados' %}bi-people
-                      {% elif m.slug == 'marcas' %}bi-tags
-                      {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
-                      {% elif m.slug == 'activos' %}bi-pc-display
-                      {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
-                      {% elif m.slug == 'facturas' %}bi-receipt
-                      {% elif m.slug == 'registros' %}bi-journal-text
-                      {% else %}bi-folder
-                      {% endif %} me-2"></i>
-                    {{ m.name }}
-                  </span>
-                  <span class="badge rounded-pill">{{ m.count }}</span>
-                </a>
+              {# Filtros de menú que ya tenías #}
+              {% if m.slug != 'detallefacturas' and m.slug != 'estadomantencions' and m.slug != 'tipoactivos' and m.slug != 'estadoactivos' and m.slug != 'atributosactivos' and m.slug != 'departamentos' and m.slug != 'historialactivos' and m.slug != 'historialmantenciones' and m.slug != 'tipomantencions' and m.slug != 'prioridadmantencions' and m.slug != 'historialmantencioneslogs' and m.slug != 'agregacionatributosporactivos' and m.slug != 'tiporegistros' and m.slug != 'categoriaactivos' and m.slug != 'condicionactivos' and m.slug != 'modelos' and m.slug != 'atributoopcionportipoactivos' and m.slug != 'documentoactivos' and m.slug != 'tipodocumentoactivos' and m.slug != 'activonotas' and m.slug != 'accionpreparacions' and m.slug != 'condiciondetalles' and m.slug != 'mantencions' %}
+
+                {# ==== CONTROL POR ROL ==== #}
+                {% with emp=request.user.empleado %}
+                  {% if user.is_superuser or emp.es_supervisor %}
+                    {# Admin / Jefe: ven TODOS los botones #}
+
+                    {% with path=request.path %}
+                      <a href="/{{ m.slug }}/"
+                         class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if path|slice:":{{ m.slug|length|add:'2' }}" == '/'|add:m.slug|add:'/' %}active{% endif %}">
+                        <span>
+                          <i class="
+                            {% if m.slug == 'empresas' %}bi-buildings
+                            {% elif m.slug == 'ubicacions' %}bi-geo-alt
+                            {% elif m.slug == 'empleados' %}bi-people
+                            {% elif m.slug == 'marcas' %}bi-tags
+                            {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
+                            {% elif m.slug == 'activos' %}bi-pc-display
+                            {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
+                            {% elif m.slug == 'facturas' %}bi-receipt
+                            {% elif m.slug == 'registros' %}bi-journal-text
+                            {% else %}bi-folder
+                            {% endif %} me-2"></i>
+                          {{ m.name }}
+                        </span>
+                        <span class="badge rounded-pill">{{ m.count }}</span>
+                      </a>
+                    {% endwith %}
+
+                  {% else %}
+                    {# Usuario normal: ocultar Empresas, Marcas y Permiso Bodegas #}
+                    {% if m.slug != 'empresas' and m.slug != 'marcas' and m.name != 'Permiso Bodegas' %}
+
+                      {% with path=request.path %}
+                        <a href="/{{ m.slug }}/"
+                           class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if path|slice:":{{ m.slug|length|add:'2' }}" == '/'|add:m.slug|add:'/' %}active{% endif %}">
+                          <span>
+                            <i class="
+                              {% if m.slug == 'empresas' %}bi-buildings
+                              {% elif m.slug == 'ubicacions' %}bi-geo-alt
+                              {% elif m.slug == 'empleados' %}bi-people
+                              {% elif m.slug == 'marcas' %}bi-tags
+                              {% elif m.slug == 'proveedores' or m.slug == 'proveedors' %}bi-truck
+                              {% elif m.slug == 'activos' %}bi-pc-display
+                              {% elif m.slug == 'mantenciones' or m.slug == 'mantencions' %}bi-wrench-adjustable
+                              {% elif m.slug == 'facturas' %}bi-receipt
+                              {% elif m.slug == 'registros' %}bi-journal-text
+                              {% else %}bi-folder
+                              {% endif %} me-2"></i>
+                            {{ m.name }}
+                          </span>
+                          <span class="badge rounded-pill">{{ m.count }}</span>
+                        </a>
+                      {% endwith %}
+
+                    {% endif %}
+                  {% endif %}
                 {% endwith %}
 
               {% endif %}
             {% endfor %}
           </div>
+<!-- ############################ 09/12 ############################ quitar botones especificos empresa, marca, permiso-->
         </div>
       </div>
     </div>
@@ -124,20 +162,23 @@
     <div class="col-md-2">
       <div class="card h-100 shadow-sm">
         <div class="card-body text-center kpi-body">
-          <h6 class="text-muted">Mantenciones por completar</h6>
-          <div class="display-6">{{ mantenciones_pendientes|default:0 }}</div>
-          <small class="text-muted">tareas</small>
+          <h6 class="text-muted">Activos con plan de mantención</h6>
+          <div class="display-6">{{ activos_con_plan|default:0 }}</div>
+          <small class="text-muted">
+            de {{ total_activos|default:0 }} activos visibles
+          </small>
         </div>
       </div>
     </div>
 
-
     <div class="col-md-2">
       <div class="card h-100 shadow-sm">
         <div class="card-body text-center kpi-body">
-          <h6 class="text-muted">Mantenciones completadas</h6>
-          <div class="display-6">{{ mantenciones_completadas|default:0 }}</div>
-          <small class="text-muted">tareas</small>
+          <h6 class="text-muted">Activos sin plan de mantención</h6>
+          <div class="display-6">{{ activos_sin_plan|default:0 }}</div>
+          <small class="text-muted">
+            sin plan vigente asociado
+          </small>
         </div>
       </div>
     </div>

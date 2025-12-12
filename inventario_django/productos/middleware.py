@@ -85,3 +85,66 @@ class RequireCompanyMiddleware:
             return redirect("productos:company_select")
 
         return self.get_response(request)
+    ####################################### 07/12 #####################################3
+# productos/middleware.py
+from django.contrib.auth import logout
+from django.shortcuts import redirect
+from django.urls import reverse
+from django.contrib import messages
+
+from .models_inventario import Empleado
+
+
+class BlockTrabajadorMiddleware:
+    """
+    Bloquea a cualquier usuario autenticado cuyo Empleado tenga rol TRABAJADOR.
+
+    - Cierra la sesión
+    - Limpia la empresa de la sesión
+    - Redirige de vuelta al login con un mensaje de error
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+        # Evitamos hacer reverse() en cada request, se resuelve una vez
+        try:
+            self.login_url = reverse("productos:login")
+        except Exception:
+            # En migraciones / arranque inicial puede no resolver; se recalcula luego.
+            self.login_url = "/login/"
+
+    def __call__(self, request):
+        # Aseguramos que request.user exista
+        user = getattr(request, "user", None)
+
+        if user is not None and user.is_authenticated:
+            try:
+                empleado = Empleado.objects.get(user=user)
+            except Empleado.DoesNotExist:
+                empleado = None
+
+            if empleado and empleado.rol == Empleado.ROL_TRABAJADOR:
+                # Limpiar selección de empresa de la sesión
+                for k in ("empresa_id", "empresa_nombre", "empresa_slug"):
+                    request.session.pop(k, None)
+
+                # Cerrar sesión
+                logout(request)
+
+                # Mensaje de error
+                messages.error(
+                    request,
+                    "No tienes acceso a la aplicación de inventario. "
+                    "Si crees que es un error, contacta al área de Soporte TI.",
+                )
+
+                # Evitar loop: si ya estamos en /login/, dejamos continuar
+                # para que el LoginView pinte el mensaje.
+                login_url = self.login_url or reverse("productos:login")
+                if request.path != login_url:
+                    return redirect(login_url)
+
+        # Si no es trabajador o no está autenticado, seguir normal
+        response = self.get_response(request)
+        return response

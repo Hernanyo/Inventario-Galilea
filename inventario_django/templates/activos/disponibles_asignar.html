@@ -36,7 +36,7 @@
   {% csrf_token %}
 
   <div class="row g-2 align-items-end mb-3">
-    <div class="col-12 col-md-4">
+    <div class="col-12 col-md-3">
       <label class="form-label mb-1">Empleado destino</label>
       <select class="form-select" name="empleado_id" id="empleado_id">
         <option value="">— Selecciona empleado —</option>
@@ -46,7 +46,7 @@
       </select>
     </div>
 
-    <div class="col-12 col-md-4">
+    <div class="col-12 col-md-3">
       <label class="form-label mb-1">Filtrar por tipo</label>
       <select class="form-select" id="filtro_tipo">
         <option value="">Todos los tipos ({{ total }})</option>
@@ -59,6 +59,22 @@
       </select>
     </div>
 
+    {# === NUEVO: buscador === #}
+    <div class="col-12 col-md-3">
+      <label class="form-label mb-1">Buscar activo</label>
+      <div class="input-group">
+        <input type="text"
+               class="form-control"
+               id="buscador_activo"
+               placeholder="Etiqueta, nombre o ID"
+               value="{{ q|default:'' }}">
+        <button type="button" class="btn btn-outline-secondary" id="btn-buscar">
+          Buscar
+        </button>
+      </div>
+    </div>
+    {# === FIN buscador === #}
+
     <div class="col-12 col-md-auto">
       <label class="form-label mb-1">&nbsp;</label>
       <div>
@@ -69,6 +85,7 @@
       </div>
     </div>
   </div>
+
 
 
   <!-- Barra con contador de selección global -->
@@ -140,6 +157,9 @@
   const empleado  = document.getElementById("empleado_id");
   const filtro    = document.getElementById("filtro_tipo");
   const checkAll  = document.getElementById("check-all"); // si lo tienes
+
+  const searchInput = document.getElementById("buscador_activo");
+  const searchBtn   = document.getElementById("btn-buscar");
 
   function saveLS() {
     localStorage.setItem(LS_IDS, JSON.stringify(Array.from(selected)));
@@ -317,16 +337,40 @@
     });
   }
 
-  // Filtro por tipo → recarga con ?tipo=
+  function aplicarFiltros() {
+    const url = new URL(window.location.href);
+
+    // tipo
+    const tipoVal = filtro ? filtro.value : "";
+    if (tipoVal) url.searchParams.set("tipo", tipoVal);
+    else url.searchParams.delete("tipo");
+
+    // texto de búsqueda
+    const qVal = searchInput ? searchInput.value.trim() : "";
+    if (qVal) url.searchParams.set("q", qVal);
+    else url.searchParams.delete("q");
+
+    window.location = url.toString();
+  }
+
+  // Filtro por tipo → recarga con ?tipo=&q=
   if (filtro) {
-    filtro.addEventListener("change", () => {
-      const url = new URL(window.location.href);
-      const val = filtro.value;
-      if (val) url.searchParams.set("tipo", val);
-      else url.searchParams.delete("tipo");
-      window.location = url.toString();
+    filtro.addEventListener("change", aplicarFiltros);
+  }
+
+  // Botón Buscar
+  if (searchBtn && searchInput) {
+    searchBtn.addEventListener("click", aplicarFiltros);
+
+    // Enter en el input
+    searchInput.addEventListener("keypress", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        aplicarFiltros();
+      }
     });
   }
+
   
   // Inicializaciones al cargar
   syncChecksWithSelection();
@@ -350,21 +394,6 @@
     }
   }
   renderBar();
-})();
-</script>
-
-
-<script>
-(function () {
-  const filtro = document.getElementById('filtro_tipo');
-  if (!filtro) return;
-  filtro.addEventListener('change', () => {
-    const url = new URL(window.location.href);
-    const val = filtro.value;
-    if (val) url.searchParams.set('tipo', val);
-    else url.searchParams.delete('tipo');
-    window.location = url.toString();
-  });
 })();
 </script>
 

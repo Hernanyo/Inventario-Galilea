@@ -50,7 +50,9 @@ MIDDLEWARE = [
     "productos.middleware.CurrentUserMiddleware",    # <— NUEVO
 ##################################################################################################
 ##################################################################################################
-
+################ 07/12 ###########################################################################
+    "productos.middleware.BlockTrabajadorMiddleware",
+################ 07/12 ###########################################################################
 
 ]
 
@@ -184,9 +186,11 @@ LOGGING = {
 #LOGOUT_REDIRECT_URL = reverse_lazy("company_select")
 
 # --- Auth redirects ---
-LOGIN_URL = "productos:company_select"          # <----- AÑADIR AQUÍ
+#LOGIN_URL = "productos:company_select"          # <----- AÑADIR AQUÍ ##########07/12
+LOGIN_URL = "productos:login"                # <- a /login/, MiLoginView
 LOGIN_REDIRECT_URL = "productos:home"           # <----- Opcional (después de login)
-LOGOUT_REDIRECT_URL = "productos:company_select"  # <----- Opcional
+LOGOUT_REDIRECT_URL = "productos:login"      # al cerrar sesión vuelve al login
+#LOGOUT_REDIRECT_URL = "productos:company_select"  # <----- Opcional##########07/12
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"

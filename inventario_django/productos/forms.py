@@ -1,3 +1,5 @@
+# productos/forms.py
+
 from datetime import date
 from django import forms
 from .models import Factura
@@ -22,6 +24,8 @@ from dateutil.relativedelta import relativedelta
 from django import forms
 from django.utils import timezone
 from .models_inventario import PlanMantencionActivo as PMA
+from .models_inventario import Ubicacion, Bodega
+
 
 
 
@@ -370,15 +374,20 @@ class EmpleadoForm(forms.ModelForm):
         """
         # Crear el usuario automáticamente si no se ha asignado un user_id
         instance = super().save(commit=False)
+
+        email = (self.cleaned_data.get("correo") or "").strip().lower()
         
-        # Si no existe un usuario asociado, lo creamos
-        if not instance.user_id:
-            user = User.objects.create_user(
-                username=self.cleaned_data["correo"],  # Usamos el correo como username
-                email=self.cleaned_data["correo"],  # Usamos el correo
-                password='defaultpassword',  # Puedes asignar una contraseña predeterminada o generarla
-            )
-            instance.user_id = user.id  # Asigna el usuario recién creado al campo user_id
+        if not instance.user_id and email:
+            # ¿Ya existe un user con ese correo? -> lo reutilizamos
+            user = User.objects.filter(email=email).first()
+            if not user:
+                # Si no existe, lo creamos
+                user = User.objects.create_user(
+                    username=email,
+                    email=email,
+                    password="defaultpassword",  # luego el usuario la cambiará vía reset
+                )
+            instance.user = user  # enlazamos al empleado
 
         if commit:
             instance.save()
@@ -483,16 +492,45 @@ class MarcaForm(forms.ModelForm):
 
         return cleaned
 
-
+######################## 08/12 ################################
 class UbicacionForm(forms.ModelForm):
     class Meta:
         model = Ubicacion
-        fields = ["id_empresa", "nombre_ubicacion", "direccion"]
+        fields = ["id_empresa", "nombre_ubicacion", "direccion", "id_bodega_retorno"]
         widgets = {
-            "id_empresa": forms.Select(attrs={"class": "form-select"}),
+            "id_empresa": forms.Select(attrs={"class": "form-select searchable"}),
             "nombre_ubicacion": forms.TextInput(attrs={"class": "form-control"}),
             "direccion": forms.TextInput(attrs={"class": "form-control"}),
+            "id_bodega_retorno": forms.Select(
+                attrs={"class": "form-select searchable"}
+            ),
         }
+
+    def __init__(self, *args, request=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.request = request
+
+        emp_id = request.session.get("empresa_id") if request else None
+
+        # Scope de empresa en el combo de empresa
+        if emp_id and "id_empresa" in self.fields:
+            self.fields["id_empresa"].queryset = (
+                self.fields["id_empresa"].queryset.filter(id_empresa=emp_id)
+            )
+
+        # Poblar combo de Bodega de retorno
+        if "id_bodega_retorno" in self.fields:
+            qs = Bodega.objects.all()
+
+            if emp_id:
+                qs = qs.filter(id_empresa_id=emp_id)
+
+            # si usas borrado lógico
+            if hasattr(Bodega, "eliminado"):
+                qs = qs.filter(eliminado=False)
+
+            self.fields["id_bodega_retorno"].queryset = qs.order_by("nombre_bodega")
+            self.fields["id_bodega_retorno"].empty_label = "-- Sin bodega de retorno --"
 
     def clean_nombre_ubicacion(self):
         # normaliza espacios
@@ -502,7 +540,7 @@ class UbicacionForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         empresa = cleaned.get("id_empresa")
-        nombre  = cleaned.get("nombre_ubicacion") or ""
+        nombre = cleaned.get("nombre_ubicacion") or ""
         if not empresa or not nombre:
             return cleaned
 
@@ -519,6 +557,8 @@ class UbicacionForm(forms.ModelForm):
                     "nombre_ubicacion": "Ya existe una ubicación con ese nombre en esta empresa."
                 })
         return cleaned
+
+######################## 08/12 ################################
     
 
 # productos/forms.py
@@ -628,3 +668,116 @@ class PlanMantencionActivoForm(forms.ModelForm):
             obj.refrescar_estado_y_vencimiento(persist=True)
 
         return obj
+############################## 27/11 ##############################
+# productos/forms.py
+from django import forms
+from .models_inventario import DetalleFactura
+
+class DetalleFacturaForm(forms.ModelForm):
+    class Meta:
+        model = DetalleFactura
+        fields = [
+            "id_factura",
+            "nombre_activo",
+            "cantidad",
+            "valor_unitario",
+            "valor_neto",
+            "iva",
+            "valor_total",
+            "id_empresa",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # 👉 Aseguramos que sea un input de texto simple
+        self.fields["nombre_activo"].widget = forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Ej: Notebook HP ProBook 440 G9",
+                # cambio el id para que ningún JS antiguo lo enganche
+                "id": "id_detalle_nombre_activo",
+                "autocomplete": "off",
+            }
+        )
+# products/forms.py
+from django import forms
+from .models_inventario import DetalleFactura
+
+class DetalleFacturaInlineForm(forms.ModelForm):
+    """
+    Formulario para usar dentro del formset de detalle de factura.
+    No muestra id_factura ni id_empresa; se asignan en la vista.
+    """
+
+    class Meta:
+        model = DetalleFactura
+        # Solo los campos propios de la fila
+        fields = [
+            "nombre_activo",
+            "cantidad",
+            "valor_unitario",
+            "valor_neto",
+            "iva",
+            "valor_total",
+        ]
+        widgets = {
+            "nombre_activo": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Ej: Notebook HP ProBook 440 G9",
+                }
+            ),
+            "cantidad": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1}
+            ),
+            "valor_unitario": forms.NumberInput(
+                attrs={"class": "form-control"}
+            ),
+            "valor_neto": forms.NumberInput(
+                attrs={"class": "form-control"}
+            ),
+            "iva": forms.NumberInput(
+                attrs={"class": "form-control"}
+            ),
+            "valor_total": forms.NumberInput(
+                attrs={"class": "form-control"}
+            ),
+        }
+# productos/forms_facturas.py
+from django import forms
+from django.forms import modelformset_factory
+
+from .models_inventario import DetalleFactura
+
+
+class DetalleFacturaLineaForm(forms.ModelForm):
+    """
+    Form de UNA línea de detalle.
+    No incluye id_factura ni id_empresa porque se fijan en la vista.
+    """
+    class Meta:
+        model = DetalleFactura
+        fields = (
+            "nombre_activo",
+            "cantidad",
+            "valor_unitario",
+            "valor_neto",
+            "iva",
+            "valor_total",
+        )
+        widgets = {
+            "nombre_activo": forms.TextInput(
+                attrs={"placeholder": "Ej: Notebook HP ProBook 440 G9"}
+            ),
+        }
+
+
+# Formset = muchas líneas en un solo formulario
+DetalleFacturaFormSet = modelformset_factory(
+    DetalleFactura,
+    form=DetalleFacturaLineaForm,
+    extra=1,         # Nº de filas vacías iniciales (sube a 10 si quieres)
+    can_delete=False
+)
+

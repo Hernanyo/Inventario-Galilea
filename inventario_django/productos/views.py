@@ -1,4 +1,5 @@
 # productos/views.py
+### parte 1
 #from productos.models_inventario import CategoriaActivo
 #from django.views.generic.edit import CreateView
 from django.views.generic import ListView, DetailView
@@ -104,6 +105,20 @@ from .models_inventario import (
     ReglaCriticidad,   # para reutilizar la lógica de criticidad al asignar
 )
 from .models_inventario import CondicionDetalle, CondicionActivo
+from django.contrib import messages as dj_messages
+from .forms import DetalleFacturaInlineForm
+from .models_inventario import Factura, DetalleFactura, Activo, TipoActivo
+from .models_inventario import Ubicacion
+from django.contrib.auth.views import LoginView
+from .mixins import rol_de_usuario, ROL_ADMIN, ROL_JEFE, ROL_USUARIO, ROL_TRABAJADOR
+# arriba en views.py, asegúrate de tener:
+from .models_inventario import Ubicacion, Bodega
+from .mixins import (
+    CompanyRequiredMixin,
+    filtrar_activos_por_bodegas_permitidas, filtrar_empleados_por_bodegas_permitidas,
+)
+
+
 
 
 
@@ -114,38 +129,167 @@ try:
     )
 except Exception:
     Activo = TipoActivo = Mantencion = None
-
-class CompanySelectView(TemplateView):
-    """Vista para seleccionar la empresa activa.
-
-    - Permite al usuario seleccionar entre las empresas disponibles.
-    - Si se selecciona una empresa, se guarda en la sesión.
-    - Si no se selecciona, se muestra un formulario con las empresas disponibles.
+############################### 04/12 #################################################
+def empresas_para_usuario(user):
     """
-    template_name = "empresa/select_company.html"
+    Devuelve un queryset de Empresa que el usuario puede ver/seleccionar,
+    respetando rol:
+      - Admin (superuser o permiso especial) → todas las empresas.
+      - Jefe (grupo 'Jefes' / 'Jefes de Área'...) → por ahora, su propia empresa.
+      - Usuario normal → solo su empresa.
+    """
+    from .models_inventario import Empresa, Empleado
+
+    if not user.is_authenticated:
+        return Empresa.objects.none()
+    
+    rol = rol_de_usuario(user)
+    qs_base = Empresa.objects.all().order_by("nombre_empresa")
+
+    # 1) Admin total -> todas las empresas
+    if rol == ROL_ADMIN:
+        return qs_base
+
+
+    # 1) Admin total
+    if user.is_superuser or user.has_perm("productos.ver_todas_empresas"):
+        return qs_base
+
+    # 2) Para jefe / usuario / lo que venga: usar su id_empresa
+    empleado = getattr(user, "empleado", None)
+    emp_id = getattr(empleado, "id_empresa_id", None)
+
+    if not empleado or not emp_id:
+        # Usuario sin empresa asociada → no puede elegir nada
+        return Empresa.objects.none()
+
+    # Por ahora, tanto jefe como usuario normal ven solo SU empresa.
+    # Si después creas un M2M tipo empleado.empresas_visibles, se ajusta aquí.
+    return qs_base.filter(id_empresa=emp_id)
+
+############################### 04/12 - Login + empresa por usuario ########################
+from django.contrib.auth.views import LoginView
+from django.urls import reverse
+from django.contrib import messages
+
+from .models_inventario import Empleado
+
+
+class MiLoginView(LoginView):
+    """
+    Login que:
+      - Bloquea empleados con rol TRABAJADOR (no entran al sistema).
+      - Después de autenticarse, decide la empresa:
+          * 0 empresas -> mensaje + selector vacío
+          * 1 empresa  -> la setea en sesión y va a Home
+          * >1 empresa -> va al selector de empresas
+    """
+    template_name = "accounts/login.html"
+
+    def form_valid(self, form):
+        # Usuario que se acaba de autenticar (todavía no se ha hecho login en la sesión)
+        user = form.get_user()
+
+        # 1) Bloqueo por rol TRABAJADOR usando la constante del modelo
+        try:
+            empleado = Empleado.objects.get(user=user)
+        except Empleado.DoesNotExist:
+            empleado = None
+
+        if empleado and empleado.rol == Empleado.ROL_TRABAJADOR:
+            # NO hacemos login, solo mostramos error en el mismo formulario
+            form.add_error(None, "No tienes acceso al sistema de inventario.")
+            return self.form_invalid(form)
+
+        # 2) Si no es TRABAJADOR, continuamos con el login normal
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        """
+        Decide adónde ir después del login y setea empresa en sesión.
+        """
+        user = self.request.user
+
+        # Empresas permitidas según tu función centralizada
+        empresas_qs = empresas_para_usuario(user)
+        total_empresas = empresas_qs.count()
+
+        # Limpiar selección previa de empresa
+        for k in ("empresa_id", "empresa_nombre", "empresa_slug"):
+            self.request.session.pop(k, None)
+
+        # 0 empresas -> mensaje y selector
+        if total_empresas == 0:
+            messages.error(
+                self.request,
+                "Tu usuario no tiene ninguna empresa asignada. "
+                "Por favor contacta al área de soporte."
+            )
+            return reverse("productos:company_select")
+
+        # 1 empresa -> setear en sesión y mandar a Home
+        if total_empresas == 1:
+            emp = empresas_qs.first()
+            self.request.session["empresa_id"] = emp.id_empresa
+            self.request.session["empresa_nombre"] = getattr(emp, "nombre_empresa", str(emp))
+            if getattr(emp, "slug", None):
+                self.request.session["empresa_slug"] = emp.slug
+            return reverse("productos:home")
+
+        # Varias empresas -> que elija una
+        return reverse("productos:company_select")
+
+############################### 04/12 - Login + empresa por usuario ########################
+############################### 04/12 #################################################
+
+class CompanySelectView(LoginRequiredMixin, TemplateView):
+    """
+    Vista para seleccionar la empresa activa UNA VEZ logueado.
+
+    Usa `empresas_para_usuario` para mostrar solo las empresas
+    a las que el usuario tiene acceso.
+    """
+    template_name = "accounts/company_select.html"
+    login_url = reverse_lazy("productos:login")
 
     def get_context_data(self, **kwargs):
-        from .models_inventario import Empresa
         ctx = super().get_context_data(**kwargs)
-        ctx["empresas"] = Empresa.objects.order_by("nombre_empresa")
+        empresas = empresas_para_usuario(self.request.user)
+        ctx["empresas"] = empresas
         ctx["empresa_id"] = self.request.session.get("empresa_id")
         ctx["empresa_nombre"] = self.request.session.get("empresa_nombre")
         return ctx
 
     def post(self, request, *args, **kwargs):
-        from .models_inventario import Empresa
         emp_id = request.POST.get("empresa_id")
+
+        # Validar emp_id
         try:
-            emp = Empresa.objects.get(pk=emp_id)
-        except Empresa.DoesNotExist:
+            emp_id_int = int(emp_id)
+        except (TypeError, ValueError):
             messages.error(request, "Empresa inválida.")
+            return redirect(request.path)
+
+        # La empresa elegida debe estar dentro de las permitidas
+        empresas = empresas_para_usuario(request.user).filter(id_empresa=emp_id_int)
+        emp = empresas.first()
+        if not emp:
+            messages.error(request, "No tienes permisos para acceder a esa empresa.")
             return redirect(request.path)
 
         request.session["empresa_id"] = emp.id_empresa
         request.session["empresa_nombre"] = getattr(emp, "nombre_empresa", str(emp))
+
+        # Si usas slug para logos en el login
+        if hasattr(emp, "slug") and emp.slug:
+            request.session["empresa_slug"] = emp.slug
+
         messages.success(request, f"Empresa seleccionada: {request.session['empresa_nombre']}")
-        return redirect("/")
+        return redirect("productos:home")
+
     
+############################### 04/12 #################################################
+
 @login_required
 def company_clear(request):
     """Desasigna la empresa seleccionada en la sesión.
@@ -164,35 +308,53 @@ class HomeView(CompanyRequiredMixin, TemplateView):
 
     - Muestra estadísticas de activos y mantenciones filtradas por empresa.
     - Permite ver el menú de opciones basado en la empresa activa.
+    - Esta vista se encarga de poblar las tarjetas y numeros de barra de navegación
     """
     template_name = "overview/home_sidebar.html"
-    login_url = reverse_lazy("productos:company_select")
-
+############################### 04/12 #################################################
+    login_url = reverse_lazy("productos:login")
+############################### 04/12 #################################################
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
-        # Empresa actual
-        emp_id = self.request.session.get("empresa_id")
+        # Importamos aquí para evitar líos de imports circulares
+        from .mixins import (
+            filtrar_activos_por_bodegas_permitidas,
+            filtrar_empleados_por_bodegas_permitidas,
+        )
 
-        # ===== Menú lateral (filtrado por empresa cuando aplique) =====
+        # Empresa actual y ejecutor (empleado logueado)
+        emp_id = self.request.session.get("empresa_id")
+        ejecutor = getattr(self.request.user, "empleado", None)
+
+        # ===== Menú lateral (empresa + bodegas cuando aplique) =====
         menu = []
         for cfg in get_crud_configs():
             try:
                 names = {f.name for f in cfg.model._meta.get_fields()}
                 qs_count = cfg.model.objects.all()
+
+                # Borrado lógico
                 if "eliminado" in names:
                     qs_count = qs_count.filter(eliminado=False)
+
+                # Filtro por empresa
                 if emp_id:
                     if "id_empresa" in names:
-                        count = cfg.model.objects.filter(id_empresa=emp_id).count()
-                    elif "empresa" in names:
-                        count = cfg.model.objects.filter(empresa_id=emp_id).count()
-                    elif "id_activo" in names:
-                        count = cfg.model.objects.filter(id_activo__id_empresa=emp_id).count()
-                    else:
-                        count = cfg.model.objects.count()
-                else:
-                    count = cfg.model.objects.count()
+                        qs_count = qs_count.filter(id_empresa=emp_id)
+                    elif "empresa" in names:  # campo FK llamado "empresa"
+                        qs_count = qs_count.filter(empresa_id=emp_id)
+                    elif "id_activo" in names:  # modelos que cuelgan de Activo
+                        qs_count = qs_count.filter(id_activo__id_empresa=emp_id)
+
+                # Filtro por bodegas PERMITIDAS solo en modelos clave
+                model_name = cfg.model.__name__
+                if model_name == "Activo":
+                    qs_count = filtrar_activos_por_bodegas_permitidas(qs_count, ejecutor)
+                elif model_name == "Empleado":
+                    qs_count = filtrar_empleados_por_bodegas_permitidas(qs_count, ejecutor)
+
+                count = qs_count.count()
             except Exception:
                 count = 0
 
@@ -204,27 +366,48 @@ class HomeView(CompanyRequiredMixin, TemplateView):
             })
         ctx["menu"] = menu
 
-        # ===== KPIs, listas y gráficos (todo filtrado por empresa) =====
-        # Activos
-
+        # ===== KPIs, listas y gráficos (empresa + bodegas) =====
+        # Base de activos
         qs_activos = Activo.objects.filter(eliminado=False)
         if emp_id:
             qs_activos = qs_activos.filter(id_empresa_id=emp_id)
 
+        # 🔒 Permisos por bodegas del ejecutor
+        qs_activos = filtrar_activos_por_bodegas_permitidas(qs_activos, ejecutor)
+
         total_activos = qs_activos.count()
         disponibles   = qs_activos.filter(id_empleado__isnull=True).count()
         en_uso        = qs_activos.filter(id_empleado__isnull=False).count()
+        criticos      = qs_activos.filter(activo_critico=True).count()
+
+################################# 10/12 #################################################
+        # === Cobertura de planes de mantención (nuevo módulo) ===
+        # Planes vigentes asociados SOLO a los activos que el usuario puede ver
+        try:
+            qs_pma = PlanMantencionActivo.objects.filter(
+                eliminado=False,
+                es_vigente=True,
+                id_activo__in=qs_activos,  # respeta empresa + bodegas permitidas
+            )
+
+            # Activos con al menos un plan vigente
+            activos_con_plan = (
+                qs_pma.values("id_activo")
+                      .distinct()
+                      .count()
+            )
+        except Exception:
+            activos_con_plan = 0
+
+        # Activos sin plan = total visibles - con plan (nunca negativo por si acaso)
+        activos_sin_plan = max(total_activos - activos_con_plan, 0)
+
+################################# 10/12 #################################################
 
 
-        # Activos criticos
-        criticos = qs_activos.filter(activo_critico=True).count()
-        ctx.update({
-            # ...
-            "activos_criticos": criticos,
-        })
-
-        # Mantenciones (con fallback si el modelo no tiene id_empresa)
-        Mant = Mantencion  # ya importado arriba
+        # Mantenciones (se filtran por empresa; si más adelante quieres
+        # también por bodega, hacemos un helper similar en mixins)
+        Mant = Mantencion
         qs_mant = Mant.objects.all() if Mant else None
         if Mant and emp_id:
             mant_fields = {f.name for f in Mant._meta.get_fields()}
@@ -234,25 +417,19 @@ class HomeView(CompanyRequiredMixin, TemplateView):
                 qs_mant = qs_mant.filter(id_activo__id_empresa=emp_id)
 
         mant_pend = 0
+        mant_comp = 0
         ult_mant = []
         chart_mant_labels = []
         chart_mant_values = []
+
         if Mant and qs_mant is not None:
             mant_pend = qs_mant.exclude(
                 id_estado_mantencion__tipo__in=["Cerrada", "Completada", "Cancelada"]
             ).count()
 
-            # Mantenciones completadas
-            mant_comp = 0
-            if Mant and qs_mant is not None:
-                # ... (lo que ya tienes)
-
-                # ✅ NUEVO: total de mantenciones completadas
-                mant_comp = qs_mant.filter(
-                    id_estado_mantencion__tipo__iexact="Completada"
-                ).count()
-
-
+            mant_comp = qs_mant.filter(
+                id_estado_mantencion__tipo__iexact="Completada"
+            ).count()
 
             ult_mant = (
                 qs_mant.select_related("id_activo", "id_estado_mantencion")
@@ -263,7 +440,10 @@ class HomeView(CompanyRequiredMixin, TemplateView):
                       .annotate(n=Count("id_mantencion"))
                       .order_by("id_estado_mantencion__tipo")
             )
-            chart_mant_labels = [d["id_estado_mantencion__tipo"] or "Sin estado" for d in datos_mant]
+            chart_mant_labels = [
+                d["id_estado_mantencion__tipo"] or "Sin estado"
+                for d in datos_mant
+            ]
             chart_mant_values = [d["n"] for d in datos_mant]
 
         # Contexto final
@@ -271,22 +451,34 @@ class HomeView(CompanyRequiredMixin, TemplateView):
             "total_activos": total_activos,
             "disponibles": disponibles,
             "en_uso": en_uso,
+            "activos_criticos": criticos,
+
+##################################### 10/12 ########################################
+            # ➜ NUEVAS MÉTRICAS PARA LAS TARJETAS
+            "activos_con_plan": activos_con_plan,
+            "activos_sin_plan": activos_sin_plan,
+##################################### 10/12 ########################################
+
+
             "mantenciones_pendientes": mant_pend,
-            "mantenciones_completadas": mant_comp,   # ✅ NUEVO
+            "mantenciones_completadas": mant_comp,
             "ultimos_activos": qs_activos.order_by("-id_activo")[:15],
             "ultimas_mantenciones": ult_mant,
         })
 
-        # Gráfico de activos por tipo (ya con qs_activos filtrado)
+        # Gráfico de activos por tipo (ya con empresa + bodegas aplicadas)
         datos_tipos = (
             qs_activos.values("id_tipo_activo__tipo_activo")
                       .annotate(n=Count("id_activo"))
                       .order_by("id_tipo_activo__tipo_activo")
         )
-        ctx["chart_tipos_labels"] = [d["id_tipo_activo__tipo_activo"] or "Sin tipo" for d in datos_tipos]
+        ctx["chart_tipos_labels"] = [
+            d["id_tipo_activo__tipo_activo"] or "Sin tipo"
+            for d in datos_tipos
+        ]
         ctx["chart_tipos_values"] = [d["n"] for d in datos_tipos]
 
-        # Gráfico de mantenciones por estado (si corresponde)
+        # Gráfico de mantenciones por estado
         ctx["chart_mant_labels"] = chart_mant_labels
         ctx["chart_mant_values"] = chart_mant_values
 
@@ -547,6 +739,12 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             # Si quisieras incluir activos antiguos sin empresa, usa Q(...) | Q(id_empresa__isnull=True)
             qs = qs.filter(id_empresa_id=emp_id)
 
+##################################### 09/12 ########################################################### 
+        # 🔹 NUEVO: aplicar filtro de permisos por bodegas
+        usuario_empleado = getattr(self.request.user, "empleado", None)
+        qs = filtrar_activos_por_bodegas_permitidas(qs, usuario_empleado)
+##################################### 09/12 ########################################################### 
+
         # Limitar a los últimos 15 activos después de ordenar
         return qs  # Limitar después de ordenar
 
@@ -556,12 +754,37 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
         # base de disponibles (disponible + sin empleado) ya filtrada por empresa
         base = self.get_queryset_disponibles()
 
+############################## 11/12 ##########################
+        # === NUEVO: texto de búsqueda ===
+        q = (self.request.GET.get("q") or "").strip()
+############################## 11/12 ##########################
+
         # lee el ?tipo=<id> y filtra solo los activos mostrados
         tipo_id = self.request.GET.get("tipo")
         if tipo_id:
             activos = base.filter(id_tipo_activo_id=tipo_id)
         else:
             activos = base
+############################## 11/12 ##########################
+        # === NUEVO: aplicar filtro de búsqueda ===
+        if q:
+            filtros = (
+                Q(etiqueta__icontains=q) |
+                Q(nombre_activo__icontains=q) |
+                Q(id_marca__nombre_marca__icontains=q) |              # ← Marca (Apple, HP, etc.)
+                Q(id_tipo_activo__tipo_activo__icontains=q)    # ← Tipo (Notebook, Monitor...)
+            )
+
+            # si q es un número, también buscamos por id_activo
+            try:
+                q_id = int(q)
+            except ValueError:
+                q_id = None
+            if q_id is not None:
+                filtros |= Q(id_activo=q_id)
+
+            activos = activos.filter(filtros)
+############################## 11/12 ##########################
 
         # tipos para el combo (conteo siempre sobre el base)
         tipos = (
@@ -576,12 +799,20 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
         if emp_id:
             empleados_qs = empleados_qs.filter(id_empresa_id=emp_id)
 
+##################################### 09/12 ############################################################
+        # 🔹 NUEVO: filtrar empleados por bodegas/ubicaciones permitidas del usuario que ejecuta
+        ejecutor = getattr(self.request.user, "empleado", None)
+        empleados_qs = filtrar_empleados_por_bodegas_permitidas(empleados_qs, ejecutor)
+##################################### 09/12 ############################################################
+
         ctx.update({
             "activos": activos.order_by("-id_activo"),
             "total": base.count(),
             "tipos": tipos,
             "tipo_seleccionado": str(tipo_id or ""),
             "empleados": empleados_qs.order_by("nombre", "apellido_paterno", "apellido_materno"),
+            "q": q,   # <<< importante para que el input recuerde el texto
+
         })
 
         # --- NUEVO 16/11: indicador de preparación pendiente en sesión ---
@@ -807,6 +1038,13 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
 
         if emp_id:
             candidatos = candidatos.filter(id_empresa_id=emp_id)
+
+############################## 09/12 ###################################
+        # 🔹 NUEVO: restringir por permisos de bodegas del usuario que ejecuta
+        usuario_empleado = getattr(request.user, "empleado", None)
+        candidatos = filtrar_activos_por_bodegas_permitidas(candidatos, usuario_empleado)
+############################## 09/12 ###################################
+
 
         # Si estoy reanudando o vengo del checklist, permito "En Reparación"
         if permitir_en_reparacion:
@@ -1085,6 +1323,13 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
 
+############################# 09/12 #######################################
+            # 🔹 NUEVO: el usuario que *ejecuta* la desasignación solo puede tocar
+            # activos en bodegas para las que tiene permiso
+            ejecutor = getattr(request.user, "empleado", None)
+            qs = filtrar_activos_por_bodegas_permitidas(qs, ejecutor)
+############################# 09/12 #######################################
+
 #            # Mismo criterio que en "candidatos": si vengo del checklist o reanudo,
 #            # permito activos en "En Reparación"
 #            if permitir_en_reparacion:
@@ -1147,6 +1392,12 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                 e.id_condicion_activo = detalle_operativo.condicion_activo
 ####################################### 22/11 ########################################################
 
+####################################### 03/12 ########################################################
+                # 🔹 NUEVO: mover activo a la misma ubicación del empleado (si tiene)
+                if empleado.ubicacion_id:
+                    e.id_ubicacion_id = empleado.ubicacion_id
+####################################### 03/12 ########################################################
+
                 # --- NUEVO: aplicar regla de criticidad según cargo + tipo + empresa ---
                 aplicar_regla_criticidad(e)  # <<< esto rellena activo_critico + CID + clasificacion
 
@@ -1183,6 +1434,9 @@ class ActivosDisponiblesView(CompanyRequiredMixin, TemplateView):
                         "id_condicion_activo",     # <<< NUEVO
                         "id_condicion_detalle",    # <<< NUEVO
 ####################################### 22/11 ########################################################
+####################################### 03/12 ######################################################## 
+                        "id_ubicacion",       # 🔹 NUEVO
+####################################### 03/12 ######################################################## 
                         "activo_critico",
                         "clasificacion",
                         "confidencialidad",
@@ -1323,6 +1577,9 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
             qs = (
                 Activo.objects
                 .select_for_update()
+################################# 03/12 ################################################## 03/12
+                .select_related("id_ubicacion")              # 👈 añadimos esto
+################################# 03/12 ################################################## 03/12
                 .filter(id_activo__in=ids, id_empleado__isnull=False)
             )
             if emp_id:
@@ -1358,6 +1615,12 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
                     accion="DESASIGNACION MASIVA",
                     tipo_activo=getattr(e, "id_tipo_activo", None),
                 ))
+################################# 03/12 ################################################## 03/12
+                # --- lógica nueva de ubicación ---
+                ubic_actual = e.id_ubicacion
+                nueva_ubicacion = ubicacion_bodega_para(ubic_actual)
+                e.id_ubicacion = nueva_ubicacion
+################################# 03/12 ################################################## 03/12
 
                 # Actualizar el estado y empleado del activo
                 e.id_empleado = None
@@ -1366,7 +1629,7 @@ class ActivosDesasignarView(CompanyRequiredMixin, TemplateView):
 
             if activos_a_actualizar:
                 Activo.objects.bulk_update(
-                    activos_a_actualizar, ["id_empleado", "id_estado_activo"]
+                    activos_a_actualizar, ["id_empleado", "id_estado_activo", "id_ubicacion"]
                 )
             if historiales:
                 HistorialActivos.objects.bulk_create(historiales, ignore_conflicts=True)
@@ -1480,7 +1743,7 @@ def api_atributos_por_tipo(request):
 #        ctx["can_create"] = False
 #        return ctx
     
-
+### parte 2
 @login_required
 def nuevos_estados_mantencion(request):
     # Obtener todos los tipos de estado de mantención para la empresa actual
@@ -2024,12 +2287,18 @@ class DesasignarEmpleadoPostView(View):
                     accion="DESASIGNACION MASIVA",
                     tipo_activo=getattr(e, "id_tipo_activo", None),
                 ))
+################################# 03/12 ################################################## 03/12
+                # --- lógica nueva de ubicación ---
+                ubic_actual = e.id_ubicacion
+                nueva_ubicacion = ubicacion_bodega_para(ubic_actual)
+                e.id_ubicacion = nueva_ubicacion
+################################# 03/12 ################################################## 03/12
                 e.id_empleado = None
                 e.id_estado_activo = estado_disponible
                 a_actualizar.append(e)
 
             if a_actualizar:
-                Activo.objects.bulk_update(a_actualizar, ["id_empleado", "id_estado_activo"])
+                Activo.objects.bulk_update(a_actualizar, ["id_empleado", "id_estado_activo", "id_ubicacion"])
             if historiales:
                 HistorialActivos.objects.bulk_create(historiales, ignore_conflicts=True)
 
@@ -2328,23 +2597,54 @@ from django.db.models import Count
 from .models_inventario import Activo, TipoActivo, Ubicacion, Modelo   # usa el módulo correcto
 from .mixins import scope_qs_by_empresa                     # si no existe, quita esta línea
 
-
+########################################### 09/12 ##########################################
+@login_required
 def overview_data(request):
-    # QS base (incluye FKs para no pegar consultas extras)
-    qs = Activo.objects.select_related(
-        "id_tipo_activo", "id_ubicacion", "id_marca", "id_empleado", "id_condicion_activo"
+    """
+    API JSON del panel principal (home_sidebar).
+
+    Parte de un queryset base de activos (`qs_base`) ya filtrado por:
+    - empresa seleccionada en la sesión (`scope_qs_by_empresa`)
+    - borrado lógico (`eliminado = False`)
+    - permisos de bodega del usuario (`filtrar_activos_por_bodegas_permitidas`)
+
+    Sobre ese queryset base se aplican los filtros enviados por GET
+    (`tipos`, `ubicaciones`, `cargos`, `condiciones`) y se construyen:
+
+    - los datos de los filtros laterales (tipos, ubicaciones, cargos, condición)
+    - los datos de los gráficos (marca, ubicación, condición)
+    - el listado inferior de activos
+
+    El resultado se devuelve como JSON y es consumido por el JS de `home_sidebar.html`.
+    """
+
+    # ==== QS base: empresa + borrado lógico + permisos de bodega ====
+    ejecutor = getattr(request.user, "empleado", None)
+
+    qs_base = Activo.objects.select_related(
+        "id_tipo_activo",
+        "id_ubicacion",
+        "id_marca",
+        "id_empleado",
+        "id_condicion_activo",
     )
 
     # Filtrar por empresa (si tienes helper)
     try:
-        qs = scope_qs_by_empresa(request, qs)
+        qs_base = scope_qs_by_empresa(request, qs_base)
     except Exception:
         pass
 
-    # 🚫 Excluir borrados lógicos
-    qs = qs.filter(eliminado=False)
+    # Excluir borrados lógicos
+    qs_base = qs_base.filter(eliminado=False)
 
-    # Filtros GET (?tipos=..&ubicaciones=..)
+    # 🔒 Permisos de bodega del usuario
+    qs_base = filtrar_activos_por_bodegas_permitidas(qs_base, ejecutor)
+
+    # A partir de aquí, trabajamos sobre qs (qs_base + filtros GET)
+    qs = qs_base
+
+    # ====== Filtros GET (?tipos=..&ubicaciones=..&cargos=..&condiciones=..) ======
     tipos = request.GET.getlist("tipos")
     ubic  = request.GET.getlist("ubicaciones")
     cargos = request.GET.getlist("cargos")
@@ -2355,56 +2655,65 @@ def overview_data(request):
     if ubic:
         qs = qs.filter(id_ubicacion__in=[int(x) for x in ubic if x.isdigit()])
     if cargos:
+        # cargo es texto, usamos los valores tal cual
         qs = qs.filter(id_empleado__cargo__in=cargos)
     if condiciones:
         qs = qs.filter(id_condicion_activo__in=[int(x) for x in condiciones if x.isdigit()])
-    # Filtros: Tipos
+
+    # ====== Filtros laterales ======
+
+    # Tipos
     tipos_qs = (
         qs.values("id_tipo_activo", "id_tipo_activo__tipo_activo")
           .annotate(count=Count("id_activo"))
           .order_by("id_tipo_activo__tipo_activo")
     )
     tipos_data = [
-        {"id": r["id_tipo_activo"], "nombre": r["id_tipo_activo__tipo_activo"], "count": r["count"]}
+        {
+            "id": r["id_tipo_activo"],
+            "nombre": r["id_tipo_activo__tipo_activo"],
+            "count": r["count"],
+        }
         for r in tipos_qs
     ]
 
-    # Filtros: Ubicaciones
+    # Ubicaciones
     ubic_qs = (
         qs.values("id_ubicacion", "id_ubicacion__nombre_ubicacion")
           .annotate(count=Count("id_activo"))
           .order_by("id_ubicacion__nombre_ubicacion")
     )
     ubic_data = [
-        {"id": r["id_ubicacion"], "nombre": r["id_ubicacion__nombre_ubicacion"], "count": r["count"]}
+        {
+            "id": r["id_ubicacion"],
+            "nombre": r["id_ubicacion__nombre_ubicacion"],
+            "count": r["count"],
+        }
         for r in ubic_qs
     ]
 
-    # Filtros: Cargos
-    # NEW: filtro/contador por cargos (va por empleado.id_cargo)
-    from django.db.models.functions import NullIf
-
+    # Cargos
     cargos_qs = (
         qs.exclude(id_empleado__cargo__isnull=True)
-        .exclude(id_empleado__cargo__exact="")
-        .values("id_empleado__cargo")
-        .annotate(count=Count("id_activo"))
-        .order_by("id_empleado__cargo")
+          .exclude(id_empleado__cargo__exact="")
+          .values("id_empleado__cargo")
+          .annotate(count=Count("id_activo"))
+          .order_by("id_empleado__cargo")
     )
-
     cargos_data = [
         {
-            "id": r["id_empleado__cargo"],          # usamos el nombre del cargo como ID del filtro
-            "nombre": r["id_empleado__cargo"],      # etiqueta a mostrar
+            "id": r["id_empleado__cargo"],     # usamos el nombre del cargo como ID del filtro
+            "nombre": r["id_empleado__cargo"],
             "count": r["count"],
         }
         for r in cargos_qs
     ]
-    # Filtros: Cargos
+
+    # Condiciones
     cond_qs = (
         qs.values("id_condicion_activo", "id_condicion_activo__descripcion")
-        .annotate(count=Count("id_activo"))
-        .order_by("id_condicion_activo__descripcion")
+          .annotate(count=Count("id_activo"))
+          .order_by("id_condicion_activo__descripcion")
     )
     condiciones_data = [
         {
@@ -2415,21 +2724,18 @@ def overview_data(request):
         for r in cond_qs
     ]
 
+    # ====== Gráfico por condición ======
     cond_group = (
         qs.values("id_condicion_activo__descripcion")
-        .annotate(c=Count("id_activo"))
-        .order_by("-c", "id_condicion_activo__descripcion")
+          .annotate(c=Count("id_activo"))
+          .order_by("-c", "id_condicion_activo__descripcion")
     )
-
     cond_chart = {
         "labels": [r["id_condicion_activo__descripcion"] or "—" for r in cond_group],
         "data":   [r["c"] for r in cond_group],
     }
 
-
-
-
-    # Gráficos
+    # ====== Gráfico por marca ======
     top = (
         qs.values("id_marca__nombre_marca")
           .annotate(c=Count("id_activo"))
@@ -2440,7 +2746,7 @@ def overview_data(request):
         "data":   [r["c"] for r in top],
     }
 
-     # --- NUEVO: Ubicación por tipo seleccionado ---
+    # ====== Gráfico ubicación por tipo seleccionado ======
     qs_loc = qs
     if tipos:
         ids_tipos = [int(x) for x in tipos if x.isdigit()]
@@ -2456,7 +2762,7 @@ def overview_data(request):
         "data":   [r["c"] for r in loc],
     }
 
-    # Tabla inferior + Empleado
+    # ====== Tabla inferior ======
     lista_qs = (
         qs.order_by("-id_activo")
           .values(
@@ -2486,20 +2792,23 @@ def overview_data(request):
             "condicion": r["id_condicion_activo__descripcion"],
             "id_tipo_activo__tipo_activo": r["id_tipo_activo__tipo_activo"],
             "id_ubicacion__nombre_ubicacion": r["id_ubicacion__nombre_ubicacion"],
-            "empleado": empleado,    # <-- aquí va el nombre completo
+            "empleado": empleado,
         })
 
     return JsonResponse({
         "tipos": tipos_data,
         "ubicaciones": ubic_data,
         "cargos": cargos_data,
-        "condiciones": condiciones_data,  # ← NUEVO
+        "condiciones": condiciones_data,
         "modelos": modelos,
-        "tipo_ubic": tipo_ubic,   # <-- NUEVO
+        "tipo_ubic": tipo_ubic,
         "lista": lista,
         "total": qs.count(),
         "cond_chart": cond_chart,
     })
+
+########################################### 09/12 ##########################################
+
 
 ##################################################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>06/11
 # productos/views.py
@@ -2845,3 +3154,422 @@ def aplicar_regla_criticidad(activo):
         activo.disponibilidad = getattr(regla, "disponibilidad", None)
 
 #########################################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>15/11
+    ################################# 26/11 ########################################
+@login_required
+def factura_detalles_view(request, pk: int):
+    """
+    Editor de líneas de una factura usando inline formset.
+
+    - Muestra todas las líneas de DetalleFactura de la factura.
+    - Permite agregar varias líneas nuevas a la vez.
+    - Permite marcar líneas para eliminar (borrado lógico si existe `eliminado`).
+    """
+    from .models_inventario import Factura, DetalleFactura
+
+    emp_id = request.session.get("empresa_id")
+    if not emp_id:
+        raise Http404("Empresa no seleccionada.")
+
+    factura = get_object_or_404(Factura, pk=pk)
+
+    # seguridad multiempresa
+    if getattr(factura, "id_empresa_id", None) != emp_id:
+        return HttpResponseForbidden("No permitido para la empresa actual.")
+
+    # Base para el formset: solo detalles de esta factura y empresa
+    qs_detalles = DetalleFactura.objects.filter(
+        id_factura=factura,
+        id_empresa_id=emp_id,
+    )
+    # Si el modelo tiene borrado lógico, excluimos los eliminados
+    if hasattr(DetalleFactura, "eliminado"):
+        qs_detalles = qs_detalles.filter(eliminado=False)
+
+    # Configuramos el formset
+    DetalleFormSet = inlineformset_factory(
+        Factura,
+        DetalleFactura,
+        form=DetalleFacturaInlineForm,
+        fk_name="id_factura",
+        extra=5,          # nº de filas nuevas vacías
+        can_delete=True,  # checkbox para borrar líneas existentes
+    )
+
+    if request.method == "POST":
+        formset = DetalleFormSet(
+            request.POST,
+            instance=factura,
+            queryset=qs_detalles,
+        )
+
+        if formset.is_valid():
+            # Guardamos sin commit para poder setear empresa, etc.
+            detalles = formset.save(commit=False)
+
+            # 1) Borrados: marcamos eliminado=True si existe el campo, si no, borramos
+            for obj in formset.deleted_objects:
+                if hasattr(obj, "eliminado"):
+                    obj.eliminado = True
+                    obj.save(update_fields=["eliminado"])
+                else:
+                    obj.delete()
+
+            # 2) Nuevos y modificados
+            for det in detalles:
+                # Aseguramos la FK a factura
+                det.id_factura = factura
+
+                # Asignamos empresa si viene vacía
+                if emp_id and hasattr(det, "id_empresa_id") and not det.id_empresa_id:
+                    det.id_empresa_id = emp_id
+
+                det.save()
+
+            dj_messages.success(
+                request,
+                "Detalles de la factura guardados correctamente."
+            )
+            # Volvemos a la misma pantalla
+            return redirect(request.path)
+
+    else:
+        formset = DetalleFormSet(
+            instance=factura,
+            queryset=qs_detalles,
+        )
+
+    # Totales con lo que hay actualmente en BD (sin eliminados)
+    detalles_db = qs_detalles.order_by("id_detalle_factura")
+    total_neto = sum(d.valor_neto or 0 for d in detalles_db)
+    total_iva = sum(d.iva or 0 for d in detalles_db)
+    total_total = sum(d.valor_total or 0 for d in detalles_db)
+
+    ctx = {
+        "factura": factura,
+        "formset": formset,
+        "detalles": detalles_db,  # por si quieres mostrar algo en modo lectura
+        "total_neto": total_neto,
+        "total_iva": total_iva,
+        "total_total": total_total,
+    }
+    # 👇 Cambiamos el template a uno pensado para formset
+    return render(request, "productos/factura_detalle_formset.html", ctx)
+
+
+
+@login_required
+def vincular_activos_factura(request, pk: int):
+    """
+    Vista para vincular Activos a los DetalleFactura de una Factura específica.
+
+    - Restringe por empresa en sesión.
+    - Muestra todos los detalles de la factura con:
+        * cantidad total
+        * cantidad ya vinculada
+        * cantidad restante
+    - Lista activos disponibles (sin id_detalle_factura) para vincularlos al detalle elegido.
+    """
+    from .models_inventario import (
+        Factura,
+        DetalleFactura,
+        Activo,
+        AtributosActivo,
+        AgregacionAtributosPorActivo,
+    )
+
+    emp_id = request.session.get("empresa_id")
+    if not emp_id:
+        raise Http404("Empresa no seleccionada.")
+
+    factura = get_object_or_404(Factura, pk=pk)
+
+    # Seguridad: la factura debe pertenecer a la empresa en sesión
+    if getattr(factura, "id_empresa_id", None) != emp_id:
+        return HttpResponseForbidden("No permitido para la empresa actual.")
+
+    # Obtener los activos ya vinculados a la factura
+    activos_vinculados = Activo.objects.filter(id_factura=factura)
+
+    # Agrupar los activos por detalle de factura
+    detalles = DetalleFactura.objects.filter(id_factura=factura, eliminado=False)
+    detalles_con_activos = {}
+    
+    for detalle in detalles:
+        activos_por_detalle = activos_vinculados.filter(id_detalle_factura=detalle)
+        detalles_con_activos[detalle] = {
+            'activos': activos_por_detalle,
+            'valor_unitario': detalle.valor_unitario  # Valor unitario de cada detalle
+        }
+
+    # --- BASE: activos de la empresa, no eliminados ---
+    activos_base = Activo.objects.all()
+    if getattr(Activo, "_meta", None) and hasattr(Activo._meta, "fields"):
+        # por si usas helpers _model_has_empresa_fk / _has_field, puedes
+        # reemplazar esta parte usando esos helpers
+        activos_base = activos_base.filter(id_empresa_id=emp_id, eliminado=False)
+
+    # --- DETALLES DE FACTURA CON CONTADORES ---
+    detalles = list(
+        DetalleFactura.objects.filter(
+            id_factura=factura,
+            id_empresa_id=emp_id,
+            eliminado=False,
+        ).order_by("id_detalle_factura")
+    )
+
+
+    # --- ACTIVOS DISPONIBLES: sin detalle asignado todavía ---
+    activos_disponibles = activos_base.filter(
+        id_empresa_id=emp_id,
+        eliminado=False,
+        id_detalle_factura__isnull=True,
+    )
+
+    # Tipos de activo que aparecen en los activos disponibles
+    tipos_activo = (
+        TipoActivo.objects.filter(
+            id_empresa_id=emp_id,
+            activo__in=activos_disponibles,   # FK inversa desde Activo
+            eliminado=False                  # si tu modelo tiene este campo
+        )
+        .distinct()
+        .order_by("tipo_activo")
+    )
+
+    if request.method == "POST":
+        detalle_id = request.POST.get("detalle_id")
+        activos_ids = request.POST.getlist("activos_ids")
+
+        if not detalle_id or not activos_ids:
+            dj_messages.error(
+                request,
+                "Debes seleccionar un detalle de factura y al menos un activo.",
+            )
+            return redirect(request.path)
+
+        detalle = get_object_or_404(
+            DetalleFactura,
+            pk=detalle_id,
+            id_factura=factura,
+            id_empresa_id=emp_id,
+        )
+
+        vinculados = detalle.cantidad_vinculada
+        total = detalle.cantidad or 0
+        restantes = max(total - vinculados, 0)
+
+        seleccion = activos_disponibles.filter(id_activo__in=activos_ids)
+
+        # Si el detalle tiene cantidad, respetamos el tope
+        if total and seleccion.count() > restantes:
+            dj_messages.error(
+                request,
+                (
+                    f"No es posible vincular {seleccion.count()} activos: "
+                    f"solo quedan {restantes} unidades disponibles para ese detalle."
+                ),
+            )
+            return redirect(request.path)
+
+        # Buscar atributo dinámico "Valor en Factura" para este tipo de activo
+        # (si existe, se rellenará al vuelo)
+        def actualizar_valor_en_factura(activo, detalle):
+            """
+            Actualiza el atributo dinámico 'Valor en Factura' de un activo
+            usando el valor_unitario del detalle.
+            Si no existe el atributo, se ignora silenciosamente.
+            """
+            if detalle.valor_unitario is None:
+                return
+
+            try:
+                attr = AtributosActivo.objects.filter(
+                    atributo__iexact="Valor en Factura",
+                    id_tipo_activo_id=activo.id_tipo_activo_id,
+                    id_empresa_id=activo.id_empresa_id,
+                    eliminado=False,
+                ).first()
+            except Exception:
+                return
+
+            if not attr:
+                return
+
+            try:
+                AgregacionAtributosPorActivo.objects.update_or_create(
+                    activo=activo,
+                    atributo=attr,
+                    defaults={"valor": str(detalle.valor_unitario)},
+                )
+            except Exception:
+                # no queremos romper la vinculación por esto
+                pass
+
+        # Guardamos todo junto
+        with transaction.atomic():
+            for a in seleccion:
+                # Vincular al detalle seleccionado
+                a.id_detalle_factura = detalle
+
+                # Asegurar que el activo quede asociado a ESTA factura
+                if a.id_factura_id != factura.id_factura:
+                    a.id_factura = factura
+
+                # Actualizar proveedor del activo según la factura
+                if factura.id_proveedor_id and a.id_proveedor_id != factura.id_proveedor_id:
+                    a.id_proveedor_id = factura.id_proveedor_id
+
+                # Guardamos solo los campos que realmente cambiaron
+                a.save(update_fields=["id_detalle_factura", "id_factura", "id_proveedor"])
+
+                # Actualizar atributo dinámico "Valor en Factura"
+                actualizar_valor_en_factura(a, detalle)
+
+        dj_messages.success(
+            request,
+            f"Se vincularon {seleccion.count()} activo(s) al detalle de la factura."
+        )
+        return redirect(request.path)
+
+    ctx = {
+        "factura": factura,
+        "detalles": detalles,
+        "activos_disponibles": activos_disponibles,
+        "activos_vinculados": activos_vinculados,  # Incluir los activos vinculados en el contexto
+        "detalles_con_activos": detalles_con_activos,  # Agrupamos activos por detalle
+        "tipos_activo": tipos_activo, 
+
+    }
+    return render(request, "productos/vincular_activos.html", ctx)
+
+
+# productos/views_facturas_multi.py
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+
+from .models_inventario import Empresa, Factura, DetalleFactura
+from .forms import DetalleFacturaFormSet
+
+from django.urls import reverse
+
+
+############################## 27/11 ########################################
+def nuevo_detalle_factura_multiple(request):
+    """
+    Crea VARIAS líneas de DetalleFactura para una misma factura.
+    """
+    empresa_id = request.session.get("empresa_id")
+    empresa = None
+    if empresa_id:
+        empresa = Empresa.objects.filter(pk=empresa_id, eliminado=False).first()
+
+    # Factura seleccionada (GET ?factura=ID o POST)
+    factura_id = request.GET.get("factura") or request.POST.get("factura")
+    factura = None
+    if factura_id:
+        factura = get_object_or_404(
+            Factura.objects.select_related("id_proveedor"),
+            pk=factura_id,
+            eliminado=False,
+        )
+
+    # Facturas para el combo
+    facturas_qs = Factura.objects.filter(
+        eliminado=False,
+        id_empresa_id=empresa_id if empresa_id else None,
+    ).order_by("-id_factura")
+
+    if request.method == "POST":
+        formset = DetalleFacturaFormSet(
+            request.POST,
+            queryset=DetalleFactura.objects.none(),  # siempre creo nuevos
+            prefix="linea",
+        )
+
+        if not factura:
+            # Error simple si no seleccionó factura
+            formset.non_form_errors = lambda: ["Debes seleccionar una factura."]
+        elif formset.is_valid():
+            creados = []
+
+            for form in formset:
+                if not form.cleaned_data:
+                    continue  # fila totalmente vacía
+
+                nombre = form.cleaned_data.get("nombre_activo")
+                cantidad = form.cleaned_data.get("cantidad")
+                v_unit = form.cleaned_data.get("valor_unitario")
+
+                # Si no tiene datos básicos, la considero vacía
+                if not (nombre and cantidad and v_unit):
+                    continue
+
+                detalle = form.save(commit=False)
+                detalle.id_factura = factura
+                if empresa and detalle.id_empresa_id is None:
+                    detalle.id_empresa = empresa
+
+                detalle.save()  # aquí se recalcula neto/iva/total en el modelo
+                creados.append(detalle)
+
+            if creados:
+                factura.recalcular_totales()
+
+            # 🔹 Ahora vamos al listado de DetalleFacturas filtrado por factura
+            return redirect(f"/detallefacturas/?factura={factura.id_factura}")
+    else:
+        # GET: una fila vacía
+        formset = DetalleFacturaFormSet(
+            queryset=DetalleFactura.objects.none(),
+            prefix="linea",
+        )
+
+    contexto = {
+        "empresa": empresa,
+        "facturas": facturas_qs,
+        "factura": factura,
+        "formset": formset,
+    }
+    return render(request, "productos/detalle_factura_multiple_form.html", contexto)
+
+
+    ################################# 27/11 ########################################
+from django.shortcuts import get_object_or_404, redirect
+from .models_inventario import Activo
+
+@login_required
+def desvincular_activo(request, activo_id):
+    """
+    Desvincula un activo de la factura y lo vuelve a poner en la lista de activos disponibles.
+    """
+    # Asegurarse de que el usuario tiene permisos
+    activo = get_object_or_404(Activo, pk=activo_id)
+
+    # Si el activo tiene vinculado un detalle de factura, lo desvinculamos
+    if activo.id_detalle_factura:
+        activo.id_detalle_factura = None
+        activo.save()
+
+        # Mensaje de éxito
+        messages.success(request, f"Activo {activo.etiqueta} desvinculado exitosamente.")
+
+    # Redirigir de vuelta a la página de vinculación de activos
+    return redirect(request.META.get('HTTP_REFERER'))
+
+####################################### 08/12 NUEVA VERSIÓN ######################
+def ubicacion_bodega_para(ubic):
+    from .models_inventario import Bodega, Ubicacion
+
+    if ubic is None:
+        return None
+
+    # Si es Ubicacion y tiene bodega de retorno → devolvemos
+    # la ubicación física de esa bodega
+    if hasattr(ubic, "id_bodega_retorno") and ubic.id_bodega_retorno_id:
+        bodega = ubic.id_bodega_retorno
+        return bodega.id_ubicacion  # también es Ubicacion
+
+    # Si ya está en una ubicación que es bodega o no tiene mapeo
+    return ubic
+####################################### 08/12 NUEVA VERSIÓN ######################
+

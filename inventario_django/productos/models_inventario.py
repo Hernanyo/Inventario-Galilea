@@ -41,6 +41,8 @@ from django.core.validators import FileExtensionValidator
 from django.utils import timezone
 
 
+
+
 def nota_image_upload_to(instance, filename: str) -> str:
     base, ext = os.path.splitext(filename)
     ext = (ext or "").lower()
@@ -118,6 +120,8 @@ class Ubicacion(models.Model):
     nombre_ubicacion = models.CharField(max_length=255, verbose_name="Nombre de la Ubicación")
     direccion = models.CharField(max_length=255, blank=True, null=True, verbose_name="Dirección")
     eliminado = models.BooleanField(default=False)
+    # 🔹 NUEVO: bodega de retorno para esta ubicación
+    id_bodega_retorno = models.ForeignKey("Bodega", on_delete=models.SET_NULL, db_column="id_bodega_retorno", null=True, blank=True, related_name="ubicaciones_origen", verbose_name="Bodega de retorno")
 
     class Meta:
         managed = True
@@ -127,6 +131,59 @@ class Ubicacion(models.Model):
 
     def __str__(self):
         return self.nombre_ubicacion
+    
+    @property
+    def id_bodega(self):
+        return self.id_bodega_retorno
+
+    @id_bodega.setter
+    def id_bodega(self, value):
+        self.id_bodega_retorno = value
+    
+################################# 08/12 ################################################    
+class Bodega(models.Model):
+    id_bodega = models.AutoField(primary_key=True, db_column="id_bodega")
+
+    id_empresa = models.ForeignKey(
+        "Empresa",
+        on_delete=models.DO_NOTHING,
+        db_column="id_empresa",
+    )
+
+    nombre_bodega = models.CharField(
+        max_length=150,
+        verbose_name="Nombre de la bodega",
+    )
+
+    id_ubicacion = models.ForeignKey(
+        "Ubicacion",
+        on_delete=models.PROTECT,
+        db_column="id_ubicacion",
+        related_name="bodegas_fisicas",
+        verbose_name="Ubicación física",
+    )
+
+    es_principal = models.BooleanField(
+        default=False,
+        help_text="Si está marcada, es la bodega por defecto de la empresa.",
+    )
+
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "bodega"
+        verbose_name = "Bodega"
+        verbose_name_plural = "Bodegas"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["id_empresa", "nombre_bodega"],
+                name="uniq_bodega_empresa_nombre",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.nombre_bodega} ({self.id_ubicacion})"
+################################# 08/12 ################################################    
 
 class Cargo(models.Model):
     id_cargo = models.AutoField(primary_key=True, db_column="id_cargo")
@@ -156,8 +213,6 @@ class Cargo(models.Model):
     def __str__(self):
         return self.nombre_cargo
 
-
-
 class Empleado(models.Model):
     """Empleado de la empresa, con rol, ubicación y vínculo opcional a usuario de Django.
 
@@ -171,6 +226,15 @@ class Empleado(models.Model):
 
     `__str__` devuelve nombre completo legible.
     """
+    ################################### 03/12 ##################################    
+    # 🔹 Constantes de rol (lo que se guarda en la BD)
+    ROL_ADMIN      = "admin"
+    ROL_JEFE       = "jefe"
+    ROL_USUARIO    = "usuario"
+    ROL_INVITADO   = "invitado"
+    ROL_TRABAJADOR = "trabajador"   # trabajador = sin acceso
+    ################################### 03/12 ##################################  
+
     #id_empleado = models.AutoField(primary_key=True)
     id_empleado = models.AutoField(primary_key=True, db_column="id_empleado")
 
@@ -184,7 +248,7 @@ class Empleado(models.Model):
     id_empresa = models.ForeignKey(Empresa, models.DO_NOTHING, db_column='id_empresa')
     id_departamento = models.ForeignKey(Departamento, models.DO_NOTHING, db_column='id_departamento')
     # Campo nuevo para roles
-    rol = models.CharField(max_length=20, default='usuario')  # admin, usuario, invitado
+    rol = models.CharField(max_length=20, default=ROL_TRABAJADOR)   # 👈 ahora por defecto será “trabajador”
     user = models.OneToOneField("auth.User",models.DO_NOTHING, db_column="user_id", blank=True, null=True, related_name="empleado",)
     correo = models.CharField(max_length=255, unique=True, blank=True, null=True)  # <-- NUEVO
     eliminado = models.BooleanField(default=False)
@@ -199,7 +263,99 @@ class Empleado(models.Model):
     def __str__(self):
         ap_m = self.apellido_materno or ""
         return f"{self.nombre} {self.apellido_paterno} {ap_m}".strip()
+################################### 03/12 ##################################    
+    # 🔹 Helpers de rol (solo lógica Python)
+    @property
+    def es_admin(self) -> bool:
+        return self.rol == self.ROL_ADMIN
 
+    @property
+    def es_jefe(self) -> bool:
+        return self.rol == self.ROL_JEFE
+
+    @property
+    def es_usuario(self) -> bool:
+        return self.rol == self.ROL_USUARIO
+    
+    @property
+    def es_invitado(self) -> bool:
+        return self.rol == self.ROL_INVITADO
+
+    @property
+    def es_trabajador(self) -> bool:
+        return self.rol == self.ROL_TRABAJADOR
+    
+    @property
+    def permite_login(self) -> bool:
+        """
+        Solo estos roles pueden tener cuenta de acceso.
+        """
+        #return self.es_admin or self.es_jefe or self.es_usuario or self.es_invitado
+        return self.rol in (
+            self.ROL_ADMIN,
+            self.ROL_JEFE,
+            self.ROL_USUARIO,
+            self.ROL_INVITADO,
+        )
+################################## 09/12 ####################################################
+    # ======================= Helpers de roles / permisos bodegas =======================
+
+    def es_supervisor(self):
+        """
+        Admin y Jefe pueden ver y administrar TODO.
+        """
+        return self.rol in (self.ROL_ADMIN, self.ROL_JEFE)
+
+    def bodegas_autorizadas_ids(self):
+        """
+        Devuelve lista de id_bodega sobre las que este empleado
+        tiene permiso explícito (sin contar eliminados).
+
+        - Admin / Jefe → None (equivale a sin restricción de bodegas).
+        - Usuario → lista de bodegas configuradas en PermisoBodega.
+        - Otros roles → lista vacía (no deberían administrar bodegas).
+        """
+        # Si no tiene rol definido o es admin/jefe → no restringimos
+        try:
+            if self.es_supervisor():
+                return None
+        except Exception:
+            return None
+
+        qs = PermisoBodega.objects.filter(
+            id_empleado=self,
+            eliminado=False,
+        )
+        # si usas empresa en el resto de tablas, puedes filtrar también por id_empresa
+        return list(qs.values_list("id_bodega_id", flat=True))
+################################## 09/12 ####################################################
+################################### 03/12 ##################################    
+
+######################################### 09/12 #############################################
+# ======================= NUEVO  PermisoBodega  =======================
+
+class PermisoBodega(models.Model):
+    """
+    Un empleado puede administrar activos de varias bodegas.
+    Esta tabla dice: empleado X tiene permiso sobre la bodega Y.
+    El alcance real se calcula con:
+      - Ubicación física de la bodega (bodega.id_ubicacion)
+      - Ubicaciones cuya bodega_retorno = esa bodega
+    """
+
+    id_permiso_bodega = models.AutoField(primary_key=True)
+    id_empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE, db_column="id_empleado", related_name="permisos_bodega")
+    id_bodega = models.ForeignKey(Bodega, on_delete=models.CASCADE, db_column="id_bodega", related_name="permisos_usuarios")
+    id_empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, db_column="id_empresa", null=True, blank=True)
+    eliminado = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "permiso_bodega"
+        unique_together = (("id_empleado", "id_bodega"),)
+
+    def __str__(self):
+        return f"{self.id_empleado} → {self.id_bodega}"
+######################################### 09/12 #############################################
 
 class Marca(models.Model):
     """Catálogo de marcas de activos.
@@ -498,12 +654,48 @@ class Activo(models.Model):
         # NUEVO: lo que verá el usuario
     id_condicion_detalle = models.ForeignKey(CondicionDetalle, models.DO_NOTHING, db_column='id_condicion_detalle', blank=True, null=True, verbose_name="Condición_Activo",)
 
+    ############################### 26/11 ########################################
+    # NUEVO: vínculo a la línea de detalle de la factura (1 detalle : N activos)
+    id_detalle_factura = models.ForeignKey('DetalleFactura', models.DO_NOTHING, db_column='id_detalle_factura', blank=True, null=True, related_name='activos', verbose_name='Detalle de factura',)
+    ############################### 26/11 ########################################
 
     # Alias de compatibilidad para no romper plantillas/list_display que usan h.empresa
     @property
     def empresa(self):
         return self.id_empresa
+    
+######################################## 08/12 #########################
+    @property
+    def ubicacion_label(self):
+        """
+        Texto amigable para mostrar en el listado:
 
+        - Si el activo está asignado a un empleado → mostramos la ubicación normal.
+        - Si NO está asignado y su ubicación coincide con una bodega → mostramos el nombre de la bodega.
+        - En cualquier otro caso → nombre de la ubicación.
+        """
+        from .models_inventario import Bodega  # import local para evitar ciclos
+
+        if not self.id_ubicacion_id:
+            return "—"
+
+        # Si está asignado, priorizamos la ubicación del empleado
+        if self.id_empleado_id:
+            return self.id_ubicacion.nombre_ubicacion
+
+        # No está asignado: intentamos mapear a bodega
+        bodega = (
+            Bodega.objects
+            .filter(id_ubicacion=self.id_ubicacion, eliminado=False)
+            .order_by("id_bodega")
+            .first()
+        )
+        if bodega:
+            return bodega.nombre_bodega
+
+        # Sin bodega asociada o no configurada
+        return self.id_ubicacion.nombre_ubicacion
+######################################## 08/12 #########################
 
     def save(self, *args, **kwargs):
 
@@ -541,6 +733,14 @@ class Activo(models.Model):
         if self.id_condicion_detalle_id:
             self.id_condicion_activo_id = self.id_condicion_detalle.condicion_activo_id
         ########################################################### 20/10 #########################################################
+        ########################################################### 26/11 #########################################################
+        # ### 3) Si el activo está vinculado a un DetalleFactura,
+        # forzamos que la factura coincida con la del detalle
+        if self.id_detalle_factura_id:
+            detalle_fact = self.id_detalle_factura
+            if detalle_fact and detalle_fact.id_factura_id:
+                self.id_factura_id = detalle_fact.id_factura_id
+        ########################################################### 26/11 #########################################################
         super().save(*args, **kwargs)  # guarda primero para tener ID
 
 
@@ -1151,6 +1351,12 @@ class Factura(models.Model):
     archivo_adjunto = models.FileField(upload_to='facturas/', null=True, blank=True)  # Aquí se agrega el campo de archivo
     eliminado = models.BooleanField(default=False)
 
+    ############################### 26/11 ########################################
+        # NUEVOS CAMPOS: totales de la factura completa
+    monto_neto = models.IntegerField(blank=True, null=True)
+    monto_iva = models.IntegerField(blank=True, null=True)
+    monto_total = models.IntegerField(blank=True, null=True)
+    ############################### 26/11 ########################################
 
     class Meta:
         managed = True
@@ -1187,7 +1393,33 @@ class Factura(models.Model):
         return "—"
 
     proveedor_rut.short_description = "Proveedor"  # etiqueta de columna
+    ############################### 26/11 ########################################
+    # 👇 helper para recalcular los totales desde los detalles
+    def recalcular_totales(self, guardar: bool = True):
+        detalles = self.detalles.filter(eliminado=False)
 
+        neto = 0
+        iva = 0
+        for d in detalles:
+            # usamos lo que haya, o calculamos rápido por si viene nulo
+            if d.valor_neto is not None:
+                ln = d.valor_neto
+            else:
+                ln = (d.cantidad or 0) * (d.valor_unitario or 0)
+            li = d.iva or 0
+
+            neto += ln
+            iva += li
+
+        total = neto + iva
+
+        self.monto_neto = neto
+        self.monto_iva = iva
+        self.monto_total = total
+
+        if guardar:
+            self.save(update_fields=["monto_neto", "monto_iva", "monto_total"])
+    ############################### 26/11 ########################################
 class DetalleFactura(models.Model):
     """Detalle (ítem) de una factura.
 
@@ -1201,8 +1433,9 @@ class DetalleFactura(models.Model):
     """
     #id_detalle_factura = models.AutoField(primary_key=True)
     id_detalle_factura = models.AutoField(primary_key=True, db_column="id_detalle_factura")
-    id_factura = models.ForeignKey(Factura, models.DO_NOTHING, db_column='id_factura')
-    id_activo = models.ForeignKey(Activo, models.DO_NOTHING, db_column='id_activo', blank=True, null=True)
+    id_factura = models.ForeignKey(Factura, models.DO_NOTHING, db_column='id_factura', related_name='detalles')
+        # LEGACY: antes 1:1 con Activo, ahora se deja solo como referencia antigua
+    id_activo = models.ForeignKey(Activo, models.DO_NOTHING, db_column='id_activo', blank=True, null=True, editable=False)
     nombre_activo = models.CharField(max_length=150, blank=True, null=True)
     cantidad = models.IntegerField()
     valor_unitario = models.IntegerField()
@@ -1216,11 +1449,71 @@ class DetalleFactura(models.Model):
         managed = True
         db_table = 'detalle_factura'
         ordering = ("-id_detalle_factura",)
+    ############################# 26/11 #######################################
+            # ---- Helpers para la vinculación Activo ↔ Detalle ----------------------
+    @property
+    def activos_vinculados(self):
+        """
+        Retorna los activos vinculados a este detalle,
+        usando el related_name='activos' de Activo.id_detalle_factura.
+        """
+        return self.activos.filter(eliminado=False)
 
+    @property
+    def cantidad_vinculada(self):
+        return self.activos_vinculados.count()
+
+    @property
+    def cantidad_restante(self):
+        if self.cantidad is None:
+            return 0
+        return max(0, self.cantidad - self.cantidad_vinculada)
+    
+    def _recalcular_linea(self):
+        """
+        Calcula valor_neto, iva y valor_total a nivel de línea.
+        Aquí supongo IVA 19%; si luego necesitas otro, lo parametrizamos.
+        """
+        # Neto = cantidad * valor_unitario
+        if self.cantidad is not None and self.valor_unitario is not None:
+            self.valor_neto = (self.cantidad or 0) * (self.valor_unitario or 0)
+        else:
+            self.valor_neto = None
+
+        # IVA: 19% del neto (si hay neto)
+        if self.valor_neto is not None:
+            self.iva = int(round(self.valor_neto * 0.19))
+        else:
+            self.iva = None
+
+        # Total = neto + iva
+        if self.valor_neto is not None:
+            self.valor_total = self.valor_neto + (self.iva or 0)
+        else:
+            self.valor_total = None
+
+    def save(self, *args, **kwargs):
+        # 1) recalcular línea
+        self._recalcular_linea()
+
+        # 2) guardar el detalle
+        super().save(*args, **kwargs)
+
+        # 3) actualizar totales de la factura
+        if self.id_factura_id:
+            self.id_factura.recalcular_totales()
+
+    def delete(self, *args, **kwargs):
+        factura = self.id_factura  # la guardamos para recalcular después
+        super().delete(*args, **kwargs)
+        if factura:
+            factura.recalcular_totales()
+    ############################# 26/11 #######################################
+    
     def __str__(self):
         item = self.nombre_activo or (self.id_activo and str(self.id_activo)) or "Item s/i"
         return f"Detalle {self.id_detalle_factura} · Factura {self.id_factura_id} · {item}"
-    
+
 
 class HistorialActivos(models.Model):
     """Snapshot de cambios de un activo (estado, responsable, ubicación, etc.).
@@ -1842,6 +2135,7 @@ class PlanMantencionActivo(models.Model):
                 name="uq_un_vigente_por_activo",
             ),
         ]
+        
 
     def __str__(self):
         return f"{self.id_plan.nombre} → {self.id_activo}"

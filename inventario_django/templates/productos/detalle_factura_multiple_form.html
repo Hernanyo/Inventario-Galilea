@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Nuevo detalle factura</h2>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="mb-3">
+    <label for="id_factura" class="form-label">Factura:</label>
+    <select name="factura" id="id_factura" class="form-select">
+      <option value="">---------</option>
+      {% for f in facturas %}
+        <option value="{{ f.id_factura }}"
+                {% if factura and factura.id_factura == f.id_factura %}selected{% endif %}>
+          Factura {{ f.id_factura }} · Folio {{ f.folio }} · {{ f.id_proveedor.nombre }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {{ formset.management_form }}
+
+  <table class="table table-sm table-bordered">
+    <thead>
+      <tr>
+        <th>Nombre activo</th>
+        <th>Cantidad</th>
+        <th>Valor unitario</th>
+        <th>Valor neto</th>
+        <th>IVA</th>
+        <th>Valor total</th>
+        <th style="width:80px;">Eliminar</th>  <!-- 👉 NUEVO -->
+      </tr>
+    </thead>
+
+    <tbody id="lineas-container">
+      {% for form in formset %}
+        <tr class="form-row">
+          <td>{{ form.nombre_activo }}</td>
+          <td>{{ form.cantidad }}</td>
+          <td>{{ form.valor_unitario }}</td>
+          <td>{{ form.valor_neto }}</td>
+          <td>{{ form.iva }}</td>
+          <td>{{ form.valor_total }}</td>
+
+          <!-- 👉 BOTÓN ELIMINAR PARA CADA FILA EXISTENTE -->
+          <td class="text-center">
+            <button type="button"
+                    class="btn btn-outline-danger btn-sm btn-remove-row"
+                    title="Eliminar fila">
+              &times;
+            </button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+
+    <!-- Fila plantilla oculta para el botón "+" -->
+    <tbody style="display:none;">
+      <tr id="empty-form-row" class="form-row">
+        <td>{{ formset.empty_form.nombre_activo }}</td>
+        <td>{{ formset.empty_form.cantidad }}</td>
+        <td>{{ formset.empty_form.valor_unitario }}</td>
+        <td>{{ formset.empty_form.valor_neto }}</td>
+        <td>{{ formset.empty_form.iva }}</td>
+        <td>{{ formset.empty_form.valor_total }}</td>
+
+        <!-- 👉 MISMO BOTÓN ELIMINAR EN LA FILA PLANTILLA -->
+        <td class="text-center">
+          <button type="button"
+                  class="btn btn-outline-danger btn-sm btn-remove-row"
+                  title="Eliminar fila">
+            &times;
+          </button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="mb-3">
+    <button type="button" id="add-row" class="btn btn-outline-secondary">
+      +
+    </button>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Guardar</button>
+  <a href="/detallefacturas/" class="btn btn-secondary">Cancelar</a>
+</form>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const addRowBtn       = document.getElementById('add-row');
+    const container       = document.getElementById('lineas-container');
+    const totalFormsInput = document.getElementById('id_linea-TOTAL_FORMS');
+    const emptyRow        = document.getElementById('empty-form-row');
+
+    // Guardamos la plantilla HTML y sacamos la fila oculta original
+    const templateHtml = emptyRow.outerHTML;
+    emptyRow.remove();
+
+    // 🔁 Reindexa los nombres/ids después de borrar filas
+    // para que Django vea índices 0,1,2,... sin huecos
+    function actualizarIndices() {
+      const rows = container.querySelectorAll('tr.form-row');
+
+      rows.forEach((row, idx) => {
+        row.querySelectorAll('input, select, textarea').forEach((el) => {
+          if (!el.name) return;
+
+          // name="linea-0-campo"  ->  "linea-idx-campo"
+          el.name = el.name.replace(/linea-\d+-/, `linea-${idx}-`);
+
+          if (el.id) {
+            el.id = el.id.replace(/linea-\d+-/, `linea-${idx}-`);
+          }
+        });
+      });
+
+      // TOTAL_FORMS siempre = cantidad de filas visibles
+      totalFormsInput.value = rows.length;
+    }
+
+    // ➕ Añadir nueva fila
+    addRowBtn.addEventListener('click', function() {
+      const index = parseInt(totalFormsInput.value, 10);
+
+      let newRowHtml = templateHtml.replace(/__prefix__/g, index);
+
+      const temp = document.createElement('tbody');
+      temp.innerHTML = newRowHtml;
+      const newRow = temp.querySelector('tr');
+
+      newRow.id = '';
+      newRow.style.display = '';
+
+      container.appendChild(newRow);
+      totalFormsInput.value = index + 1;
+    });
+
+    // ❌ Eliminar una fila
+    container.addEventListener('click', function (event) {
+      const btn = event.target.closest('.btn-remove-row');
+      if (!btn) return;
+
+      const fila = btn.closest('tr.form-row');
+      if (!fila) return;
+
+      const filas = container.querySelectorAll('tr.form-row');
+
+      if (filas.length > 1) {
+        // Si hay más de una fila, la borramos y reindexamos
+        fila.remove();
+        actualizarIndices();
+      } else {
+        // Si es la única fila, solo la limpiamos
+        fila.querySelectorAll('input').forEach((el) => {
+          if (el.type === "text" || el.type === "number") {
+            el.value = "";
+          }
+        });
+      }
+    });
+  });
+</script>
+{% endblock %}

@@ -26,6 +26,10 @@ from django.contrib.auth.models import Group
 from django.contrib.auth.models import Permission
 from django.db.models import Q
 
+from productos.models_inventario import Empleado
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.contrib.auth.models import User
 
 
 def generar_qr(obj):
@@ -109,47 +113,69 @@ def log_mantencion_event(user, m, accion: str, detalle: str = ""):
 
 def crear_usuario_y_enviar_correo(empleado):
     """
-    Crea un usuario en el sistema y envía un correo de activación de cuenta.
+    NO crea usuarios.
 
-    Si el empleado no tiene correo asociado, no se realiza ninguna acción. Si el correo está vacío,
-    se crea un usuario con el `RUT` como nombre de usuario y se envía un enlace para que el empleado defina su contraseña.
+    Asume que el Empleado YA tiene un auth.User asociado (lo crea EmpleadoForm.save)
+    y solo genera el link de reseteo de contraseña.
 
-    Parameters:
-        empleado (Empleado): El empleado para el que se creará el usuario.
-
+    En desarrollo, imprime el link en consola.
+    En producción, puedes usar send_mail para enviarlo por correo.
 
     """
+################################ 05/12 #########################    
+    # ⛔ Empleado/Trabajador no debe tener login
+    if empleado.rol == Empleado.ROL_TRABAJADOR:  # Verifica si es trabajador (empleado sin acceso)
+        return  # No hace nada si es trabajador (sin acceso)
+################################ 05/12 #########################    
     if not empleado.correo:
         return
 
-    # username = RUT, email = correo
-    user, created = User.objects.get_or_create(
-        username=empleado.rut,
-        defaults={
-            "first_name": empleado.nombre,
-            "last_name": empleado.apellido_paterno,
-            "email": empleado.correo,
-            "is_active": True,
-        }
-    )
+#    # username = RUT, email = correo
+#    user, created = User.objects.get_or_create(
+#        username=empleado.rut,
+#        defaults={
+#            "first_name": empleado.nombre,
+#            "last_name": empleado.apellido_paterno,
+#            "email": empleado.correo,
+#            "is_active": True,
+#        }
+#    )
+#    # enlazar al empleado si no estaba enlazado
+#    if not empleado.user_id:
+#        empleado.user = user
+#        empleado.save(update_fields=["user"])
 
-    # enlazar al empleado si no estaba enlazado
-    if not empleado.user_id:
-        empleado.user = user
-        empleado.save(update_fields=["user"])
+    user = getattr(empleado, "user", None)
+    email = (empleado.correo or "").strip().lower()
 
-    # generar link de “set/reset password”
+    # Si no hay user o correo, no hacemos nada
+    if not user or not email:
+        return
+
+    # Generar token de reset
     token = default_token_generator.make_token(user)
     uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
-    reset_path = reverse("password_reset_confirm", kwargs={"uidb64": uidb64, "token": token})
-    reset_link = f"{settings.SITE_URL}{reset_path}"
+
+    reset_path = reverse(
+        "password_reset_confirm",
+        kwargs={"uidb64": uidb64, "token": token},
+    )
+
+    # Usamos SITE_URL desde settings, como tenías antes
+    site_url = getattr(settings, "SITE_URL", "http://127.0.0.1:8000")
+    reset_link = f"{site_url}{reset_path}"
 
     # DEV: imprime en consola
-    print(f"[DEV] Enviar a {empleado.correo}: {reset_link}")
+    print(f"[DEV] Enviar a {email}: {reset_link}")
 
-    # PROD (cuando uses SMTP):
-    # send_mail("Crea tu contraseña", f"Configura tu acceso: {reset_link}",
-    #           settings.DEFAULT_FROM_EMAIL, [empleado.correo])
+    # PROD: cuando tengas configurado SMTP, puedes descomentar esto:
+    # send_mail(
+    #     subject="Crea tu contraseña",
+    #     message=f"Configura tu acceso: {reset_link}",
+    #     from_email=settings.DEFAULT_FROM_EMAIL,
+    #     recipient_list=[email],
+    #     fail_silently=False,
+    # )
 
 def _ensure_role_groups():
     # crea/actualiza grupos de rol
@@ -183,6 +209,11 @@ def ensure_auth_user_for_empleado(empleado):
         user (User): El usuario creado o recuperado.
         was_created (bool): Indica si el usuario fue creado o ya existía.
     """
+################################ 04/12 #########################    
+    if not empleado.permite_login:
+        return None, False
+################################ 04/12 #########################    
+
     user, was_created = User.objects.get_or_create(
         username=empleado.rut,               # LOGIN por RUT (coincide con tu RutBackend)
         defaults={
@@ -207,47 +238,60 @@ def ensure_auth_user_for_empleado(empleado):
 
 def sync_user_groups_for_empleado(empleado):
     """
-    Asigna los grupos según el rol del empleado.
+    Asigna grupos y flags de Django según empleado.rol.
 
-    Dependiendo del rol del empleado (`admin`, `invitado`, `usuario`), esta función asigna el grupo correspondiente.
-    Además, ajusta el campo `is_staff` para los administradores.
-
-    Parameters:
-        empleado (Empleado): El empleado cuya asignación de grupos y permisos se actualizará.
-
-
+    - admin  -> grupo rol_admin, is_staff=True, is_active=True
+    - jefe   -> grupo rol_admin, is_staff=True, is_active=True (mismas funciones que admin, pero
+                limitaremos empresas en la vista de selección)
+    - usuario -> grupo rol_usuario, is_staff=False (o True si quieres que vea admin), is_active=True
+    - invitado -> grupo rol_invitado, is_staff=False, is_active=True
+    - empleado -> NO debe tener login: se desactivan grupos y se deja is_active=False
     """
+######################################## 04/12 #################################### 
     if not empleado.user:
+        # Si no tiene user asociado, nada que hacer aquí.
         return
 
     rol = (empleado.rol or "").strip().lower()
-    target = None
-    if rol == "admin":
-        target = "rol_admin"
-    elif rol == "invitado":
-        target = "rol_invitado"
-    else:
-        target = "rol_usuario"
 
-    # Quita todos y asigna el grupo objetivo
+    # Cargamos/creamos grupos
     g_admin, _ = Group.objects.get_or_create(name="rol_admin")
-    g_user, _  = Group.objects.get_or_create(name="rol_usuario")
-    g_guest,_  = Group.objects.get_or_create(name="rol_invitado")
+    g_user,  _ = Group.objects.get_or_create(name="rol_usuario")
+    g_guest, _ = Group.objects.get_or_create(name="rol_invitado")
 
+    # Limpiamos grupos anteriores siempre
     empleado.user.groups.clear()
 
-    # Usamos solo el nombre del grupo, no el objeto completo
-    if target == "rol_admin":
-        empleado.user.groups.add(g_admin.id)  # Usando ID
+    # --- ADMIN / JEFE ---
+    if rol == Empleado.ROL_ADMIN or rol == Empleado.ROL_JEFE:
+        empleado.user.groups.add(g_admin)
         empleado.user.is_staff = True
-    elif target == "rol_invitado":
-        empleado.user.groups.add(g_guest.id)  # Usando ID
-        empleado.user.is_staff = False
-    else:
-        empleado.user.groups.add(g_user.id)  # Usando ID
-        empleado.user.is_staff = False
+        empleado.user.is_active = True
 
-    empleado.user.save(update_fields=["is_staff"])
+    # --- USUARIO ---
+    elif rol == Empleado.ROL_USUARIO:
+        empleado.user.groups.add(g_user)
+        # Aquí decides si quieres que un "usuario" vea el admin.
+        empleado.user.is_staff = False
+        empleado.user.is_active = True
+
+    # --- INVITADO (si lo usas) ---
+    elif rol == "invitado":
+        empleado.user.groups.add(g_guest)
+        empleado.user.is_staff = False
+        empleado.user.is_active = True
+
+    # --- TRABAJADOR (NO LOGIN) u otros valores raros ---
+    elif rol == Empleado.ROL_TRABAJADOR:
+        empleado.user.is_staff = False
+        empleado.user.is_active = False
+    else:
+        # valor desconocido -> lo dejo sin acceso también
+        empleado.user.is_staff = False
+        empleado.user.is_active = False
+
+    empleado.user.save(update_fields=["is_staff", "is_active"])
+######################################## 04/12 #################################### 
 
 
 def send_password_set_link(user):
@@ -387,3 +431,34 @@ def siguiente_etiqueta(emp_id: int, tipo_id: int) -> str | None:
 
     # ancho 5 como en tus datos (NBK00015, IMP00008, etc.)
     return f"{prefix}{next_num:05d}"
+
+################################################ 05/12 ##############################
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.contrib.auth import get_user_model
+
+############################ 10/12 #############################################
+@receiver(post_save, sender=Empleado)
+def sync_empleado_user_active(sender, instance: Empleado, **kwargs):
+    """
+    Mantiene user.is_active alineado con Empleado.permite_login.
+
+    - Si es TRABAJADOR -> siempre sin acceso (is_active = False)
+    - Para el resto de roles -> respeta el flag permite_login
+    No crea ni borra usuarios; solo activa/desactiva si existe enlace.
+    """
+    user = instance.user
+    if not user:
+        return
+
+    rol = (instance.rol or "").strip().lower()
+
+    # Trabajador nunca debería tener login
+    if rol == Empleado.ROL_TRABAJADOR:
+        should_be_active = False
+    else:
+        should_be_active = bool(instance.permite_login)
+
+    if user.is_active != should_be_active:
+        user.is_active = should_be_active
+        user.save(update_fields=["is_active"])

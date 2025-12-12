@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle factura {{ factura.folio }}{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-3">
+  Detalle de la factura {{ factura.folio }}
+  {% if factura.id_proveedor %}
+    · {{ factura.id_proveedor }}
+  {% endif %}
+</h1>
+
+<p class="mb-3 text-muted">
+  Fecha emisión: {{ factura.fecha_emision|date:"d/m/Y" }}<br>
+  {% if factura.id_empresa %}
+    Empresa: {{ factura.id_empresa }}
+  {% endif %}
+</p>
+
+<div class="mb-3">
+  <a href="{% url 'productos:facturas_list' %}" class="btn btn-outline-secondary btn-sm">
+    Volver al listado de facturas
+  </a>
+  <a href="{% url 'productos:facturas_vincular_activos' factura.pk %}"
+     class="btn btn-primary btn-sm ms-2">
+    Vincular activos a esta factura
+  </a>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead>
+      <tr>
+        <th style="width: 60px;">Ítem</th>
+        <th>Descripción</th>
+        <th class="text-end">Cantidad</th>
+        <th class="text-end">Vinculados</th>
+        <th class="text-end">Restantes</th>
+        <th class="text-end">Valor unitario</th>
+        <th class="text-end">Valor neto</th>
+        <th class="text-end">IVA</th>
+        <th class="text-end">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in detalles %}
+        <tr>
+          <td>{{ forloop.counter }}</td>
+          <td>{{ d.nombre_activo }}</td>
+          <td class="text-end">{{ d.cantidad }}</td>
+          <td class="text-end">{{ d.cantidad_vinculada }}</td>
+          <td class="text-end">{{ d.cantidad_restante }}</td>
+          <td class="text-end">{{ d.valor_unitario|default:"—" }}</td>
+          <td class="text-end">{{ d.valor_neto|default:"—" }}</td>
+          <td class="text-end">{{ d.iva|default:"—" }}</td>
+          <td class="text-end">{{ d.valor_total|default:"—" }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="9" class="text-center text-muted">
+            Esta factura aún no tiene líneas de detalle.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+    {% if detalles %}
+      <tfoot>
+        <tr>
+          <th colspan="6" class="text-end">Totales</th>
+          <th class="text-end">{{ total_neto }}</th>
+          <th class="text-end">{{ total_iva }}</th>
+          <th class="text-end">{{ total_total }}</th>
+        </tr>
+      </tfoot>
+    {% endif %}
+  </table>
+</div>
+{% endblock %}

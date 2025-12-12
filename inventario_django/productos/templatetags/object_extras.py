@@ -34,39 +34,58 @@ def attr(obj, name):
             return ""
     return val
 
+############################## 10/12 #######################################
 @register.filter
 def column_label(col_name: str) -> str:
     """
     Etiquetas legibles para columnas en `list.html`.
 
-    Este filtro convierte nombres de columnas (usados en los templates) en etiquetas más legibles para el usuario.
-    Si no hay un mapeo específico para el nombre de la columna, realiza un "replace _" y convierte el texto a formato "Title Case".
-
-    Args:
-        col_name (str): El nombre de la columna (ej. 'id_activo', 'nombre_activo').
-
-    Returns:
-        str: Una etiqueta legible (ej. "Id Activo", "Nombre Activo").
+    - Usa un mapping explícito para columnas importantes.
+    - Si no hay mapping y el nombre empieza por `id_`, se quita ese prefijo.
+    - Reemplaza "_" por espacio y pasa a Title Case.
     """
+    if not col_name:
+        return ""
+
+    col_name = str(col_name)
+
     mapping = {
         # Activos
-        "id_activo": "Id Activo",
-        "nombre_activo": "Nombre Activo",
+        "id_activo": "Activo",
+        # ahora este campo lo usamos como modelo
+        "nombre_activo": "Modelo",
         "activo": "Detalle Activo",
+
         # Tipos/estados de activo
         "id_tipo_activo": "Tipo Activo",
         "tipo_activo": "Tipo Activo",
         "id_estado_activo": "Estado Activo",
-        "id_condicion_activo": "Condición",     # 👈 NUEVO
-        # Otros que se vean con 'activo' en el nombre:
-        "id_empleado": "Asignado a",
+        "id_condicion_activo": "Condición",
+
+        # Relaciones comunes
+        "id_empleado": "Empleado",
         "id_marca": "Marca",
         "id_proveedor": "Proveedor",
+
+        # Campos “especiales”
         "observaciones": "Observaciones",
+        "id_bodega_retorno": "Bodega Retorno",
+        "ubicacion_label": "Ubicación",
+        # agrega aquí más overrides si los necesitas
     }
-    if not col_name:
-        return ""
-    return mapping.get(col_name, col_name.replace("_", " ").title())
+
+    # 1) Si existe en el mapping, usamos ese label
+    if col_name in mapping:
+        return mapping[col_name]
+
+    # 2) Si empieza por "id_", quitamos el prefijo
+    if col_name.startswith("id_"):
+        col_name = col_name[3:]
+
+    # 3) Fallback genérico: reemplaza "_" por espacio y Title Case
+    return col_name.replace("_", " ").title()
+
+############################## 10/12 #######################################
 
 #11111111111111111#############################################################################
 @register.filter(needs_autoescape=True)

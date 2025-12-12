@@ -34,6 +34,9 @@ from decimal import Decimal
 from datetime import date
 from .models_inventario import Activo, ReglaCriticidad
 
+from .models_inventario import Marca, TipoActivo, Proveedor, Empresa, Departamento, Ubicacion
+
+
 
 
 
@@ -78,6 +81,8 @@ def _activo_empresa_dep(instance, prev=None):
     if prev:
         return _empleado_empresa_dep(getattr(prev, "id_empleado", None))
     return None, None
+
+
 
 
 @receiver(pre_save, sender=Activo)
@@ -377,17 +382,12 @@ def _activo_log_cambio_observaciones(sender, instance: Activo, created: bool, **
 @receiver(post_save, sender=Empleado)
 def empleado_post_save(sender, instance: Empleado, created, **kwargs):
     """
-    Crea un usuario para el empleado si no tiene uno asociado, y sincroniza los 
-    grupos de usuario según el rol del empleado.
-
-    :param sender: El modelo que dispara la señal.
-    :param instance: Instancia del objeto `Empleado`.
-    :param created: Si el objeto fue creado.
-    :param kwargs: Argumentos adicionales.
+    Ya NO crea usuarios (eso lo resuelve EmpleadoForm.save).
+    Solo sincroniza grupos del auth.User según el rol del Empleado.
     """
-    # Si se crea un empleado con correo y sin user → crea user + envía link
-    if created and instance.correo and not instance.user:
-        crear_usuario_y_enviar_correo(instance)
+#    # Si se crea un empleado con correo y sin user → crea user + envía link
+#    if created and instance.correo and not instance.user:
+#        crear_usuario_y_enviar_correo(instance)
 
     # Mantener grupos según rol siempre que exista user
     try:
@@ -670,7 +670,13 @@ def audit_post_delete_all(sender, instance, **kwargs):
     ###################################################################################################################>>>>>>>>>>>>>>
 # productos/signals.py
 def _aplicar_planes_a_activo(activo: Activo):
-    """Crea (si faltan) PlanMantencionActivo para todos los planes del tipo de ese activo."""
+    """
+    Crea (si faltan) PlanMantencionActivo para todos los planes del tipo de ese activo.
+
+    REGLA NUEVA:
+    - Al crear el activo, TODOS los planes nacen NO vigentes (es_vigente=False).
+    - Se activan recién al asignar el activo a un empleado o desde el formulario de PMA.
+    """
     if not getattr(activo, "id_tipo_activo_id", None):
         return
     
@@ -692,7 +698,7 @@ def _aplicar_planes_a_activo(activo: Activo):
         if p.id_modelo_id and getattr(activo, "id_modelo_id", None) != p.id_modelo_id:
             continue
 
-        obj, created = PlanMantencionActivo.objects.get_or_create(
+        pma, created = PlanMantencionActivo.objects.get_or_create(
             id_plan=p, id_activo=activo,
             defaults={
                 "id_empresa_id": getattr(activo, "id_empresa_id", None),
@@ -703,13 +709,13 @@ def _aplicar_planes_a_activo(activo: Activo):
                                else None
                 ),
                 # 👇 Regla: si el activo NO tiene vigente, este nace vigente; si ya tiene uno, nace en False.
-                "es_vigente": not PlanMantencionActivo.objects.filter(
-                    id_activo=activo, es_vigente=True, eliminado=False
-                    ).exists()
+                "es_vigente": False, #02/12#not PlanMantencionActivo.objects.filter(
+                    #02/12#id_activo=activo, es_vigente=True, eliminado=False
+                    #02/12#).exists()
             }
         )
         # <<< ANTES: obj.refrescar_estado_y_vencimiento(persist=True)
-        _recalcular_pma_y_guardar_sin_signal(obj)
+        _recalcular_pma_y_guardar_sin_signal(pma)
 
 @receiver(post_save, sender=Activo)
 def activo_post_save_aplicar_planes(sender, instance: Activo, created, **kwargs):

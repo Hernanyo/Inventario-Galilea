@@ -17,6 +17,21 @@ Notas:
 - La visibilidad y permisos se controlan con `ModelPermsMixin` y `EmpresaScopeMixin`.
 - El menú y columnas se infieren con `CrudConfig`.
 """
+
+# NOTA IMPORTANTE (para el yo-del-futuro 👋):
+# -------------------------------------------
+# - Las columnas de las tablas de lista salen de CrudConfig.list_display.
+# - Si no registro un modelo a mano, list_display se rellena con infer_list_display(),
+#   que mira los campos definidos en models_inventario.py (m._meta.fields).
+# - Las vistas genéricas NUNCA usan list_display directamente: llaman a
+#       cfg.get_list_display()
+#   y lo que devuelva esa función es lo que termina en el <thead> y <tbody>.
+# - Por eso, si quiero:
+#   * eliminar una columna de TODOS los modelos -> lo hago aquí filtrando en get_list_display().
+#   * cambiar columnas de UN modelo => mejor registrar el CrudConfig o modificar _cfg.list_display
+#     dentro del for _cfg in CRUD_CONFIGS.
+# - Ejemplo actual: para DetalleFactura se oculta id_activo en get_list_display().
+
 from .models_inventario import Modelo
 from django.db.models import Max
 from .models import HistorialMantencionesLog
@@ -79,6 +94,20 @@ from .models_inventario import Cargo  # para validarlo
 from .models_inventario import ReglaCriticidad
 from .models_inventario import PreparacionAsignacion
 from .models_inventario import CondicionDetalle   # 👈 NUEVO
+from .models_inventario import DetalleFactura
+from .mixins import EmpresaScopeMixin
+from .mixins import SaveEmpresaMixin
+from .mixins import EmpresaBoundMixin
+from .mixins import rol_de_usuario, ROL_ADMIN, ROL_JEFE, ROL_USUARIO, ROL_TRABAJADOR
+from .mixins import filtrar_activos_por_bodegas_permitidas
+from .mixins import filtrar_empleados_por_bodegas_permitidas
+from .mixins import filtrar_qs_por_permiso_bodega_sobre_activo
+from .mixins import filtrar_ubicaciones_por_bodegas_permitidas   # 👈 NUEVO
+
+from django import forms
+from .models_inventario import Empleado, Departamento, PermisoBodega, Ubicacion, Bodega
+
+
 
 
 
@@ -145,6 +174,137 @@ def _model_has_empresa_fk(model) -> bool:
     f = next((f for f in model._meta.get_fields() if getattr(f, "name", None) == "id_empresa"), None)
     return bool(f and getattr(f, "is_relation", False))
 
+############################# 10/12 ####################################
+def patch_rol_field_for_empleado(form, request):
+    """
+    Si el formulario es de Empleado, convierte el campo 'rol' en un ChoiceField
+    y limita las opciones según el rol del usuario que está editando.
+    """
+    # ¿Este form es para el modelo Empleado?
+    model = getattr(getattr(form, "_meta", None), "model", None)
+    if model is not Empleado:
+        return form
+
+    if "rol" not in form.fields:
+        return form
+
+    ejecutor = getattr(request.user, "empleado", None)
+    ejecutor_rol = getattr(ejecutor, "rol", None)
+
+    # Opciones completas (para admin/jefe)
+    full_choices = [
+        (Empleado.ROL_ADMIN, "Admin"),
+        (Empleado.ROL_JEFE, "Jefe"),
+        (Empleado.ROL_USUARIO, "Usuario"),
+        (Empleado.ROL_TRABAJADOR, "Trabajador"),
+    ]
+
+    # Opciones limitadas (para usuario/trabajador)
+    limited_choices = [
+        (Empleado.ROL_USUARIO, "Usuario"),
+        (Empleado.ROL_TRABAJADOR, "Trabajador"),
+    ]
+
+    if ejecutor_rol in (Empleado.ROL_ADMIN, Empleado.ROL_JEFE):
+        choices = full_choices
+    else:
+        choices = limited_choices
+
+    old = form.fields["rol"]
+
+    # Reemplazamos el campo por un ChoiceField, conservando label, requerido, etc.
+    form.fields["rol"] = forms.ChoiceField(
+        label=old.label or "Rol",
+        required=old.required,
+        help_text=old.help_text,
+        choices=choices,
+        # Valor inicial: lo que trae la instancia o lo que hubiera definido el form
+        initial=getattr(form.instance, "rol", None) or old.initial,
+        widget=forms.Select(attrs={"class": "form-select"}),  # 👈 igual que otros selects
+    )
+
+    return form
+
+
+# Helper reutilizable para nombres de columnas
+COLUMN_LABEL_OVERRIDES = {
+    "id_activo": "Id Activo",
+    "nombre_activo": "Modelo",
+    "id_tipo_activo": "Id Tipo Activo",
+    "id_estado_activo": "Id Estado Activo",
+    "id_marca": "Id Marca",
+    "id_proveedor": "Id Proveedor",
+    "id_factura": "Factura (folio)",
+    "id_empleado": "Responsable",
+    "id_condicion_activo": "Condición",
+    "ubicacion_label": "Ubicación",
+    "id_bodega_retorno": "Bodega Retorno",
+}
+
+def pretty_column_label(col: str) -> str:
+    """
+    Devuelve un nombre bonito para la columna:
+    - Respeta overrides específicos (COLUMN_LABEL_OVERRIDES).
+    - Si empieza con 'id_', se lo saca y capitaliza el resto.
+    - Si no, reemplaza '_' por espacio y Title Case.
+    """
+    if col in COLUMN_LABEL_OVERRIDES:
+        return COLUMN_LABEL_OVERRIDES[col]
+
+    name = col
+    if name.startswith("id_"):
+        name = name[3:]  # quita 'id_'
+
+    return name.replace("_", " ").title()
+
+def patch_permiso_bodega_field_for_empleado(form, request):
+    """
+    Añade un campo extra 'permiso_bodega' al formulario de Empleado
+    para que admin/jefe puedan asignar una bodega al CREAR el empleado.
+    El campo NO se guarda en Empleado; se usará en form_valid para
+    crear un registro en PermisoBodega.
+    """
+    model = getattr(getattr(form, "_meta", None), "model", None)
+    if model is not Empleado:
+        return form
+
+    # Solo admins/jefes ven este campo
+    ejecutor = getattr(request.user, "empleado", None)
+    ejecutor_rol = (getattr(ejecutor, "rol", "") or "").strip().lower()
+    if ejecutor_rol not in (Empleado.ROL_ADMIN, Empleado.ROL_JEFE):
+        # Por si acaso ya existiera, lo quitamos
+        form.fields.pop("permiso_bodega", None)
+        return form
+
+    emp_id = request.session.get("empresa_id")
+
+    # 🔹 Query de BODEGAS (NO ubicaciones)
+    qs = Bodega.objects.all()
+    if emp_id:
+        qs = qs.filter(id_empresa_id=emp_id)
+
+    # 🔹 EXCLUIR ELIMINADAS (eliminado = False) si existe el campo
+    try:
+        Bodega._meta.get_field("eliminado")
+        qs = qs.filter(eliminado=False)
+    except FieldDoesNotExist:
+        pass
+
+    form.fields["permiso_bodega"] = forms.ModelChoiceField(
+        label="Permiso bodega",
+        queryset=qs.order_by("nombre_bodega"),
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text=(
+            "Opcional. Si eliges una bodega y el rol del empleado es 'usuario', "
+            "se creará automáticamente un permiso de bodega."
+        ),
+    )
+
+    return form
+
+############################# 10/12 ####################################
+
 # ---------- Config e inferencia ----------
 
 @dataclass
@@ -207,12 +367,20 @@ class CrudConfig:
         return self.model._meta.model_name
      
     def get_list_display(self):
-        """Columnas de lista filtradas.
-
-        Oculta el flag `eliminado` para no mostrarlo en la tabla.
         """
-        # Excluye 'eliminado' de la lista de columnas a mostrar
-        return [field for field in self.list_display if field != "eliminado"]
+        Columnas de lista filtradas.
+
+        - Oculta siempre el flag `eliminado`.
+        - Y para DetalleFactura, oculta también `id_activo`.
+        """
+        # Base: list_display sin 'eliminado'
+        cols = [field for field in self.list_display if field != "eliminado"]
+
+        # Regla especial: DetalleFactura sin columna id_activo
+        if self.model._meta.model_name == "detallefactura":
+            cols = [c for c in cols if c != "id_activo"]
+
+        return cols
 
 def infer_text_fields(m: Type[Model]) -> List[str]:
     names = [
@@ -332,13 +500,18 @@ def _build_adv_fields_from_list_display(model, list_display):
         "observaciones": "Observaciones",
         "etiqueta": "Etiqueta",
         "id_condicion_activo": "Condición",   # 👈 NUEVO
+        "ubicacion_label": "Ubicación",
+        "id_bodega_retorno": "Bodega Retorno",
     }
     out = []
     for col in list_display:
         kind = _field_kind(model, col)
         if not kind:
             continue
-        label = label_overrides.get(col) or col.replace("_", " ").title()
+#        label = label_overrides.get(col) or col.replace("_", " ").title()
+        label = pretty_column_label(col)
+        
+
         out.append({"name": col, "label": label, "type": kind})
     return out
 
@@ -613,6 +786,34 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         if _has_field(self.model, "eliminado"):
             qs = qs.filter(eliminado=False)
 
+############################ 09/12 #############################################
+        # --- Filtro por permisos de bodegas según el modelo ---
+        ejecutor = getattr(self.request.user, "empleado", None)
+
+        # 1) Activos: filtro directo por ubicación/bodega
+        if self.model._meta.model_name == "activo":
+            qs = filtrar_activos_por_bodegas_permitidas(qs, ejecutor)
+
+        # 2) Empleados: solo ve empleados de las ubicaciones/bodegas permitidas
+        elif self.model._meta.model_name == "empleado":
+            qs = filtrar_empleados_por_bodegas_permitidas(qs, ejecutor)
+
+        # 3) Modelos que cuelgan de Activo: PlanMantencionActivo y MantencionEjecucion
+        elif self.model._meta.model_name in ("planmantencionactivo", "mantencionejecucion"):
+            # usa el FK `id_activo` del modelo para aplicar el mismo criterio de bodegas
+            qs = filtrar_qs_por_permiso_bodega_sobre_activo(qs, ejecutor, fk_name="id_activo")
+############################ 09/12 #############################################
+
+################################### 27/11 #############################################        
+        # 🔹 Filtro especial: DetalleFactura por factura seleccionada
+        # URL: .../detallefacturas_list/?factura=19
+        if self.model._meta.model_name == "detallefactura":
+            factura_id = (self.request.GET.get("factura") or "").strip()
+            if factura_id:
+                qs = qs.filter(id_factura_id=factura_id)
+################################### 27/11 #############################################        
+
+
         # === BÚSQUEDA RÁPIDA: textos + (si q es número) IDs/numéricos/FKs ===
         if q:
             cond = Q()
@@ -710,14 +911,39 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
                                 continue
                 # otros tipos: sin filtro
 
-        # Orden
+########################### 09/12 #######################################
+        # === ORDEN ===
         if order:
             pk_name = self.model._meta.pk.name
             if order.lstrip("-") == "id":
                 order = order.replace("id", pk_name, 1)
+
+            # ---------- Mapa de alias de orden → campos reales ----------
+            model_name = self.model._meta.model_name
+            alias_map = {}
+
+            if model_name == "activo":
+                alias_map = {
+                    # encabezado "Ubicación" que usa ubicacion_label en la template
+                    "ubicacion_label": "id_ubicacion__nombre_ubicacion",
+                    # si más adelante quieres ordenar por otras propiedades “fake”,
+                    # las agregas aquí, por ejemplo:
+                    # "estado_badge": "id_estado_activo__tipo",
+                }
+
+            # Soportar también el "-" delante (orden descendente)
+            sign = "-" if order.startswith("-") else ""
+            key = order.lstrip("-")
+
+            if key in alias_map:
+                order = sign + alias_map[key]
+            # ------------------------------------------------------------
+
             qs = qs.order_by(order)
         else:
             qs = qs.order_by(*self.crud_config.ordering)
+
+########################### 09/12 #######################################
 
         # Alcance por empresa (u otros)
         #return self.scope_queryset(qs)
@@ -758,9 +984,31 @@ class GenericList(EmpresaScopeMixin, ModelPermsMixin, ListView):
         can_change = user.has_perm(f"{app}.change_{model}")
         can_delete = user.has_perm(f"{app}.delete_{model}")
 
+################# 04/12 ########################################################
+        # === REGLA EXTRA POR ROL: PlanMantencionActivo ===
+        try:
+            rol_actual = rol_de_usuario(user)
+        except Exception:
+            rol_actual = None
+        ctx["rol_actual"] = rol_actual
+
+        if self.model._meta.model_name == "planmantencionactivo" and rol_actual == ROL_USUARIO:
+            can_change = False
+            can_delete = False
+################# 04/12 ########################################################
+
         # ⬇️ No permitir crear manualmente registros de auditoría
         if self.model._meta.model_name == "registro":
             can_create = False
+
+############################# 09/12 ######################################
+        # 🚫 Desactivar completamente Mantencion (solo lectura / o ni eso si luego ocultas el menú)
+        if self.model._meta.model_name == "mantencion":
+            can_create = False
+            can_change = False
+            can_delete = False
+############################# 09/12 ######################################
+
 
         # disponibles tanto en cfg como en el contexto
         self.crud_config.can_create = can_create
@@ -839,35 +1087,44 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         if self.model.__name__ == "Ubicacion":
             from productos.forms import UbicacionForm
             return UbicacionForm
+############################### 27/11 #########################################
+        if self.model.__name__ == "DetalleFactura":          # 👈 NUEVO
+            from productos.forms import DetalleFacturaForm
+            return DetalleFacturaForm
+############################### 27/11 #########################################
+
+            return DetalleFacturaForm
         # fallback genérico para cualquier otro modelo (Departamento, Marca, etc.)
         return _build_default_form(self.model)
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         emp_id = self.request.session.get("empresa_id")
-        if not emp_id:
-            return form
-        for field in form.fields.values():
-            qs = getattr(field, "queryset", None)
-            if qs is None:
-                continue
-        
-            mdl = qs.model
-
-            # Si el combo es Empresa -> filtra por pk
-            if mdl._meta.model_name == "empresa":
-                field.queryset = mdl.objects.filter(pk=emp_id)
-                continue
+#        if not emp_id: ########################### 10/12 ################
+#            return form
+        if emp_id:
+            for field in form.fields.values():
+                qs = getattr(field, "queryset", None)
+                if qs is None:
+                    continue
             
+                mdl = qs.model
 
-            # Si el modelo del combo TIENE FK id_empresa -> filtra por esa FK
-            if _model_has_empresa_fk(mdl):
-                field.queryset = qs.filter(id_empresa_id=emp_id)
-            else:
-                # si existiera id_empresa como entero en ese modelo relacionado:
-                exists, _ = _empresa_field_info(mdl)
-                if exists:
-                    field.queryset = qs.filter(id_empresa=emp_id)
+                # Si el combo es Empresa -> filtra por pk
+                if mdl._meta.model_name == "empresa":
+                    field.queryset = mdl.objects.filter(pk=emp_id)
+                    continue
+                
+
+                # Si el modelo del combo TIENE FK id_empresa -> filtra por esa FK
+                if _model_has_empresa_fk(mdl):
+                    field.queryset = qs.filter(id_empresa_id=emp_id)
+                else:
+                    # si existiera id_empresa como entero en ese modelo relacionado:
+                    exists, _ = _empresa_field_info(mdl)
+                    if exists:
+                        field.queryset = qs.filter(id_empresa=emp_id)
+                 # Si no hay emp_id, no filtramos nada y dejamos el form tal cual
 
         # dentro de GenericCreate.get_form(...) después de construir form
         if self.model.__name__ == "PlanMantencion":
@@ -877,6 +1134,28 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                 label="Marcar como plan vigente en los activos afectados"
             )
             # Si no, lo dejamos tal cual
+
+################################### 10/12 ############################################
+        # 🔹 NUEVO: convertir 'rol' en <select> cuando el modelo es Empleado
+        form = patch_rol_field_for_empleado(form, self.request)
+        form = patch_permiso_bodega_field_for_empleado(form, self.request)
+
+        # 🔹 NUEVO: si estamos creando / editando Empleado,
+        # limitar las ubicaciones según PermisoBodega del usuario logueado
+        if self.model.__name__ == "Empleado":
+            ejecutor = getattr(self.request.user, "empleado", None)
+
+            campo_ubic = None
+            if "ubicacion" in form.fields:
+                campo_ubic = "ubicacion"
+            elif "id_ubicacion" in form.fields:
+                campo_ubic = "id_ubicacion"
+
+            if campo_ubic:
+                qs_u = form.fields[campo_ubic].queryset
+                qs_u = filtrar_ubicaciones_por_bodegas_permitidas(qs_u, ejecutor)
+                form.fields[campo_ubic].queryset = qs_u
+################################### 10/12 ############################################
         return form
 
     def get_success_url(self):
@@ -1016,6 +1295,11 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             qs = Emp.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
+
+            # 🔒 Aplica también permisos de bodegas en el sidebar
+            ejecutor = getattr(self.request.user, "empleado", None)
+            qs = filtrar_empleados_por_bodegas_permitidas(qs, ejecutor)
+
             ctx["side_title"] = "Últimos empleados"
             ctx["side_items"] = qs.order_by("-id_empleado")[:15]
 
@@ -1250,6 +1534,27 @@ class GenericCreate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
 
         if self.model.__name__ == "Empleado" and form.instance.correo:
             crear_usuario_y_enviar_correo(form.instance)
+####################################### 10/12 ################################################
+        if self.model.__name__ == "Empleado":
+            emp = self.object  # el empleado recién creado
+            rol_emp = (emp.rol or "").strip().lower()
+
+            # Solo tiene sentido si el rol es 'usuario'
+            if rol_emp == Empleado.ROL_USUARIO:
+                bodega = form.cleaned_data.get("permiso_bodega")
+                if bodega:
+                    # Usamos la empresa del empleado o la de la sesión
+                    emp_empresa_id = getattr(emp, "id_empresa_id", None) or \
+                                     self.request.session.get("empresa_id")
+
+                    # Creamos el permiso (si ya quieres evitar duplicados, puedes usar get_or_create)
+                    PermisoBodega.objects.create(
+                        id_empleado=emp,
+                        id_bodega=bodega,
+                        id_empresa_id=emp_empresa_id,
+                    )
+####################################### 10/12 ################################################
+
 
         # --- SOLO para Activo: arrastrar ubicación desde el empleado ---
         if self.model.__name__ == "Activo":
@@ -1280,6 +1585,15 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
     template_name = "crud/form.html"
     action_perm = "change"
     crud_config: CrudConfig
+##################################### 04/12 ###################################################
+    def dispatch(self, request, *args, **kwargs):
+        # 🚫 Regla específica: los usuarios normales NO pueden editar PlanMantencionActivo
+        if self.model.__name__ == "PlanMantencionActivo":
+            if rol_de_usuario(request.user) == ROL_USUARIO:
+                return HttpResponseForbidden("No tienes permisos para editar este registro.")
+        return super().dispatch(request, *args, **kwargs)
+##################################### 04/12 ###################################################
+
 
     def get_queryset(self):
             qs = self.model.objects.all()
@@ -1326,13 +1640,18 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
         if self.model.__name__ == "Ubicacion":
             from productos.forms import UbicacionForm
             return UbicacionForm
+############################### 27/11 #########################################
+        if self.model.__name__ == "DetalleFactura":          # 👈 NUEVO
+            from productos.forms import DetalleFacturaForm
+            return DetalleFacturaForm
+############################### 27/11 #########################################
         return _build_default_form(self.model)
     
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         emp_id = self.request.session.get("empresa_id")
-        if not emp_id:
-            return form
+#        if not emp_id:
+#            return form
 
         for field in form.fields.values():
             qs = getattr(field, "queryset", None)
@@ -1363,6 +1682,27 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
                 label="Marcar como plan vigente en los activos afectados"
             )
             # Si no, lo dejamos tal cual
+
+        ################################### 10/12 ############################################
+        # 🔹 NUEVO: convertir 'rol' en <select> cuando el modelo es Empleado
+        form = patch_rol_field_for_empleado(form, self.request)
+
+        # 🔹 NUEVO: si estamos creando / editando Empleado,
+        # limitar las ubicaciones según PermisoBodega del usuario logueado
+        if self.model.__name__ == "Empleado":
+            ejecutor = getattr(self.request.user, "empleado", None)
+
+            campo_ubic = None
+            if "ubicacion" in form.fields:
+                campo_ubic = "ubicacion"
+            elif "id_ubicacion" in form.fields:
+                campo_ubic = "id_ubicacion"
+
+            if campo_ubic:
+                qs_u = form.fields[campo_ubic].queryset
+                qs_u = filtrar_ubicaciones_por_bodegas_permitidas(qs_u, ejecutor)
+                form.fields[campo_ubic].queryset = qs_u
+        ################################### 10/12 ############################################
         return form
 
 
@@ -1656,6 +1996,12 @@ class GenericUpdate(ExcludeEliminadoFormMixin, SaveEmpresaMixin, EmpresaScopeMix
             qs = Emp.objects.all()
             if emp_id:
                 qs = qs.filter(id_empresa_id=emp_id)
+
+            # 🔒 Mismo criterio de permisos de bodegas
+            ejecutor = getattr(self.request.user, "empleado", None)
+            qs = filtrar_empleados_por_bodegas_permitidas(qs, ejecutor)
+
+
             ctx["side_title"] = "Últimos empleados"
             ctx["side_items"] = qs.order_by("-id_empleado")[:15]
     
@@ -1713,6 +2059,17 @@ from .models_inventario import (
 
 class ActivoForm(forms.ModelForm):
     """Formulario de `Activo` con reglas de negocio y filtrado por empresa."""
+################################### 29/11 ###########################################
+    # 👇 NUEVO: campo solo de formulario, NO de modelo
+    cantidad = forms.IntegerField(
+        label="Cantidad de activos a crear",
+        min_value=1,
+        required=False,
+        initial=1,
+        widget=forms.NumberInput(attrs={"class": "form-control"})
+    )
+################################### 29/11 ###########################################
+
     class Meta:
         model = Activo
         fields = [
@@ -1790,7 +2147,20 @@ class ActivoForm(forms.ModelForm):
 
         self.request = request
         emp_id = request.session.get("empresa_id") if request else None
-
+################################### 29/11 ###########################################
+        # 👇 NUEVO: comportamiento del campo cantidad
+        if "cantidad" in self.fields:
+            if self.instance and getattr(self.instance, "id_activo", None):
+                # Si estoy EDITANDO un activo existente → oculto y fijo en 1
+                self.fields["cantidad"].widget = forms.HiddenInput()
+                self.fields["cantidad"].initial = 1
+                self.fields["cantidad"].required = False
+            else:
+                # En CREACIÓN → visible, default 1
+                if not self.fields["cantidad"].initial:
+                    self.fields["cantidad"].initial = 1
+                self.fields["cantidad"].required = False
+################################### 29/11 ###########################################
 #################################################################################>>>>>>>>>>>>>>>>>>>>>>>>>><11/11 16:35
         # Placeholder por defecto
         self.fields["nombre_activo"].choices = [("", "Seleccione un modelo")]
@@ -1963,14 +2333,23 @@ class ActivoForm(forms.ModelForm):
                 dqs = dqs.filter(id_empresa_id=emp_id)
             self.fields["id_departamento"].queryset = dqs.order_by("nombre_departamento")
 
+
+########################################### 08/12 ##########################################
         if "id_ubicacion" in self.fields:
             from .models_inventario import Ubicacion
+
             base = Ubicacion.objects.all()
             if emp_id:
                 base = base.filter(id_empresa_id=emp_id)
 
             # 1) Drop-down normal: SOLO no eliminadas
-            qs_ok = base.filter(eliminado=False).order_by("nombre_ubicacion")
+            #    y, mientras haces la limpieza, ocultamos las ubicaciones legacy con "(Bodega)" en el nombre
+            qs_ok = (
+                base
+                .filter(eliminado=False)
+                .exclude(nombre_ubicacion__icontains="(bodega)")  # 👈 legacy fuera del combo
+                .order_by("nombre_ubicacion")
+            )
             self.fields["id_ubicacion"].queryset = qs_ok
 
             # 2) Si estoy EDITANDO y el activo apunta a una ubicación eliminada, la incluyo solo para este form
@@ -1982,6 +2361,19 @@ class ActivoForm(forms.ModelForm):
                     self.fields["id_ubicacion"].help_text = (
                         "La ubicación actual está marcada como eliminada. Debes reemplazarla para guardar."
                     )
+
+            # 3) En CREACIÓN (no edición, sin POST): preseleccionar "Matriz" como ubicación por defecto
+            if not self.instance.pk and not self.data:
+                ubic_default = (
+                    qs_ok
+                    .filter(nombre_ubicacion__iexact="Matriz")
+                    .order_by("id_ubicacion")
+                    .first()
+                )
+                if ubic_default:
+                    self.fields["id_ubicacion"].initial = ubic_default.pk
+
+########################################### 08/12 ##########################################
 
 #        if "id_marca" in self.fields:
 #            mqs = Marca.objects.all()
@@ -2115,17 +2507,27 @@ class ActivoForm(forms.ModelForm):
                 self.add_error("clasificacion", "Si el activo es crítico, completa Confidencialidad/Integridad/Disponibilidad.")
                 raise ValidationError("Campos de criticidad incompletos.")
 
+        # === AQUÍ CAMBIAMOS LA LÓGICA ===
         empleado = cleaned.get("id_empleado")
         emp = cleaned.get("id_empresa")
         dep = cleaned.get("id_departamento")
-        if empleado is None and (emp is None or dep is None):
-            raise ValidationError("Si no asignas responsable, debes seleccionar Empresa y Departamento.")
+
+       # 1) Si NO hay responsable -> exigir solo Empresa (Departamento opcional)
+        if empleado is None and emp is None:
+            raise ValidationError("Si no asignas responsable, debes al menos seleccionar la Empresa.")
+        
+        
         if empleado is not None and emp is not None:
             if getattr(empleado, "id_empresa_id", None) != getattr(emp, "id_empresa", emp):
                 raise ValidationError("El responsable seleccionado no pertenece a la empresa elegida.")
         return cleaned
 
     def save(self, commit=True):
+################################ 29/11 ##########################################
+        # Saber si es creación (instancia sin PK antes de guardar)
+        es_creacion = self.instance.pk is None
+################################ 29/11 ##########################################
+
         # 1) Sincronizar condición maestro/detalle ANTES de guardar
         detalle = self.cleaned_data.get("id_condicion_detalle")
 
@@ -2139,11 +2541,67 @@ class ActivoForm(forms.ModelForm):
             # Si no eligieron nada, dejamos ambos en None
             self.instance.id_condicion_detalle = None
             self.instance.id_condicion_activo = None
+################################ 29/11 ##########################################
+        # 👇 NUEVO: normalizar cantidad
+        raw_cantidad = self.cleaned_data.get("cantidad") or 1
+        try:
+            cantidad = int(raw_cantidad)
+        except (TypeError, ValueError):
+            cantidad = 1
+        if cantidad < 1:
+            cantidad = 1
+
+        # Helper interno para generar etiquetas únicas para los clones
+        ActivoModel = self._meta.model
+
+        def generar_etiqueta_clone(base, indice):
+            """
+            Genera la etiqueta para el clon sumando 1 a la parte numérica final.
+
+            Ejemplos:
+              base='NBK00030', indice=2  -> NBK00031
+              base='NBK00030', indice=3  -> NBK00032
+
+            Si no hay números al final, devuelve la base tal cual.
+            """
+
+            if not base:
+                return "SIN-ETIQ"
+
+            base_s = base.strip()
+
+            # Intentar separar prefijo (letras) + número (dígitos)
+            m = re.match(r"^([A-Za-z]*)(\d+)$", base_s)
+            if not m:
+                # Si el formato no encaja (no termina en número), devolvemos la base
+                # (aquí podrías poner otra lógica si quieres, pero no la complicamos)
+                return base_s
+
+            prefijo, num_str = m.groups()
+            ancho = len(num_str)
+            num_base = int(num_str)
+
+            # índice 2 => +1 (siguiente número)
+            # índice 3 => +2, etc.
+            n = num_base + (indice - 1)
+
+            # Aseguramos que la etiqueta no exista ya en la BD
+            cand = f"{prefijo}{n:0{ancho}d}"
+            while ActivoModel.objects.filter(etiqueta=cand).exists():
+                n += 1
+                cand = f"{prefijo}{n:0{ancho}d}"
+
+            return cand
+################################ 29/11 ##########################################
+
 
         # 2) Guardado normal + atributos dinámicos
         with transaction.atomic():
             activo = super().save(commit=commit)
-
+################################ 29/11 ##########################################
+            # ====== Atributos dinámicos para el activo principal ======
+            saved_attr_vals = []  # 👈 guardamos para replicar en clones
+################################ 29/11 ##########################################
             if commit and self.request:
                 tipo_id = self.cleaned_data.get("id_tipo_activo")
                 if tipo_id:
@@ -2161,6 +2619,10 @@ class ActivoForm(forms.ModelForm):
                     for attr in atributos:
                         key = f"attr_{attr.id_atributo_activo}"
                         valor = (self.request.POST.get(key) or "").strip()
+################################ 29/11 ##########################################
+                        # guardamos para clones
+                        saved_attr_vals.append((attr.id_atributo_activo, valor))
+################################ 29/11 ##########################################
                         fila = existentes.get(attr.id_atributo_activo)
 
                         if fila:
@@ -2174,6 +2636,40 @@ class ActivoForm(forms.ModelForm):
                                     atributo_id=attr.id_atributo_activo,
                                     valor=valor,
                                 )
+################################ 29/11 ##########################################
+            # ====== Lógica de clones por lote ======
+            # - Si no es creación -> NO clonar (solo se edita)
+            # - Si commit=False -> no crear clones
+            # - Si cantidad <= 1 -> nada que hacer
+            if (not es_creacion) or (not commit) or cantidad <= 1:
+                return activo
+
+            # Desde aquí: creación de N activos (el principal + clones)
+            base_etiqueta = activo.etiqueta
+
+            for idx in range(2, cantidad + 1):
+                # Clonamos el activo principal desde la BD
+                original = ActivoModel.objects.get(pk=activo.pk)
+                original.pk = None
+                # Por si el PK es id_activo
+                if hasattr(original, "id_activo"):
+                    original.id_activo = None
+
+                # Nueva etiqueta única
+                original.etiqueta = generar_etiqueta_clone(base_etiqueta, idx)
+                original.save()
+
+                # Copiar atributos dinámicos al clon
+                if commit and self.request and saved_attr_vals:
+                    for atributo_id, valor in saved_attr_vals:
+                        if valor:
+                            AgregacionAtributosPorActivo.objects.create(
+                                activo_id=original.id_activo,
+                                atributo_id=atributo_id,
+                                valor=valor,
+                            )
+################################ 29/11 ##########################################
+
         return activo
 
 
@@ -2444,12 +2940,34 @@ class GenericDelete(EmpresaScopeMixin, ModelPermsMixin, DeleteView):
     def form_valid(self, form):
         return self.delete(self.request, *self.args, **self.kwargs)
 
+##################################### 04/12 ###################################################
     def dispatch(self, request, *args, **kwargs):
         # seguridad básica; evita AttributeError si no hay empleado
         emp = getattr(request.user, "empleado", None)
-        if not emp or getattr(emp, "rol", "") != "admin":
+        if not emp:
             return HttpResponseForbidden("No tienes permisos para eliminar.")
+
+        # ======================================================
+        # Bloqueo específico: PlanMantencionActivo + rol USUARIO
+        # ======================================================
+        try:
+            rol = rol_de_usuario(request.user)
+        except Exception:
+            rol = None
+
+        if (
+            self.model._meta.model_name == "planmantencionactivo"
+            and rol == ROL_USUARIO
+        ):
+            return HttpResponseForbidden("No tienes permisos para eliminar este registro.")
+
+        # Regla general actual: solo admin puede eliminar
+        if getattr(emp, "rol", "") != "admin":
+            return HttpResponseForbidden("No tienes permisos para eliminar.")
+
         return super().dispatch(request, *args, **kwargs)
+##################################### 04/12 ###################################################
+
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2571,6 +3089,7 @@ def registro_comentar(request, pk):
     dj_messages.success(request, "Comentario actualizado.")
     return redirect(request.POST.get("next") or request.META.get("HTTP_REFERER") or "/")
 # ---------- Export CSV ----------
+
 
 # crud.py
 import csv
@@ -2785,7 +3304,6 @@ def make_urlpatterns(include: Sequence[Type[Model]] | None = None):
                 path(f"{cfg.slug}/<int:pk>/comentar/", registro_comentar, name=f"{cfg.slug}_comentar")
             )
         # ----------------------------------------------------
-
 
         patterns += [
             path(f"{cfg.slug}/",                  ListCls.as_view(),    name=f"{cfg.slug}_list"),
@@ -3081,6 +3599,21 @@ for _cfg in CRUD_CONFIGS:
         extra_search = ["id_ubicacion__nombre_ubicacion"]
         _cfg.search_fields = list(dict.fromkeys(list(_cfg.search_fields) + extra_search))
 
+##################################### 08/12 ############################################
+    # NUEVO: usar la propiedad ubicacion_label en lugar de la FK cruda id_ubicacion
+    if _cfg.model._meta.model_name == "activo":
+        cols = list(_cfg.list_display)
+        try:
+            idx = cols.index("id_ubicacion")
+        except ValueError:
+            # Si por alguna razón no está la columna, no tocamos nada
+            pass
+        else:
+            # Reemplazamos la columna por la propiedad del modelo
+            cols[idx] = "ubicacion_label"
+            _cfg.list_display = cols
+##################################### 08/12 ############################################
+
     if _cfg.model._meta.model_name == "factura":
         cols = list(_cfg.list_display)
         # insertamos la nueva columna después de id_proveedor (si existe)
@@ -3146,9 +3679,8 @@ for _cfg in CRUD_CONFIGS:
             "id_proveedor__nombre_proveedor",
             "id_proveedor__rut_proveedor",   # <— este es el bueno
         ]
-
-    if _cfg.model._meta.model_name == "detallefactura":
-        _cfg.ordering = ("-id_detalle_factura",)
+########################## 27/11 ###############################
+########################## 27/11 ###############################
     if _cfg.model._meta.model_name == "proveedor":
         _cfg.ordering = ("-id_proveedor",)
     if _cfg.model._meta.model_name == "marca":
@@ -3251,18 +3783,47 @@ from .utils import siguiente_etiqueta
 
 @login_required
 def api_siguiente_etiqueta(request):
-    emp_id = request.session.get("empresa_id")
+    """
+    Devuelve la siguiente etiqueta sugerida para un tipo de activo,
+    filtrando por empresa en sesión.
+    """
     tipo_id = request.GET.get("tipo_id")
-    if not (emp_id and tipo_id):
-        return JsonResponse({"next": None})
+    emp_id = request.session.get("empresa_id")
 
-    try:
-        tipo_id = int(tipo_id)
-    except ValueError:
-        return JsonResponse({"next": None})
+    qs = Activo.objects.all()
 
-    return JsonResponse({"next": siguiente_etiqueta(emp_id, tipo_id)})
+    if emp_id:
+        qs = qs.filter(id_empresa_id=emp_id)
 
+    if tipo_id:
+        qs = qs.filter(id_tipo_activo_id=tipo_id)
+
+    # Opcional: si usas borrado lógico
+    if "eliminado" in [f.name for f in Activo._meta.fields]:
+        qs = qs.filter(eliminado=False)
+
+    qs = qs.exclude(etiqueta__isnull=True).exclude(etiqueta__exact="")
+
+    last = qs.order_by("-etiqueta").first()
+
+    # 1) Si no hay ninguna etiqueta previa, define tu valor inicial
+    if not last:
+        # 👉 CAMBIA ESTO por el formato que tú usas como primera etiqueta
+        return JsonResponse({"next": "NBK00001"})
+
+    etq = (last.etiqueta or "").strip()
+
+    # 2) Intentar separar prefijo (letras) + número (dígitos)
+    m = re.match(r"^([A-Za-z]*)(\d+)$", etq)
+    if not m:
+        # Si el formato no se reconoce, devolvemos la última tal cual
+        return JsonResponse({"next": etq})
+
+    prefijo, num_str = m.groups()
+    siguiente_num = int(num_str) + 1
+    siguiente = f"{prefijo}{siguiente_num:0{len(num_str)}d}"
+
+    return JsonResponse({"next": siguiente})
     #############################>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # ...
 def _aplicar_plan_a_activos(request, plan, hacer_vigente: bool):

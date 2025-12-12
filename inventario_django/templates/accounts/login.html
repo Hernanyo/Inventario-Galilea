@@ -29,7 +29,7 @@
 
       <!-- Branding según empresa elegida -->
       <div class="text-center mb-3">
-        {% if request.session.empresa_slug %}
+        {% if request.user.is_authenticated %}
           <a href="{% url 'productos:company_select' %}" class="small text-decoration-none d-inline-block mb-2">
             Cambiar empresa
           </a>
@@ -61,7 +61,7 @@
         </div>
       {% endif %}
 
-      <form method="post" action="{% url 'login' %}" novalidate>
+      <form method="post" action="{% url 'productos:login' %}" novalidate>
         {% csrf_token %}
 
         {# Username (RUT como username) #}
